@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Nuskomate",
+  "version": "2.0",
+  "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
+  "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
+  "host_permissions": ["https://translate.googleapis.com/*"],
+  "icons": {
+    "16":  "images/icon16.png",
+    "32":  "images/icon32.png",
+    "48":  "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16":  "images/icon16.png",
+      "32":  "images/icon32.png",
+      "48":  "images/icon48.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["images/vaccine.jpg"],
+      "matches": ["https://*.nusuk.sa/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://masar.nusuk.sa/*"],
+      "js": [
+        "utils/route-watcher.js",
+        "utils/inspector.js",
+        "utils/angular-simulator.js",
+        "utils/dropdown-helper.js",
+        "modules/auto-reload.js",
+        "modules/autofill.js",
+        "modules/translation.js",
+        "modules/issue-date-calc.js",
+        "modules/vaccine-upload.js",
+        "modules/embassy-selector.js",
+        "modules/disable-loading-overlay.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
