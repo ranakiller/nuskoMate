@@ -150,6 +150,23 @@
         </div>
       </div>
 
+      <!-- Passport OCR (auto-scan uploads) -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon ocr-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Passport OCR</div>
+            <div class="module-desc">Auto-scan passport on upload</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-ocr" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <!-- Embassy Selector (tied to Autofill) -->
       <div class="module-card">
         <div class="module-header">
@@ -174,44 +191,27 @@
     <div class="section">
       <div class="section-title">Email Manager</div>
 
-      <!-- Search box + add button -->
-      <div class="email-active-row">
-        <div class="email-active-wrap">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-          <input type="text" id="email-search" class="email-search-input" placeholder="Search saved emails…" autocomplete="off" />
-          <button class="email-add-inline-btn" id="add-email-trigger" title="Add new email">+</button>
-          <div class="email-io-btns">
-            <button class="email-io-btn" id="export-emails" title="Export as CSV">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-            <label class="email-io-btn" title="Import CSV">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <input type="file" id="import-emails" accept=".csv" style="display:none;" />
-            </label>
-          </div>
-        </div>
-
-        <!-- Dropdown -->
-        <div class="email-dropdown" id="email-dropdown"></div>
+      <!-- Add email: type + Enter or Save -->
+      <div class="email-add-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <input type="email" id="email-input" class="email-input" placeholder="Type email, press Enter to save" autocomplete="off" />
+        <button id="email-save" class="email-save-btn">Save</button>
       </div>
 
-      <!-- Active email pill -->
-      <div class="active-email-badge" id="active-email-badge" style="display:none;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-        <span id="active-email-label"></span>
-        <span id="active-email-val" class="badge-email"></span>
-      </div>
+      <!-- Saved emails list -->
+      <div class="email-list" id="email-list"></div>
 
-      <!-- Add form (hidden by default) -->
-      <div class="add-email-row" id="add-email-row" style="display:none;">
-        <div class="add-email-form">
-          <input type="text"  id="new-email-label" class="field-input add-input" placeholder="Label  e.g. Work, Personal" />
-          <input type="email" id="new-email-val"   class="field-input add-input" placeholder="email@example.com" />
-          <div class="add-email-actions">
-            <button class="ae-btn ae-cancel" id="ae-cancel">Cancel</button>
-            <button class="ae-btn ae-save"   id="ae-save">Save</button>
-          </div>
-        </div>
+      <!-- Export / Import -->
+      <div class="email-io-row">
+        <button class="email-io-text" id="export-emails">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <label class="email-io-text">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Import
+          <input type="file" id="import-emails" accept=".csv" style="display:none;" />
+        </label>
       </div>
     </div>
 
@@ -234,14 +234,66 @@
           </label>
           <input type="text" id="field-city" placeholder="Pakistan" class="field-input" />
         </div>
+      </div>
+    </div>
 
-        <div class="field-group">
-          <label class="field-label" for="field-profession">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-            Profession
+    <!-- Section: Passport OCR -->
+    <div class="section">
+      <div class="section-title">Passport OCR</div>
+      <div class="ocr-card">
+
+        <!-- File picker + scan button -->
+        <div class="ocr-row">
+          <label class="ocr-pick" for="ocr-file-input">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            <span id="ocr-file-name">Choose passport image</span>
+            <input type="file" id="ocr-file-input" accept="image/*" />
           </label>
-          <input type="text" id="field-profession" placeholder="Nil" class="field-input" />
+          <button id="ocr-scan-btn" class="ocr-scan-btn" disabled>Scan</button>
         </div>
+
+        <!-- Optional API key -->
+        <div class="ocr-key-row">
+          <input type="text" id="ocr-api-key" class="field-input ocr-key-input"
+            placeholder="OCR API key (get free key at ocr.space)" autocomplete="off" />
+        </div>
+
+        <!-- Status message -->
+        <div id="ocr-status" class="ocr-status" style="display:none;"></div>
+
+        <!-- Extracted fields + fill button -->
+        <div id="ocr-results" style="display:none;">
+          <div class="ocr-fields">
+            <div class="ocr-frow"><span>Box 1</span><input id="ocr-first"  class="field-input" maxlength="15" /></div>
+            <div class="ocr-frow"><span>Box 2</span><input id="ocr-second" class="field-input" maxlength="15" /></div>
+            <div class="ocr-frow"><span>Box 3</span><input id="ocr-third"  class="field-input" maxlength="15" /></div>
+            <div class="ocr-frow"><span>Box 4</span><input id="ocr-family" class="field-input" maxlength="15" /></div>
+            <div class="ocr-frow"><span>DOB</span>   <input id="ocr-dob"    class="field-input" placeholder="YYYY-MM-DD" /></div>
+            <div class="ocr-frow"><span>Issue</span> <input id="ocr-issue"  class="field-input" placeholder="YYYY-MM-DD" /></div>
+            <div class="ocr-frow"><span>Gender</span><input id="ocr-gender" class="field-input" /></div>
+          </div>
+          <button id="ocr-fill-btn" class="ocr-fill-btn">Fill Form</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Section: Logs -->
+    <div class="section">
+      <div class="logs-header">
+        <div class="section-title" style="margin-bottom:0;">Logs</div>
+        <div class="logs-actions">
+          <span class="logs-count" id="logs-count">0</span>
+          <button class="logs-btn" id="logs-refresh" title="Refresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <button class="logs-btn logs-btn-danger" id="logs-clear" title="Clear all logs">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="logs-box" id="logs-box">
+        <div class="logs-empty" id="logs-empty">No logs yet</div>
       </div>
     </div>
 

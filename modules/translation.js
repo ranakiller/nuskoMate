@@ -123,6 +123,16 @@
       "firstName",
     );
     translateAndFillSmart(
+      'div[formgroupname="secondName"] input[formcontrolname="en"]',
+      'div[formgroupname="secondName"] input[formcontrolname="ar"]',
+      "secondName",
+    );
+    translateAndFillSmart(
+      'div[formgroupname="thirdName"] input[formcontrolname="en"]',
+      'div[formgroupname="thirdName"] input[formcontrolname="ar"]',
+      "thirdName",
+    );
+    translateAndFillSmart(
       'div[formgroupname="familyName"] input[formcontrolname="en"]',
       'div[formgroupname="familyName"] input[formcontrolname="ar"]',
       "familyName",

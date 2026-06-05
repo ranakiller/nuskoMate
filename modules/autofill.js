@@ -27,7 +27,7 @@
   function syncAllData(force = false) {
     if (!isEnabled || !isTargetPage()) return;
     syncField('input[formcontrolname="email"]', settingsCache.email, force);
-    syncField('input[formcontrolname="profession"]', settingsCache.profession, force);
+    syncField('input[formcontrolname="profession"]', "Nil", force);
     syncField('input[formcontrolname="issueCityName"]', settingsCache.issueCityName, force);
     syncField('input[formcontrolname="birthCityName"]', settingsCache.issueCityName, force);
     syncField('input[numbersonly][maxlength="12"]', settingsCache.mobile, force);

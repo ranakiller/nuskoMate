@@ -1,6 +1,13 @@
 (function () {
   "use strict";
 
+  // Logging shim — prefers the persistent extension logger, falls back to console
+  const log = {
+    info:  (...a) => (window.nkLog       ? window.nkLog(...a)       : console.log(...a)),
+    warn:  (...a) => (window.nkLog?.warn  ? window.nkLog.warn(...a)  : console.warn(...a)),
+    error: (...a) => (window.nkLog?.error ? window.nkLog.error(...a) : console.error(...a)),
+  };
+
   let isEnabled = false;
   let uploadSuccessful = false;
   let isWaiting = false;
@@ -28,7 +35,7 @@
         fileInput.dispatchEvent(new Event("change", { bubbles: true }));
         uploadSuccessful = true;
       } catch (err) {
-        console.error("Failed to load local asset:", err);
+        log.error("[Nuskomate Vaccine] Failed to load local asset:", err);
       } finally {
         isWaiting = false;
       }

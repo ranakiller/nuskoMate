@@ -4,7 +4,7 @@
   "version": "2.0",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
-  "host_permissions": ["https://translate.googleapis.com/*"],
+  "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*"],
   "icons": {
     "16":  "images/icon16.png",
     "32":  "images/icon32.png",
@@ -30,6 +30,7 @@
     {
       "matches": ["https://masar.nusuk.sa/*"],
       "js": [
+        "utils/logger.js",
         "utils/route-watcher.js",
         "utils/inspector.js",
         "utils/angular-simulator.js",
@@ -40,7 +41,8 @@
         "modules/issue-date-calc.js",
         "modules/vaccine-upload.js",
         "modules/embassy-selector.js",
-        "modules/disable-loading-overlay.js"
+        "modules/disable-loading-overlay.js",
+        "modules/ocr.js"
       ],
       "run_at": "document_idle"
     }
