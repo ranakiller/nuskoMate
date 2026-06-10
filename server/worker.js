@@ -27,13 +27,42 @@ const CORS = {
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS } });
 
-// A key is valid when it exists in KV and is not marked "revoked".
-async function keyInfo(env, key) {
+// Default number of devices a single key may run on. Override per key by
+// storing a JSON value: {"name":"Ali","seats":3,"devices":[]}
+const DEFAULT_SEATS = 2;
+
+// Load a key's record. A KV value can be either:
+//   • a JSON object  {name, seats, devices}        (full record)
+//   • a plain string "Ali Travels"                 (legacy → default seats)
+//   • the word       "revoked"                      (disabled)
+// Returns a normalized {name, seats, devices} object, or null if invalid.
+async function getRecord(env, key) {
   if (!key || !env.LICENSES) return null;
-  const val = await env.LICENSES.get(key.trim());
-  if (val == null) return null;
-  if (String(val).toLowerCase() === "revoked") return null;
-  return val || "active";
+  const raw = await env.LICENSES.get(key.trim());
+  if (raw == null) return null;
+  if (String(raw).trim().toLowerCase() === "revoked") return null;
+
+  let rec = null;
+  try { rec = JSON.parse(raw); } catch (_) { /* legacy plain string */ }
+  if (!rec || typeof rec !== "object") rec = { name: String(raw) };
+
+  if (typeof rec.seats !== "number" || rec.seats < 1) rec.seats = DEFAULT_SEATS;
+  if (!Array.isArray(rec.devices)) rec.devices = [];
+  if (!rec.name) rec.name = "active";
+  return rec;
+}
+
+// Decide whether this device may use the key, registering it if there's room.
+// Mutates rec.devices when a new device is admitted (caller persists it).
+function admitDevice(rec, device) {
+  device = (device || "").trim();
+  if (!device) return { ok: false, error: "Missing device id" };
+  if (rec.devices.includes(device)) return { ok: true, changed: false };
+  if (rec.devices.length < rec.seats) {
+    rec.devices.push(device);
+    return { ok: true, changed: true };
+  }
+  return { ok: false, error: `Device limit reached (${rec.seats}). Contact support to reset.` };
 }
 
 async function ocrSpace(env, file) {
@@ -62,15 +91,23 @@ export default {
 
     try {
       if (url.pathname === "/activate" && request.method === "POST") {
-        const { key } = await request.json();
-        const info = await keyInfo(env, key);
-        return info ? json({ ok: true, name: info }) : json({ ok: false, error: "Invalid or revoked key" }, 403);
+        const { key, device } = await request.json();
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        const adm = admitDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+        if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
+        return json({ ok: true, name: rec.name, seats: rec.seats, used: rec.devices.length });
       }
 
       if (url.pathname === "/scan" && request.method === "POST") {
         const key = request.headers.get("X-License") || "";
-        const info = await keyInfo(env, key);
-        if (!info) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        const device = request.headers.get("X-Device") || "";
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        const adm = admitDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+        if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
 
         const form = await request.formData();
         const file = form.get("file");

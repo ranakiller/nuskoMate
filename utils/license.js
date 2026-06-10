@@ -20,6 +20,18 @@
 
   function getKey() { return read(["licenseKey"]).then((x) => x.licenseKey || ""); }
 
+  // A stable per-install id so a key can be bound to a limited number of
+  // devices. Generated once and kept in local storage.
+  async function getDevice() {
+    const x = await read(["licenseDevice"]);
+    if (x.licenseDevice) return x.licenseDevice;
+    const id = (self.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+    await store({ licenseDevice: id });
+    return id;
+  }
+
   // Current activation status (used to gate the popup + modules)
   async function getStatus() {
     const x = await read(["licenseKey", "licenseValid", "licenseName"]);
@@ -37,10 +49,11 @@
     key = (key || "").trim();
     if (!key) return { ok: false, error: "Enter a key" };
     try {
+      const device = await getDevice();
       const res = await fetch(base + "/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, device }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
@@ -65,9 +78,10 @@
     const key = await getKey();
     if (!key) return { ok: false, error: "Not activated" };
     try {
+      const device = await getDevice();
       const fd = new FormData();
       fd.append("file", file, file.name || "scan.jpg");
-      const res = await fetch(base + "/scan", { method: "POST", headers: { "X-License": key }, body: fd });
+      const res = await fetch(base + "/scan", { method: "POST", headers: { "X-License": key, "X-Device": device }, body: fd });
       const data = await res.json().catch(() => ({}));
       if (res.status === 403) { await store({ licenseValid: false }); } // key pulled
       return data && typeof data === "object" ? data : { ok: false, error: "Bad server response" };
