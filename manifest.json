@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "2.0",
+  "version": "2.2",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
-  "permissions": ["storage", "activeTab", "scripting", "clipboardWrite"],
-  "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*"],
+  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite"],
+  "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*", "https://*.workers.dev/*"],
   "icons": {
     "16":  "images/icon16.png",
     "32":  "images/icon32.png",
@@ -31,10 +31,11 @@
       "matches": ["https://masar.nusuk.sa/*"],
       "js": [
         "utils/logger.js",
+        "utils/license.js",
         "utils/route-watcher.js",
-        "utils/inspector.js",
         "utils/angular-simulator.js",
         "utils/dropdown-helper.js",
+        "utils/passport-parser.js",
         "modules/auto-reload.js",
         "modules/autofill.js",
         "modules/translation.js",
@@ -42,7 +43,8 @@
         "modules/vaccine-upload.js",
         "modules/embassy-selector.js",
         "modules/disable-loading-overlay.js",
-        "modules/ocr.js"
+        "modules/ocr.js",
+        "modules/batch-passport.js"
       ],
       "run_at": "document_idle"
     }

@@ -1,5 +1,41 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+  // ── Activation gate ─────────────────────────────────────────
+  // Only shown when licensing is configured (utils/license.js → LICENSE_SERVER
+  // set) AND the user hasn't activated yet. In dev mode it stays hidden.
+  (function () {
+    const gate   = document.getElementById("activation-gate");
+    const keyIn  = document.getElementById("activation-key");
+    const btn    = document.getElementById("activation-btn");
+    const msg    = document.getElementById("activation-msg");
+    if (!gate || !window.NkLicense) return;
+
+    const showGate = (show) => { gate.hidden = !show; };
+
+    window.NkLicense.getStatus().then((st) => {
+      if (st.enforced && !st.activated) showGate(true);
+    });
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      msg.textContent = "Activating…";
+      msg.className = "activation-msg";
+      const r = await window.NkLicense.activate(keyIn.value);
+      if (r.ok) {
+        msg.textContent = "✓ Activated" + (r.name ? " — " + r.name : "");
+        msg.className = "activation-msg ok";
+        setTimeout(() => showGate(false), 700);
+      } else {
+        msg.textContent = "✗ " + (r.error || "Activation failed");
+        msg.className = "activation-msg err";
+        btn.disabled = false;
+      }
+    });
+    keyIn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); btn.click(); }
+    });
+  })();
+
   // ── Theme ───────────────────────────────────────────────────
   const THEME_KEY = "uiTheme";
   const themeButtons = {
@@ -52,6 +88,25 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 
+  // ── Tabs ────────────────────────────────────────────────────
+  const tabs   = [...document.querySelectorAll(".tab")];
+  const panels = [...document.querySelectorAll(".tab-panel")];
+
+  function activateTab(name) {
+    tabs.forEach(t => t.classList.toggle("tab-active", t.dataset.tab === name));
+    panels.forEach(p => p.classList.toggle("tab-panel-active", p.id === "panel-" + name));
+  }
+
+  tabs.forEach(t => t.addEventListener("click", () => {
+    activateTab(t.dataset.tab);
+    chrome.storage.local.set({ uiTab: t.dataset.tab });
+  }));
+
+  chrome.storage.local.get(["uiTab"], (res) => {
+    if (res.uiTab && document.getElementById("panel-" + res.uiTab)) activateTab(res.uiTab);
+  });
+
+
   // ── Module Toggles ──────────────────────────────────────────
   const toggles = [
     { id: "toggle-reload",     key: "moduleReload"         },
@@ -61,6 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-issue-date", key: "moduleIssueDateCalc"  },
     { id: "toggle-vaccine",    key: "moduleVaccineUpload"  },
     { id: "toggle-ocr",       key: "moduleOcr"            },
+    { id: "toggle-batch",     key: "moduleBatchUpload"    },
   ];
 
   const embassyMirror = document.getElementById("toggle-autofill-embassy");
@@ -104,10 +160,24 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 
+  // ── Batch Delay ─────────────────────────────────────────────
+  const batchDelayInput = document.getElementById("batch-delay");
+  if (batchDelayInput) {
+    chrome.storage.local.get(["batchDelay"], (res) => {
+      batchDelayInput.value = res.batchDelay ?? 2;
+    });
+    batchDelayInput.addEventListener("change", (e) => {
+      let val = parseFloat(e.target.value);
+      if (!Number.isFinite(val) || val < 0.5) val = 0.5;
+      e.target.value = val;
+      chrome.storage.local.set({ batchDelay: val });
+    });
+  }
+
+
   // ── Other Autofill Fields ───────────────────────────────────
   [
-    { id: "field-mobile", key: "mobile"        },
-    { id: "field-city",   key: "issueCityName" },
+    { id: "field-mobile", key: "mobile" },
   ].forEach(({ id, key }) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -145,9 +215,12 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   }
 
+  const tabLogCount = document.getElementById("tab-log-count");
+
   function renderLogs(logs) {
     logs = Array.isArray(logs) ? logs : [];
     logsCount.textContent = logs.length;
+    if (tabLogCount) tabLogCount.textContent = logs.length > 99 ? "99+" : (logs.length || "");
 
     if (!logs.length) {
       logsBox.innerHTML = '<div class="logs-empty" id="logs-empty">No logs yet</div>';
@@ -347,290 +420,122 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file);
   });
   // ══════════════════════════════════════════════════════════
-  // ── PASSPORT OCR ──────────────────────────────────────────
   // ══════════════════════════════════════════════════════════
+  // ── PASSPORT OCR (read-only viewer) ───────────────────────
+  // ══════════════════════════════════════════════════════════
+  // Scanning happens on the page (content script). This panel just shows the
+  // details of the last passport scanned there, live-updated via storage.
 
-  const ocrFileInput  = document.getElementById("ocr-file-input");
-  const ocrFileNameEl = document.getElementById("ocr-file-name");
-  const ocrScanBtn    = document.getElementById("ocr-scan-btn");
-  const ocrStatusEl   = document.getElementById("ocr-status");
-  const ocrResultsEl  = document.getElementById("ocr-results");
-  const ocrFillBtn    = document.getElementById("ocr-fill-btn");
-  const ocrApiKeyEl   = document.getElementById("ocr-api-key");
-
-  let ocrSelectedFile = null;
-
-  chrome.storage.local.get(["ocrApiKey"], (res) => {
-    if (res.ocrApiKey) ocrApiKeyEl.value = res.ocrApiKey;
-  });
-
-  ocrApiKeyEl.addEventListener("input", () => {
-    chrome.storage.local.set({ ocrApiKey: ocrApiKeyEl.value.trim() });
-  });
-
-  ocrFileInput.addEventListener("change", (e) => {
-    ocrSelectedFile = e.target.files[0] || null;
-    ocrFileNameEl.textContent = ocrSelectedFile ? ocrSelectedFile.name : "Choose passport image";
-    ocrScanBtn.disabled = !ocrSelectedFile;
-    ocrResultsEl.style.display = "none";
-    ocrStatusEl.style.display  = "none";
-  });
-
-  ocrScanBtn.addEventListener("click", async () => {
-    if (!ocrSelectedFile) return;
-    const apiKey = ocrApiKeyEl.value.trim() || "helloworld";
-
-    ocrScanBtn.disabled          = true;
-    ocrStatusEl.style.display    = "block";
-    ocrStatusEl.textContent      = "Scanning…";
-    ocrStatusEl.className        = "ocr-status ocr-status-loading";
-    ocrResultsEl.style.display   = "none";
-
-    try {
-      const data = await ocrRunScan(ocrSelectedFile, apiKey);
-      const boxes = data.nameBoxes || ["", "", "", ""];
-
-      document.getElementById("ocr-first").value  = boxes[0] || "";
-      document.getElementById("ocr-second").value = boxes[1] || "";
-      document.getElementById("ocr-third").value  = boxes[2] || "";
-      document.getElementById("ocr-family").value = boxes[3] || "";
-      document.getElementById("ocr-dob").value    = data.dob       || "";
-      document.getElementById("ocr-issue").value  = data.issueDate || "";
-      document.getElementById("ocr-gender").value = data.gender    || "";
-
-      if (boxes.some(b => b)) {
-        ocrStatusEl.textContent = "✓ Passport scanned — edit boxes if needed";
-        ocrStatusEl.className   = "ocr-status ocr-status-success";
-        ocrResultsEl.style.display = "block";
-      } else {
-        ocrStatusEl.textContent = "⚠ No passport data found — try a clearer image";
-        ocrStatusEl.className   = "ocr-status ocr-status-warn";
-      }
-    } catch (err) {
-      ocrStatusEl.textContent = "✗ " + (err.message || "Scan failed");
-      ocrStatusEl.className   = "ocr-status ocr-status-error";
-    } finally {
-      ocrScanBtn.disabled = false;
-    }
-  });
-
-  ocrFillBtn.addEventListener("click", () => {
-    const data = {
-      nameBoxes: [
-        document.getElementById("ocr-first").value.trim(),
-        document.getElementById("ocr-second").value.trim(),
-        document.getElementById("ocr-third").value.trim(),
-        document.getElementById("ocr-family").value.trim(),
-      ],
-      dob:       document.getElementById("ocr-dob").value.trim(),
-      issueDate: document.getElementById("ocr-issue").value.trim(),
-      gender:    document.getElementById("ocr-gender").value.trim(),
-    };
-
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]) { showToast("✗ No active tab"); return; }
-      chrome.tabs.sendMessage(tabs[0].id, { action: "ocr-fill", data }, (response) => {
-        if (chrome.runtime.lastError) { showToast("✗ Not on form page"); return; }
-        showToast("✓ Form filled from passport");
-      });
+  // In licensed mode the OCR key lives on the server, so this field is useless —
+  // hide the whole section. It stays visible in dev mode.
+  if (window.NkLicense && window.NkLicense.enforced()) {
+    const ocrSection = document.getElementById("ocr-key-section");
+    if (ocrSection) ocrSection.style.display = "none";
+  } else {
+    const ocrApiKeyEl = document.getElementById("ocr-api-key");
+    chrome.storage.local.get(["ocrApiKey"], (res) => {
+      if (res.ocrApiKey) ocrApiKeyEl.value = res.ocrApiKey;
     });
+    ocrApiKeyEl.addEventListener("input", () => {
+      chrome.storage.local.set({ ocrApiKey: ocrApiKeyEl.value.trim() });
+    });
+  }
+
+  const ocrEmptyEl = document.getElementById("ocr-empty");
+  const ocrViewEl  = document.getElementById("ocr-view");
+  const ocrTimeEl  = document.getElementById("ocr-scan-time");
+  const ocrBadgeEl = document.getElementById("ocr-badge");
+  const ocrClearEl = document.getElementById("ocr-clear");
+
+  if (ocrClearEl) {
+    ocrClearEl.addEventListener("click", () => {
+      chrome.storage.local.remove("ocrDisplay");
+      renderScan(null);
+    });
+  }
+
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (val === undefined || val === null || val === "") ? "—" : val;
+  }
+
+  function renderScan(payload) {
+    if (!payload || !payload.details) {
+      ocrViewEl.style.display = "none";
+      ocrEmptyEl.style.display = "block";
+      ocrTimeEl.textContent = "";
+      if (ocrClearEl) ocrClearEl.style.display = "none";
+      return;
+    }
+    const d = payload.details, boxes = payload.nameBoxes || [];
+    ocrEmptyEl.style.display = "none";
+    ocrViewEl.style.display = "block";
+    if (ocrClearEl) ocrClearEl.style.display = "";
+
+    setText("d-fullname", d.fullName);
+    setText("d-surname",  d.surname);
+    setText("d-given",    d.givenNames);
+    setText("d-father",   d.fatherName);
+    setText("d-city",     d.birthCity);
+    setText("d-dob",      d.dob);
+    setText("d-sex",      d.sex);
+    setText("d-type",     d.docType);
+    setText("d-passport", d.passportNo);
+    setText("d-nat",      d.nationality);
+    setText("d-country",  d.issuingCountry);
+    setText("d-personal", d.personalNo);
+    setText("d-issue",    d.issueDate);
+    setText("d-expiry",   d.expiry);
+    setText("d-b1", boxes[0]); setText("d-b2", boxes[1]);
+    setText("d-b3", boxes[2]); setText("d-b4", boxes[3]);
+    setText("d-mrz1", d.mrzLine1);
+    setText("d-mrz2", d.mrzLine2);
+
+    // Check-digit chips — show the correct digit when one is wrong
+    const checksEl = document.getElementById("d-checks");
+    if (checksEl) {
+      const c = d.checks || {};
+      const exp = c.expected || {};
+      const chip = (label, key) => {
+        const ok = c[key] !== false;
+        const need = (!ok && exp[key] !== undefined) ? ` (should be ${exp[key]})` : "";
+        return `<span class="ocr-chip ${ok ? "ocr-chip-ok" : "ocr-chip-bad"}">${ok ? "✓" : "✗"} ${label}${need}</span>`;
+      };
+      checksEl.innerHTML =
+        chip("Passport No", "passportNo") +
+        chip("DOB", "dob") +
+        chip("Expiry", "expiry") +
+        chip("Composite", "composite");
+    }
+
+    const warn = payload.blurry || !payload.mrzValid;
+    ocrBadgeEl.textContent = payload.mrzValid
+      ? (payload.blurry ? "Verify — possible OCR issues" : "MRZ valid")
+      : "MRZ checksum failed — verify carefully";
+    ocrBadgeEl.className = "ocr-badge " + (warn ? "ocr-badge-warn" : "ocr-badge-ok");
+
+    if (payload.scannedAt) {
+      const dt = new Date(payload.scannedAt);
+      const p = (n) => String(n).padStart(2, "0");
+      ocrTimeEl.textContent = p(dt.getHours()) + ":" + p(dt.getMinutes()) + ":" + p(dt.getSeconds());
+    }
+  }
+
+  function loadScan() {
+    chrome.storage.local.get(["ocrDisplay"], (res) => {
+      let payload = null;
+      try { payload = res.ocrDisplay ? JSON.parse(res.ocrDisplay) : null; } catch (_) {}
+      renderScan(payload);
+    });
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.ocrDisplay) {
+      try { renderScan(JSON.parse(changes.ocrDisplay.newValue)); } catch (_) { renderScan(null); }
+    }
   });
 
-  // ── OCR helpers ─────────────────────────────────────────────
-
-  async function ocrRunScan(file, apiKey) {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("apikey", apiKey);
-    formData.append("language", "eng");
-    formData.append("scale", "true");
-    formData.append("OCREngine", "2");
-    formData.append("detectOrientation", "true");
-
-    const res = await fetch("https://api.ocr.space/parse/image", {
-      method: "POST",
-      body: formData,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const json = await res.json();
-    if (json.IsErroredOnProcessing) {
-      throw new Error(json.ErrorMessage?.[0] || "OCR processing failed");
-    }
-
-    const text = json.ParsedResults?.[0]?.ParsedText || "";
-    return ocrParsePassport(text);
-  }
-
-  // ── Parse passport text (same logic as content script) ──────
-
-  const OCR_MONTHS = {JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
-
-  function ocrParseTextDate(str) {
-    const m = str.match(/(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/i);
-    if (!m) return "";
-    const mon = OCR_MONTHS[m[2].toUpperCase()];
-    return mon ? `${m[3]}-${String(mon).padStart(2,"0")}-${String(+m[1]).padStart(2,"0")}` : "";
-  }
-
-  function ocrExtractDates(lines) {
-    const out = { dob:"", issueDate:"", expiryDate:"" };
-    for (let i = 0; i < lines.length; i++) {
-      const lo = lines[i].toLowerCase(), nxt = lines[i+1]||"";
-      if (/birth|dob/.test(lo) && !/issue|expir/.test(lo))
-        out.dob       = ocrParseTextDate(nxt) || ocrParseTextDate(lines[i]);
-      if (lo.includes("issue") && !lo.includes("expir"))
-        out.issueDate = ocrParseTextDate(nxt) || ocrParseTextDate(lines[i]);
-      if (lo.includes("expir"))
-        out.expiryDate= ocrParseTextDate(nxt) || ocrParseTextDate(lines[i]);
-    }
-    return out;
-  }
-
-  function ocrParsePassport(text) {
-    const lines  = text.split("\n").map(l => l.trim()).filter(Boolean);
-    const result = { nameBoxes: ["", "", "", ""] };
-
-    const fatherRaw    = ocrExtractParentName(lines);
-    const fatherTokens = ocrNormaliseParent(fatherRaw);
-
-    result.issueDate = ocrExtractDates(lines).issueDate;
-
-    let mrzGiven = [], mrzFamily = "";
-    const mrz = ocrFindMRZ(lines);
-    if (mrz) {
-      const m  = ocrParseMRZ(mrz[0], mrz[1]);
-      mrzGiven  = m.givenParts || [];
-      mrzFamily = m.familyName || "";
-      result.dob    = m.dob;
-      result.gender = m.gender;
-    }
-
-    // Boxes 1–2: MRZ full name (given names + surname), left→right
-    const mrzTokens = [...mrzGiven, ...(mrzFamily ? [mrzFamily] : [])];
-    const [b1, b2] = ocrDistribute(mrzTokens, 2, 15);
-    result.nameBoxes[0] = b1;
-    result.nameBoxes[1] = b2;
-
-    // Boxes 3–4: father name
-    //   fits in one box → box 4 only (box 3 empty)
-    //   doesn't fit    → left→right across boxes 3 and 4
-    const [b3, b4] = ocrFatherBoxes(fatherTokens);
-    result.nameBoxes[2] = b3;
-    result.nameBoxes[3] = b4;
-
-    return result;
-  }
-
-  function ocrFatherBoxes(tokens) {
-    if (!tokens.length) return ["", ""];
-    const joined = tokens.join(" ");
-    if (joined.length <= 15) return ["", joined];
-    return ocrDistribute(tokens, 2, 15);
-  }
-
-  function ocrExtractParentName(lines) {
-    // Pass 1: explicit "Father" / "Husband" label
-    for (let i = 0; i < lines.length; i++) {
-      const lo = lines[i].toLowerCase();
-      if (!/father|husband/.test(lo)) continue;
-      const ci = lines[i].indexOf(":");
-      if (ci !== -1) {
-        const v = lines[i].slice(ci + 1).trim();
-        if (v && !ocrIsPlaceName(v)) return v;
-      }
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-        const c = lines[j].trim();
-        if (!c) continue;
-        if (/^(date|nation|passport|birth|sex|place|type|issue|expiry|tracking|booklet|citizen)/i.test(c)) break;
-        if (ocrIsPlaceName(c)) continue;
-        if (/^[A-Z][A-Z\s'.,\-]+$/i.test(c) && c.length >= 3) return c;
-      }
-      break;
-    }
-    // Pass 2: label-free — find "SURNAME, GIVEN1 GIVEN2" in all-uppercase lines
-    for (const line of lines) {
-      if (!line.includes(",")) continue;
-      if (line !== line.toUpperCase()) continue;
-      if (!/^[A-Z][A-Z\s'.,\-]+$/.test(line)) continue;
-      if (ocrIsPlaceName(line)) continue;
-      const afterComma = line.split(",").slice(1).join(",").trim();
-      if (afterComma.split(/\s+/).filter(Boolean).length < 2) continue;
-      return line;
-    }
-    return "";
-  }
-
-  // "SHAH, RIZWAN ABBAS" → ["Rizwan","Abbas","Shah"]
-  function ocrNormaliseParent(raw) {
-    if (!raw) return [];
-    let ordered = raw;
-    if (raw.includes(",")) {
-      const parts = raw.split(",").map(p => p.trim()).filter(Boolean);
-      ordered = [...parts.slice(1), parts[0]].join(" ");
-    }
-    return ordered.trim().split(/\s+/).filter(Boolean).map(ocrCap);
-  }
-
-  // "KHUSHAB, PAK" → true  |  "SHAH, RIZWAN ABBAS" → false
-  function ocrIsPlaceName(str) {
-    if (!str) return false;
-    if (str.includes(",")) {
-      const last = str.split(",").pop().trim();
-      if (/^[A-Z]{2,3}$/.test(last)) return true;
-    }
-    if (/^[A-Z]{2,3}$/.test(str.trim())) return true;
-    return false;
-  }
-
-  function ocrDistribute(tokens, boxes, maxLen) {
-    const result = Array(boxes).fill("");
-    let b = 0;
-    for (const word of tokens) {
-      if (b >= boxes) break;
-      const candidate = result[b] ? result[b] + " " + word : word;
-      if (candidate.length <= maxLen) { result[b] = candidate; }
-      else { b++; if (b < boxes) result[b] = word; }
-    }
-    return result;
-  }
-
-  function ocrFindMRZ(lines) {
-    const re = /^[A-Z0-9<]{30,}$/;
-    for (let i = 0; i < lines.length - 1; i++) {
-      const l1 = lines[i].replace(/\s/g, "").toUpperCase();
-      const l2 = lines[i + 1].replace(/\s/g, "").toUpperCase();
-      if (l1.length >= 30 && l2.length >= 30 && re.test(l1) && re.test(l2) && l1[0] === "P")
-        return [l1.padEnd(44, "<").slice(0, 44), l2.padEnd(44, "<").slice(0, 44)];
-    }
-    return null;
-  }
-
-  function ocrParseMRZ(l1, l2) {
-    const r = { givenParts: [] };
-    const nameStr = l1.slice(5);
-    const sep     = nameStr.indexOf("<<");
-    if (sep >= 0) {
-      r.familyName = ocrCap(nameStr.slice(0, sep).replace(/</g, " ").trim());
-      r.givenParts = nameStr.slice(sep + 2).replace(/<+$/, "").split("<").filter(Boolean).map(ocrCap);
-    }
-    r.dob = ocrMrzDate(l2.slice(13, 19), true);
-    const sx = l2[20];
-    r.gender = sx === "M" ? "Male" : sx === "F" ? "Female" : "";
-    return r;
-  }
-
-  function ocrMrzDate(yymmdd, isPast) {
-    if (!/^\d{6}$/.test(yymmdd)) return "";
-    const yy    = parseInt(yymmdd.slice(0, 2), 10);
-    const nowYY = new Date().getFullYear() % 100;
-    const year  = isPast && yy > nowYY ? 1900 + yy : 2000 + yy;
-    return `${year}-${yymmdd.slice(2, 4)}-${yymmdd.slice(4, 6)}`;
-  }
-
-  function ocrCap(str) {
-    return str ? str[0].toUpperCase() + str.slice(1).toLowerCase() : "";
-  }
+  loadScan();
 
   // ══════════════════════════════════════════════════════════
 

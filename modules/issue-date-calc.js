@@ -268,7 +268,7 @@
               <label>Calculated Issue Date</label>
               <div class="nuskomate-result-row">
                 <input type="text" id="nuskomate-result-input" class="p-inputtext p-component p-element w-full nuskomate-result-input" placeholder="Enter valid expiry date" readonly>
-                <button type="button" id="nuskomate-copy-btn" class="nuskomate-copy-btn">Copy</button>
+                <button type="button" id="nuskomate-insert-btn" class="nuskomate-copy-btn">Insert</button>
               </div>
             </div>
           </div>
@@ -286,22 +286,62 @@
 
     const yearsInput = widget.querySelector("#nuskomate-years-input");
     const daysInput = widget.querySelector("#nuskomate-days-input");
-    const copyBtn = widget.querySelector("#nuskomate-copy-btn");
+    const insertBtn = widget.querySelector("#nuskomate-insert-btn");
 
     yearsInput.addEventListener("input", () => calculateAndSync(false));
     daysInput.addEventListener("input", () => calculateAndSync(false));
 
-    copyBtn.addEventListener("click", () => {
+    insertBtn.addEventListener("click", () => {
       const resultInput = widget.querySelector("#nuskomate-result-input");
-      if (resultInput && resultInput.value && !resultInput.value.includes("valid") && !resultInput.value.includes("Invalid")) {
-        copyToClipboard(resultInput.value);
-        copyBtn.textContent = "Copied!";
-        copyBtn.classList.add("success");
-        setTimeout(() => {
-          copyBtn.textContent = "Copy";
-          copyBtn.classList.remove("success");
-        }, 1500);
+      const val = resultInput && resultInput.value;
+      if (!val || val.includes("valid") || val.includes("Invalid")) return;
+
+      // Tell the OCR module to stop re-asserting its extracted issue date —
+      // otherwise it reverts our inserted value within a tick.
+      if (typeof window.nkReleaseIssueDate === "function") window.nkReleaseIssueDate();
+
+      // Put the calculated date straight into the Release/Issue date field.
+      // Uses execCommand("insertText") after selecting all — fires a REAL
+      // InputEvent that PrimeNG/Angular always accepts, and replaces whatever
+      // is already in the box (so it works even when the field is pre-filled).
+      const cal = document.querySelector('p-calendar[formcontrolname="passportIssueDate"]');
+      const inp = cal && cal.querySelector("input");
+      if (inp) {
+        const wasDisabled = inp.disabled;
+        if (wasDisabled) inp.disabled = false;
+
+        // Close any open datepicker panel so events go to the input, not the calendar
+        inp.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape", keyCode: 27 }));
+        inp.focus({ preventScroll: true });
+        inp.select();
+
+        const ok = document.execCommand("insertText", false, val);
+        if (!ok) {
+          // Fallback for environments where execCommand is unavailable
+          inp.value = "";
+          if (window.simulateAngularInput) window.simulateAngularInput(inp, val);
+          else { inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); }
+        }
+
+        inp.dispatchEvent(new KeyboardEvent("keydown",  { bubbles: true, key: "Enter", keyCode: 13 }));
+        inp.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, key: "Enter", keyCode: 13 }));
+        inp.dispatchEvent(new KeyboardEvent("keyup",    { bubbles: true, key: "Enter", keyCode: 13 }));
+        inp.dispatchEvent(new Event("input",  { bubbles: true }));
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+        inp.blur();
+        cal.dispatchEvent(new Event("input",  { bubbles: true }));
+        cal.dispatchEvent(new Event("change", { bubbles: true }));
+
+        if (wasDisabled) inp.disabled = true;
+        log.info("[Nuskomate IssueDate] inserted issue date:", val, "| field now:", inp.value);
       }
+
+      insertBtn.textContent = "Inserted!";
+      insertBtn.classList.add("success");
+      setTimeout(() => {
+        insertBtn.textContent = "Insert";
+        insertBtn.classList.remove("success");
+      }, 1500);
     });
 
     return widget;

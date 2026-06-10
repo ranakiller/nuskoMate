@@ -13,6 +13,8 @@
   let fillTimer       = null;
   let calcTimer       = null;
   let issueDateTimer  = null;
+  let extrasTimer     = null; // city fill + check-digit warnings (Identity Details renders late)
+  let issueDateReleased = false; // user took manual control via the calc's Insert button
   let lastFileId      = null;
   let started         = false;
 
@@ -38,6 +40,16 @@
     document.addEventListener("change", onFileChange, true);
     window.addEventListener("nusuk-route-change", onRouteChange);
     loadFromStorage(); // restore after reload
+    // Expose a scan entry point for the batch module (fed images)
+    window.nkOcrScan = scanFile;
+    // Let the Issue Date Calculator's Insert button take over the issue-date
+    // field — stop OCR from reverting it back to the extracted value.
+    window.nkReleaseIssueDate = () => {
+      issueDateReleased = true;
+      clearInterval(issueDateTimer);
+      clearInterval(calcTimer);
+      log.info("[Nuskomate OCR] issue date released to manual control");
+    };
     log.info("[Nuskomate OCR] started");
   }
 
@@ -45,6 +57,10 @@
     started = false;
     document.removeEventListener("change", onFileChange, true);
     window.removeEventListener("nusuk-route-change", onRouteChange);
+    clearInterval(fillTimer);
+    clearInterval(calcTimer);
+    clearInterval(issueDateTimer);
+    clearInterval(extrasTimer);
   }
 
   function onRouteChange() {
@@ -69,10 +85,11 @@
       if (!res.ocrScanned) return;
       try {
         const saved = JSON.parse(res.ocrScanned);
-        if (saved?.nameBoxes?.some(b => b)) {
+        if (saved?.nameBoxes?.some(b => b) || saved?.issueDate) {
           scanned = saved;
           scheduleFill();
-          log.info("[Nuskomate OCR] restored from storage:", scanned.nameBoxes);
+          log.info("[Nuskomate OCR] restored from storage — names:", scanned.nameBoxes,
+                   "| issueDate:", scanned.issueDate || "(none)");
         }
       } catch (_) {}
     });
@@ -87,6 +104,14 @@
     if (input.tagName !== "INPUT" || input.type !== "file") return;
     const file = input.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
+    scanFile(file);
+  }
+
+  // Run the full OCR + fill pipeline on a File. Exposed as window.nkOcrScan so
+  // the batch module can trigger a scan on images it feeds programmatically
+  // (those arrive via synthetic events that onFileChange intentionally ignores).
+  async function scanFile(file) {
+    if (!isEnabled || !file || !file.type?.startsWith("image/")) return;
 
     const fileId = `${file.name}_${file.size}_${file.lastModified}`;
     if (fileId === lastFileId) return;
@@ -98,6 +123,7 @@
     clearInterval(fillTimer);
     clearInterval(calcTimer);
     clearInterval(issueDateTimer);
+    clearInterval(extrasTimer);
     scanned = {};
     chrome.storage.local.remove("ocrScanned");
 
@@ -105,12 +131,55 @@
     toast("Scanning passport…", "neutral");
 
     try {
-      const apiKey = await getApiKey();
-      const text   = await callOCR(file, apiKey);
-      log.info("[Nuskomate OCR] raw text:\n", text);
+      let data;
 
-      const data = parsePassport(text);
-      log.info("[Nuskomate OCR] parsed:", data);
+      if (window.NkLicense && window.NkLicense.enforced()) {
+        // ── Licensed mode: the server validates the key, OCRs, AND parses ──
+        const r = await window.NkLicense.scan(file);
+        if (!r.ok) {
+          toast("✗ " + (r.error || "Scan refused"), "err");
+          log.warn("[Nuskomate OCR] server scan refused:", r.error);
+          return;
+        }
+        data = r.result;
+        log.info("[Nuskomate OCR] server raw text:\n", r.raw);
+        log.info("[Nuskomate OCR] server parsed:", data);
+      } else {
+        // ── Dev mode: OCR + parse locally ──
+        const apiKey = await getApiKey();
+        const text = await callOCR(file, apiKey);
+        log.info("[Nuskomate OCR] raw text:\n", text);
+        data = parsePassport(text);
+        log.info("[Nuskomate OCR] parsed:", data);
+
+        // Rescue pass: only if the original scan failed the quality gate, try an
+        // enhanced (black-on-white) version; keep whichever result is better.
+        if (!scanIsGood(data)) {
+          log.info("[Nuskomate OCR] original scan weak → trying enhanced image");
+          const enhanced = await preprocessImage(file);
+          if (enhanced) {
+            try {
+              const text2 = await callOCR(enhanced, apiKey);
+              const data2 = parsePassport(text2);
+              data = pickBetterScan(data, data2);
+              log.info("[Nuskomate OCR] using", data === data2 ? "ENHANCED" : "ORIGINAL", "result");
+            } catch (e2) {
+              log.warn("[Nuskomate OCR] enhanced pass failed:", e2.message);
+            }
+          }
+        }
+      }
+
+      // Publish the full parsed detail set for the popup viewer (display only)
+      chrome.storage.local.set({
+        ocrDisplay: JSON.stringify({
+          details:   data.details || {},
+          nameBoxes: data.nameBoxes || ["", "", "", ""],
+          mrzValid:  !!data.mrzValid,
+          blurry:    !!data.blurry,
+          scannedAt: Date.now(),
+        }),
+      });
 
       if (data.nameBoxes?.some(b => b)) {
         scanned = data;
@@ -122,7 +191,7 @@
         }
 
         if (data.blurry) {
-          toast("⚠ Filled — verify names (image may be blurry)", "warn");
+          toast("⚠ Filled — please verify names & dates", "warn");
         } else {
           const clip = data.issueDate ? ` · Issue ${data.issueDate} copied` : "";
           toast(`✓ Passport scanned${clip}`, "ok");
@@ -138,14 +207,20 @@
 
   // ── Fill form ───────────────────────────────────────────────
   function scheduleFill() {
+    issueDateReleased = false; // a fresh scan re-takes control of the issue date
     clearInterval(fillTimer);
     clearInterval(calcTimer);
 
     // Keep re-asserting the names until they stay correct for several
-    // consecutive ticks. The nusuk page runs its OWN MRZ extraction after a
-    // passport upload and overwrites our values (box0=given, box3=surname) —
-    // often AFTER our first successful fill. Requiring sustained stability
-    // means we win that race instead of stopping too early.
+    // consecutive ticks. Two things make this tricky:
+    //  • The name boxes live on the NEXT page (after the upload screen) and
+    //    appear LATE — Angular keeps the same URL, so no route-change fires to
+    //    restart us. Until the boxes render, applyFields() returns false and
+    //    nameStable stays 0, so the loop just keeps waiting.
+    //  • The nusuk page fills its own MRZ names the instant the boxes appear,
+    //    so we must still be running then to overwrite them.
+    // Hence a long window (covers review + slow page load) and a stability
+    // gate that only stops once OUR values have held for ~5s.
     let nameStable = 0;
     applyFields();
     fillTimer = setInterval(() => {
@@ -153,11 +228,11 @@
       nameStable = correct ? nameStable + 1 : 0;
       if (nameStable >= 6) clearInterval(fillTimer); // correct & stable ~5s
     }, 800);
-    setTimeout(() => clearInterval(fillTimer), 25000);
+    setTimeout(() => clearInterval(fillTimer), 180000); // up to 3 min for a late form
 
     // Calculator sync — independent timer
     calcTimer = setInterval(() => { if (syncCalculator()) clearInterval(calcTimer); }, 600);
-    setTimeout(() => clearInterval(calcTimer), 60000);
+    setTimeout(() => clearInterval(calcTimer), 180000);
 
     // Issue date — completely independent timer.
     // Runs until the field has the correct value and stays that way.
@@ -166,11 +241,22 @@
       let stable = 0;
       issueDateTimer = setInterval(() => {
         const filled = fillIssueDate();
+        // Require the value to hold for ~5s (8 ticks) before stopping — long
+        // enough that the Issue Date Calculator's sync has settled and won't
+        // overwrite our value afterwards. Any overwrite resets the counter.
         stable = filled ? stable + 1 : 0;
-        if (stable >= 3) clearInterval(issueDateTimer); // value held for 3 ticks
+        if (stable >= 8) clearInterval(issueDateTimer);
       }, 600);
-      setTimeout(() => clearInterval(issueDateTimer), 60000);
+      setTimeout(() => clearInterval(issueDateTimer), 180000);
     }
+
+    // City + check-digit warnings — independent of the name-fill loop, which
+    // stops once names stabilise (~5s). The Identity Details section (expiry,
+    // passport number, City of Issued) renders later, so keep applying them for
+    // the full window.
+    clearInterval(extrasTimer);
+    extrasTimer = setInterval(() => { fillCity(); applyWarnings(); }, 1000);
+    setTimeout(() => clearInterval(extrasTimer), 180000);
   }
 
   const BOX_SEL = [
@@ -193,8 +279,12 @@
     (scanned.nameBoxes || []).forEach((val, i) => {
       const sel = BOX_SEL[i];
       if (!sel) return;
-      const el = document.querySelector(sel);
       const want = val ?? "";
+      // Only write boxes we actually have a value for. NEVER clear a box to ""
+      // — if our parse missed a name (e.g. garbled MRZ) we must not wipe what
+      // the site or user already put there.
+      if (!want) { snapshot.push(`box${i}:skip(no value)`); return; }
+      const el = document.querySelector(sel);
       if (!el) {
         snapshot.push(`box${i}:MISSING(want="${want}")`);
         allBoxesCorrect = false;
@@ -204,7 +294,7 @@
       if (el.value !== want) {
         fill(sel, want);
         snapshot.push(`box${i}:was="${before}"→set="${want}"`);
-        if (want) allBoxesCorrect = false;
+        allBoxesCorrect = false;
       } else {
         snapshot.push(`box${i}:ok="${want}"`);
       }
@@ -215,15 +305,106 @@
     const changed = snapshot.some(s => s.includes("→set") || s.includes("MISSING"));
     if (changed) log.info("[Nuskomate OCR] boxes:", snapshot.join(" | "));
 
-    fillCalendar('p-calendar[formcontrolname="birthDate"]',         scanned.dob);
-    fillCalendar('p-calendar[formcontrolname="passportIssueDate"]', scanned.issueDate);
-
-    if (scanned.gender && typeof window.sharedDropdownHandler === "function") {
-      window.sharedDropdownHandler('p-dropdown[formcontrolname="gender"]', scanned.gender);
+    // Only fill the issue date (unless the user took manual control via Insert).
+    // Birth date and gender are left to nusuk's own MRZ auto-fill.
+    if (!issueDateReleased) {
+      fillCalendar('p-calendar[formcontrolname="passportIssueDate"]', scanned.issueDate);
     }
+
+    // (City fill + check-digit warnings run on their own persistent timer —
+    //  the Identity Details section renders after the names stabilise.)
 
     // Only stop the retry interval once all boxes are present AND correct
     return allBoxesCorrect;
+  }
+
+  // ── City fill ───────────────────────────────────────────────
+  // Fill every city field (any formcontrolname containing "city") with the
+  // place-of-birth city extracted from the passport.
+  function fillCity() {
+    const city = scanned.birthCity;
+    if (!city) return;
+    let any = false;
+    document.querySelectorAll("input[formcontrolname]").forEach((inp) => {
+      if (!/city/i.test(inp.getAttribute("formcontrolname") || "")) return;
+      if (inp.value !== city && typeof window.simulateAngularInput === "function") {
+        window.simulateAngularInput(inp, city);
+        any = true;
+      }
+    });
+    if (any) log.info("[Nuskomate OCR] city →", city);
+  }
+
+  // ── On-page check-digit status (green = OK, red = misread) ───
+  function ensureWarnStyles() {
+    if (document.getElementById("nk-warn-style")) return;
+    const st = document.createElement("style");
+    st.id = "nk-warn-style";
+    st.textContent =
+      ".nk-warn-field, .nk-warn-field input, .nk-warn-field .p-inputtext {" +
+      "  border: 2px solid #ef4444 !important; border-radius: 6px !important;" +
+      "  background-color: rgba(239,68,68,.06) !important; }" +
+      ".nk-ok-field, .nk-ok-field input, .nk-ok-field .p-inputtext {" +
+      "  border: 2px solid #22c55e !important; border-radius: 6px !important; }" +
+      ".nk-warn-note { color:#ef4444; font-size:11.5px; font-weight:700;" +
+      "  margin:3px 0 2px; display:flex; align-items:center; gap:5px;" +
+      "  font-family: system-ui, sans-serif; }" +
+      ".nk-warn-note::before { content:'\\26A0'; font-size:13px; }";
+    document.head.appendChild(st);
+  }
+
+  // ok=true → green border (verified); ok=false → red border + warning note
+  function setFieldStatus(el, ok, message) {
+    if (!el) return;
+    const anchor = el.closest(".form-mb, .col-md-4, .col-lg-4, .my-3") || el.parentElement || el;
+    let note = anchor.querySelector(":scope > .nk-warn-note");
+    el.classList.toggle("nk-ok-field", !!ok);
+    el.classList.toggle("nk-warn-field", !ok);
+    if (ok) {
+      if (note) note.remove();
+    } else {
+      if (!note) {
+        note = document.createElement("div");
+        note.className = "nk-warn-note";
+        anchor.insertBefore(note, anchor.firstChild);
+      }
+      note.textContent = message;
+    }
+  }
+
+  function findPassportNoInput() {
+    return document.querySelector('input[formcontrolname="passportNumber"]')
+        || document.querySelector('input[formcontrolname="passportNo"]')
+        || [...document.querySelectorAll("label")]
+             .find((l) => /passport\s*(number|no)\b/i.test(l.textContent || ""))
+             ?.closest(".form-mb, .col-md-4, .col-lg-4, div")?.querySelector('input')
+        || null;
+  }
+
+  function applyWarnings() {
+    const c = scanned.checks;
+    if (!c) return;
+    ensureWarnStyles();
+
+    setFieldStatus(
+      document.querySelector('p-calendar[formcontrolname="birthDate"]'),
+      c.dob,
+      "Date of birth may be misread — verify against the passport"
+    );
+    setFieldStatus(
+      document.querySelector('p-calendar[formcontrolname="passportExpiryDate"]'),
+      c.expiry,
+      "Expiry date may be misread — verify against the passport"
+    );
+
+    const passInp = findPassportNoInput();
+    setFieldStatus(
+      passInp,
+      c.passportNo && c.composite,
+      !c.passportNo
+        ? "Passport number may be misread — verify against the passport"
+        : "Passport MRZ checksum mismatch — double-check all passport details"
+    );
   }
 
   // Reverse-populate the Issue Date Calculator widget.
@@ -231,6 +412,7 @@
   // which writes the computed date straight into passportIssueDate.
   // Returns true when sync succeeded so the caller can stop retrying.
   function syncCalculator() {
+    if (issueDateReleased) return true; // user controls the calc/issue date now
     if (!scanned.issueDate) return true;
 
     const yearsEl  = document.getElementById("nuskomate-years-input");
@@ -276,6 +458,7 @@
   // and Angular see it as a genuine user action.
   // Returns true when the field value is committed and the form is valid.
   function fillIssueDate() {
+    if (issueDateReleased) return true; // user took manual control via Insert
     if (!scanned.issueDate) return true;
 
     const cal = document.querySelector('p-calendar[formcontrolname="passportIssueDate"]');
@@ -373,266 +556,104 @@
     return json.ParsedResults?.[0]?.ParsedText || "";
   }
 
-  // ── Date extraction from visible text ──────────────────────
-  const MONTHS = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
+  // ── Image enhancement (rescue pass) ─────────────────────────
+  // Upscale → grayscale → Otsu auto-threshold to produce crisp black text on
+  // white, dropping colour/graphics. Returns a PNG File, or null on any error
+  // (so the caller can safely fall back to the original image).
+  function preprocessImage(file) {
+    return new Promise((resolve) => {
+      let url;
+      try {
+        url = URL.createObjectURL(file);
+      } catch (_) { return resolve(null); }
 
-  function parseTextDate(str) {
-    // Handles "22 APR 2024", "22APR2024", "01 NOV 1978"
-    const m = str.match(/(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/i);
-    if (!m) return "";
-    const mon = MONTHS[m[2].toUpperCase()];
-    if (!mon) return "";
-    return `${m[3]}-${String(mon).padStart(2, "0")}-${String(+m[1]).padStart(2, "0")}`;
+      const img = new Image();
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.onload = () => {
+        try {
+          // Upscale small scans (helps thin strokes) but cap the long edge
+          const longEdge = Math.max(img.width, img.height) || 1;
+          const scale = Math.max(1, Math.min(2, 2400 / longEdge));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const imageData = ctx.getImageData(0, 0, w, h);
+          const d = imageData.data;
+
+          // Grayscale + build histogram for Otsu
+          const gray = new Uint8ClampedArray(w * h);
+          const hist = new Array(256).fill(0);
+          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+            const g = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+            gray[p] = g;
+            hist[g]++;
+          }
+
+          const t = otsuThreshold(hist, w * h);
+
+          // Apply threshold → pure black text on white
+          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+            const v = gray[p] < t ? 0 : 255;
+            d[i] = d[i + 1] = d[i + 2] = v;
+            d[i + 3] = 255;
+          }
+          ctx.putImageData(imageData, 0, 0);
+
+          canvas.toBlob((blob) => {
+            URL.revokeObjectURL(url);
+            if (!blob) return resolve(null);
+            resolve(new File([blob], "scan.png", { type: "image/png" }));
+          }, "image/png");
+        } catch (_) {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        }
+      };
+      img.src = url;
+    });
   }
 
-  // Only extract the issue date — that's all OCR fills for dates.
-  // DOB comes from MRZ; expiry is left to the existing calculator.
-  function extractDates(lines) {
-    for (let i = 0; i < lines.length; i++) {
-      const lo = lines[i].toLowerCase();
-      // "Date of Issue", "ate er issue", "date issue" — any garbled variant
-      if (lo.includes("issue") && !lo.includes("expir")) {
-        const date = parseTextDate(lines[i + 1] || "") || parseTextDate(lines[i]);
-        if (date) return { issueDate: date };
-      }
-    }
-    return { issueDate: "" };
-  }
-
-  // ── Passport parser ─────────────────────────────────────────
-  function parsePassport(text) {
-    const lines  = text.split("\n").map(l => l.trim()).filter(Boolean);
-    const result = { nameBoxes: ["", "", "", ""] };
-
-    // Father / husband name — from visible text, skipping city names
-    const fatherRaw    = extractParentName(lines);
-    const fatherTokens = normaliseParentName(fatherRaw);
-
-    // Issue date — only exists in the visible text section, not in MRZ
-    result.issueDate = extractDates(lines).issueDate;
-
-    // MRZ — given names + family name + DOB + gender
-    let mrzGiven = [], mrzFamily = "";
-    const mrz = findMRZ(lines);
-    if (mrz) {
-      const m   = parseMRZLines(mrz[0], mrz[1]);
-      mrzGiven  = m.givenParts || [];
-      mrzFamily = m.familyName || "";
-      result.dob    = m.dob;
-      result.gender = m.gender;
-    }
-
-    // ── Blurry detection ───────────────────────────────────────
-    let blurry = false;
-
-    // 1. MRZ check-digit validation
-    if (mrz && !validateMRZ(mrz[1])) {
-      blurry = true;
-      log.warn("[Nuskomate OCR] MRZ check digits failed — image may be blurry");
-    }
-
-    // 2. Clean digits that crept into name tokens (e.g. T→1, O→0)
-    const mrzClean    = cleanNameTokens([...mrzGiven, ...(mrzFamily ? [mrzFamily] : [])]);
-    const fatherClean = cleanNameTokens(fatherTokens);
-    if (mrzClean.corrected || fatherClean.corrected) {
-      blurry = true;
-      log.warn("[Nuskomate OCR] digit-in-name corrections applied:", {
-        mrz:    mrzClean.tokens,
-        father: fatherClean.tokens,
-      });
-    }
-
-    result.blurry = blurry;
-
-    // ── Box distribution (using cleaned tokens) ─────────────────
-    const [b1, b2]  = distributeWords(mrzClean.tokens, 2, 15);
-    result.nameBoxes[0] = b1;
-    result.nameBoxes[1] = b2;
-
-    const [b3, b4]  = fatherToBoxes(fatherClean.tokens);
-    result.nameBoxes[2] = b3;
-    result.nameBoxes[3] = b4;
-
-    return result;
-  }
-
-  // Extract the father / husband name from OCR lines.
-  // Pass 1 — look for an explicit "Father" / "Husband" label line.
-  // Pass 2 — fallback for passports where OCR produces no labels: scan every
-  //           all-uppercase line for the pattern "SURNAME, GIVEN1 GIVEN2"
-  //           and reject anything that looks like a place name.
-  function extractParentName(lines) {
-    // ── Pass 1: label-based ────────────────────────────────────
-    for (let i = 0; i < lines.length; i++) {
-      const lo = lines[i].toLowerCase();
-      if (!/father|husband/.test(lo)) continue;
-
-      const ci = lines[i].indexOf(":");
-      if (ci !== -1) {
-        const v = lines[i].slice(ci + 1).trim();
-        if (v && !isPlaceName(v)) return v;
-      }
-
-      // Scan next few lines; skip place-name artefacts from two-column layouts
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-        const c = lines[j].trim();
-        if (!c) continue;
-        if (/^(date|nation|passport|birth|sex|place|type|issue|expiry|tracking|booklet|citizen)/i.test(c)) break;
-        if (isPlaceName(c)) continue;
-        if (/^[A-Z][A-Z\s'.,\-]+$/i.test(c) && c.length >= 3) return c;
-      }
-      break;
-    }
-
-    // ── Pass 2: label-free fallback ────────────────────────────
-    // Some passports print only values in the OCR output (no headings).
-    // The father name is the only all-caps line with a comma whose second
-    // part is NOT a short country/city code (e.g. "AWAN, MUHAMMAD MIRZA").
-    for (const line of lines) {
-      if (!line.includes(",")) continue;
-      // All uppercase only (passport data, not the introductory paragraphs)
-      if (line !== line.toUpperCase()) continue;
-      // Letters, spaces, commas, hyphens, apostrophes — no digits
-      if (!/^[A-Z][A-Z\s'.,\-]+$/.test(line)) continue;
-      // Skip place names: "MULTAN, PAK" → last comma-segment is a 2-3 letter code
-      if (isPlaceName(line)) continue;
-      // Require at least two words after the comma (given name + more)
-      const afterComma = line.split(",").slice(1).join(",").trim();
-      if (afterComma.split(/\s+/).filter(Boolean).length < 2) continue;
-
-      return line;
-    }
-
-    return "";
-  }
-
-  // "SHAH, RIZWAN ABBAS" → ["Rizwan", "Abbas", "Shah"]  (surname moved to end)
-  // "RIZWAN ABBAS SHAH"  → ["Rizwan", "Abbas", "Shah"]
-  function normaliseParentName(raw) {
-    if (!raw) return [];
-    let ordered = raw;
-    if (raw.includes(",")) {
-      const parts = raw.split(",").map(p => p.trim()).filter(Boolean);
-      // parts[0] = "SHAH" (surname-first), rest = given names
-      ordered = [...parts.slice(1), parts[0]].join(" ");
-    }
-    return ordered.trim().split(/\s+/).filter(Boolean).map(toTitleCase);
-  }
-
-  // Returns true when a string looks like "CITY, PAK" or bare "PAK" —
-  // i.e. the last comma-segment is a 2-3 uppercase letter country/place code.
-  function isPlaceName(str) {
-    if (!str) return false;
-    if (str.includes(",")) {
-      const last = str.split(",").pop().trim();
-      if (/^[A-Z]{2,3}$/.test(last)) return true;   // e.g. PAK, USA, UAE
-    }
-    // Bare country code
-    if (/^[A-Z]{2,3}$/.test(str.trim())) return true;
-    return false;
-  }
-
-  // Father name → [box3, box4]
-  // If all tokens fit in one string (≤15 chars): box3="", box4=full string
-  // Otherwise: distribute left→right across boxes 3 and 4
-  function fatherToBoxes(tokens) {
-    if (!tokens.length) return ["", ""];
-    const joined = tokens.join(" ");
-    if (joined.length <= 15) return ["", joined];
-    return distributeWords(tokens, 2, 15);
-  }
-
-  // Pack word tokens into `boxes` slots; each slot ≤ maxLen chars; never split a word.
-  function distributeWords(tokens, boxes, maxLen) {
-    const result = Array(boxes).fill("");
-    let b = 0;
-    for (const word of tokens) {
-      if (b >= boxes) break;
-      const candidate = result[b] ? result[b] + " " + word : word;
-      if (candidate.length <= maxLen) {
-        result[b] = candidate;
-      } else {
-        b++;
-        if (b < boxes) result[b] = word;
-      }
-    }
-    return result;
-  }
-
-  // ── Blurry-image helpers ─────────────────────────────────────
-
-  // Digits that look like letters in OCR — replace them inside name tokens.
-  // Returns { tokens: string[], corrected: boolean }
-  const DIGIT_LETTER = { '0':'O', '1':'I', '2':'Z', '5':'S', '6':'G', '8':'B', '7':'T' };
-
-  function cleanNameTokens(tokens) {
-    let corrected = false;
-    const clean = tokens.map(t =>
-      t.replace(/[0-9]/g, d => { corrected = true; return DIGIT_LETTER[d] || d; })
-    );
-    return { tokens: clean, corrected };
-  }
-
-  // MRZ check-digit algorithm (ICAO Doc 9303)
-  function mrzDigit(str) {
-    const W = [7, 3, 1];
+  // Otsu's method — optimal global threshold for a bimodal (text/background) image
+  function otsuThreshold(hist, total) {
     let sum = 0;
-    for (let i = 0; i < str.length; i++) {
-      const c = str[i];
-      const v = c === '<' ? 0 : c >= '0' && c <= '9' ? +c : c.charCodeAt(0) - 55;
-      sum += (v < 0 ? 0 : v) * W[i % 3];
+    for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+    for (let i = 0; i < 256; i++) {
+      wB += hist[i];
+      if (wB === 0) continue;
+      const wF = total - wB;
+      if (wF === 0) break;
+      sumB += i * hist[i];
+      const mB = sumB / wB;
+      const mF = (sum - sumB) / wF;
+      const between = wB * wF * (mB - mF) * (mB - mF);
+      if (between > maxVar) { maxVar = between; threshold = i; }
     }
-    return sum % 10;
+    return threshold;
   }
 
-  // Returns true when all three MRZ line-2 check digits are valid.
-  function validateMRZ(l2) {
-    return (
-      mrzDigit(l2.slice(0, 9))  === +l2[9]  &&   // passport number
-      mrzDigit(l2.slice(13, 19)) === +l2[19] &&   // date of birth
-      mrzDigit(l2.slice(21, 27)) === +l2[27]       // date of expiry
-    );
+  // Is a parse good enough that we don't need the rescue pass?
+  function scanIsGood(data) {
+    return !!(data && data.mrzValid && data.nameBoxes?.some((b) => b));
   }
 
-  // ── MRZ helpers ─────────────────────────────────────────────
-  function findMRZ(lines) {
-    const re = /^[A-Z0-9<]{30,}$/;
-    for (let i = 0; i < lines.length - 1; i++) {
-      const l1 = lines[i].replace(/\s/g, "").toUpperCase();
-      const l2 = lines[i + 1].replace(/\s/g, "").toUpperCase();
-      if (l1.length >= 30 && l2.length >= 30 && re.test(l1) && re.test(l2) && l1[0] === "P")
-        return [l1.padEnd(44, "<").slice(0, 44), l2.padEnd(44, "<").slice(0, 44)];
-    }
-    return null;
+  // Pick the better of two parses: prefer a valid MRZ, then more filled boxes
+  function pickBetterScan(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    if (a.mrzValid !== b.mrzValid) return a.mrzValid ? a : b;
+    const count = (x) => (x.nameBoxes || []).filter(Boolean).length + (x.issueDate ? 1 : 0);
+    return count(b) > count(a) ? b : a;
   }
 
-  function parseMRZLines(l1, l2) {
-    const r = { givenParts: [] };
-    const nameStr = l1.slice(5);
-    const sep     = nameStr.indexOf("<<");
-    if (sep >= 0) {
-      r.familyName = toTitleCase(nameStr.slice(0, sep).replace(/</g, " ").trim());
-      r.givenParts = nameStr.slice(sep + 2).replace(/<+$/, "").split("<")
-                            .filter(Boolean).map(toTitleCase);
-    }
-    r.dob    = mrzDate(l2.slice(13, 19), true);
-    r.expiry = mrzDate(l2.slice(21, 27), false);
-    const sx = l2[20];
-    r.gender = sx === "M" ? "Male" : sx === "F" ? "Female" : "";
-    return r;
-  }
+  // ── Passport parsing lives in the shared module utils/passport-parser.js
+  function parsePassport(text) { return window.NkPassport.parse(text); }
 
-  function mrzDate(yymmdd, isPast) {
-    if (!/^\d{6}$/.test(yymmdd)) return "";
-    const yy    = parseInt(yymmdd.slice(0, 2), 10);
-    const nowYY = new Date().getFullYear() % 100;
-    const year  = isPast && yy > nowYY ? 1900 + yy : 2000 + yy;
-    return `${year}-${yymmdd.slice(2, 4)}-${yymmdd.slice(4, 6)}`;
-  }
-
-  function toTitleCase(s) {
-    return s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : "";
-  }
 
   // ── Toast ───────────────────────────────────────────────────
   function toast(msg, type) {
@@ -641,12 +662,12 @@
       el = document.createElement("div");
       el.id = "nk-ocr-toast";
       Object.assign(el.style, {
-        position: "fixed", bottom: "24px", right: "24px",
+        position: "fixed", top: "24px", right: "24px",
         padding: "10px 18px", borderRadius: "10px",
         fontSize: "13px", fontWeight: "600", fontFamily: "system-ui, sans-serif",
         zIndex: "999999", boxShadow: "0 6px 20px rgba(0,0,0,.3)",
         transition: "opacity .3s, transform .3s",
-        opacity: "0", transform: "translateY(6px)", pointerEvents: "none",
+        opacity: "0", transform: "translateY(-6px)", pointerEvents: "none",
       });
       document.body.appendChild(el);
     }
@@ -657,27 +678,9 @@
     el.style.opacity    = "1";
     el.style.transform  = "translateY(0)";
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(6px)"; },
+    el._t = setTimeout(() => { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; },
       type === "neutral" ? 8000 : 3500);
   }
 
-  // ── Popup manual fill ───────────────────────────────────────
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.action !== "ocr-fill") return;
-    const d = message.data || {};
-    scanned = {
-      nameBoxes: d.nameBoxes || distributeWords(
-        [d.firstName, d.secondName, d.thirdName, d.familyName]
-          .join(" ").split(/\s+/).filter(Boolean), 4, 15
-      ),
-      dob:       d.dob,
-      issueDate: d.issueDate,
-      gender:    d.gender,
-    };
-    saveToStorage();
-    scheduleFill();
-    sendResponse({ ok: true });
-    return true;
-  });
 
 })();

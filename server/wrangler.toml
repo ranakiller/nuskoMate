@@ -1,0 +1,13 @@
+name = "nuskomate-license"
+main = "worker.js"
+compatibility_date = "2024-09-01"
+
+# KV namespace holding your activation keys.
+# Create it once:  npx wrangler kv namespace create LICENSES
+# then paste the printed id below.
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "b644d39e609b49cc929be736f7cb5995"
+
+# OCR_SPACE_KEY is a SECRET — do NOT put it here. Set it with:
+#   npx wrangler secret put OCR_SPACE_KEY

@@ -28,14 +28,9 @@
     if (!isEnabled || !isTargetPage()) return;
     syncField('input[formcontrolname="email"]', settingsCache.email, force);
     syncField('input[formcontrolname="profession"]', "Nil", force);
-    syncField('input[formcontrolname="issueCityName"]', settingsCache.issueCityName, force);
-    syncField('input[formcontrolname="birthCityName"]', settingsCache.issueCityName, force);
+    // City of birth/issue is now filled by the OCR module from the passport text
+    // (see ocr.js fillCity) instead of a hardcoded value.
     syncField('input[numbersonly][maxlength="12"]', settingsCache.mobile, force);
-    const firstInput = document.querySelector('div[formgroupname="firstName"] input[formcontrolname="en"]');
-    const famInput = document.querySelector('div[formgroupname="familyName"] input[formcontrolname="en"]');
-    if (firstInput && famInput && firstInput.value.trim() && !famInput.value.trim()) {
-      window.simulateAngularInput(famInput, firstInput.value.trim());
-    }
     syncDropdown('p-dropdown[formcontrolname="passportTypeId"]', "Normal");
     syncDropdown('p-dropdown[formcontrolname="birthCountryId"]', "Pakistan");
     const dobInput = document.querySelector('p-calendar[formcontrolname="birthDate"] input[type="text"]');

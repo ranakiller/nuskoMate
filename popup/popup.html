@@ -6,6 +6,18 @@
   </head>
   <body>
 
+    <!-- Activation gate (covers everything until activated; only when licensing is on) -->
+    <div id="activation-gate" class="activation-gate" hidden>
+      <div class="activation-box">
+        <img src="../images/icon48.png" class="activation-logo" alt="Nuskomate" />
+        <div class="activation-title">Activate Nuskomate</div>
+        <div class="activation-sub">Enter your activation key to use the extension.</div>
+        <input type="text" id="activation-key" class="activation-input" placeholder="Activation key" autocomplete="off" />
+        <button id="activation-btn" class="activation-btn">Activate</button>
+        <div id="activation-msg" class="activation-msg"></div>
+      </div>
+    </div>
+
     <!-- Header -->
     <div class="header">
       <div class="header-left">
@@ -34,6 +46,19 @@
         </button>
       </div>
     </div>
+
+    <!-- Tab bar -->
+    <div class="tabbar">
+      <button class="tab tab-active" data-tab="modules">Modules</button>
+      <button class="tab" data-tab="passport">Passport</button>
+      <button class="tab" data-tab="logs">Logs<span class="tab-badge" id="tab-log-count"></span></button>
+      <button class="tab tab-gear" data-tab="settings" title="Settings" aria-label="Settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <!-- Panel: Modules -->
+    <div class="tab-panel tab-panel-active" id="panel-modules">
 
     <!-- Section: Modules -->
     <div class="section">
@@ -167,6 +192,32 @@
         </div>
       </div>
 
+      <!-- Batch Passport Upload -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon batch-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Batch Passports</div>
+            <div class="module-desc">Select many, auto-feed each</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-batch" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="module-extra">
+          <div class="delay-row">
+            <span class="delay-label">Delay before next</span>
+            <div class="delay-input-wrap">
+              <input type="number" id="batch-delay" min="0.5" step="0.5" value="2" />
+              <span class="delay-unit">sec</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Embassy Selector (tied to Autofill) -->
       <div class="module-card">
         <div class="module-header">
@@ -186,6 +237,10 @@
       </div>
 
     </div>
+    </div><!-- /panel-modules -->
+
+    <!-- Panel: Settings (emails, autofill fields, OCR key) -->
+    <div class="tab-panel" id="panel-settings">
 
     <!-- Section: Email Manager -->
     <div class="section">
@@ -201,15 +256,13 @@
       <!-- Saved emails list -->
       <div class="email-list" id="email-list"></div>
 
-      <!-- Export / Import -->
+      <!-- Export / Import (compact icon buttons) -->
       <div class="email-io-row">
-        <button class="email-io-text" id="export-emails">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export
+        <button class="email-io-btn" id="export-emails" title="Export emails as CSV">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
-        <label class="email-io-text">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          Import
+        <label class="email-io-btn" title="Import emails from CSV">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <input type="file" id="import-emails" accept=".csv" style="display:none;" />
         </label>
       </div>
@@ -217,7 +270,7 @@
 
     <!-- Section: Autofill Settings -->
     <div class="section">
-      <div class="section-title">Autofill Settings</div>
+      <div class="section-title">Autofill</div>
       <div class="fields-grid">
         <div class="field-group">
           <label class="field-label" for="field-mobile">
@@ -226,57 +279,126 @@
           </label>
           <input type="text" id="field-mobile" placeholder="03001234567" class="field-input" />
         </div>
+      </div>
+    </div>
 
-        <div class="field-group">
-          <label class="field-label" for="field-city">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            City
-          </label>
-          <input type="text" id="field-city" placeholder="Pakistan" class="field-input" />
+    <!-- Section: OCR -->
+    <div class="section" id="ocr-key-section">
+      <div class="section-title">OCR</div>
+      <div class="field-group">
+        <label class="field-label" for="ocr-api-key">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          OCR API key
+        </label>
+        <input type="text" id="ocr-api-key" class="field-input"
+          placeholder="Free key at ocr.space" autocomplete="off" />
+      </div>
+    </div>
+    </div><!-- /panel-settings -->
+
+    <!-- Panel: Passport -->
+    <div class="tab-panel" id="panel-passport">
+
+    <!-- Section: Bulk MRZ Parser -->
+    <div class="section">
+      <div class="section-title">Bulk Passport Parser</div>
+
+      <div class="ocr-card">
+        <label class="bulk-pick" for="bulk-file-input">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span id="bulk-pick-label">Upload passports (select many)</span>
+          <input type="file" id="bulk-file-input" accept="image/*" multiple />
+        </label>
+
+        <div id="bulk-progress" class="bulk-progress" style="display:none;">
+          <div class="bulk-bar"><div id="bulk-bar-fill" class="bulk-bar-fill"></div></div>
+          <span id="bulk-progress-text"></span>
+        </div>
+
+        <div id="bulk-table-wrap" class="bulk-table-wrap" style="display:none;">
+          <table class="bulk-table">
+            <thead>
+              <tr><th>#</th><th>Name</th><th>Passport</th><th>Nat.</th><th>Age</th><th></th></tr>
+            </thead>
+            <tbody id="bulk-tbody"></tbody>
+          </table>
+        </div>
+
+        <div id="bulk-actions" class="bulk-actions" style="display:none;">
+          <button id="bulk-dl-raw"   class="bulk-btn bulk-btn-soft">Raw data</button>
+          <button id="bulk-dl-excel" class="bulk-btn bulk-btn-primary">Download Excel</button>
+          <button id="bulk-clear"    class="bulk-btn bulk-btn-danger">Clear</button>
         </div>
       </div>
     </div>
 
-    <!-- Section: Passport OCR -->
+    <!-- Section: Passport OCR (read-only viewer) -->
     <div class="section">
-      <div class="section-title">Passport OCR</div>
+      <div class="ocr-view-header">
+        <div class="section-title" style="margin-bottom:0;">Last Scanned Passport</div>
+        <div class="ocr-view-actions">
+          <span id="ocr-scan-time" class="ocr-scan-time"></span>
+          <button id="ocr-clear" class="logs-btn logs-btn-danger" title="Clear last scanned" style="display:none;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
       <div class="ocr-card">
 
-        <!-- File picker + scan button -->
-        <div class="ocr-row">
-          <label class="ocr-pick" for="ocr-file-input">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
-            <span id="ocr-file-name">Choose passport image</span>
-            <input type="file" id="ocr-file-input" accept="image/*" />
-          </label>
-          <button id="ocr-scan-btn" class="ocr-scan-btn" disabled>Scan</button>
-        </div>
+        <!-- Live read-out of the last passport scanned on the page -->
+        <div id="ocr-empty" class="ocr-empty">Upload a passport on the page to see its details here.</div>
 
-        <!-- Optional API key -->
-        <div class="ocr-key-row">
-          <input type="text" id="ocr-api-key" class="field-input ocr-key-input"
-            placeholder="OCR API key (get free key at ocr.space)" autocomplete="off" />
-        </div>
+        <div id="ocr-view" style="display:none;">
+          <div id="ocr-badge" class="ocr-badge"></div>
 
-        <!-- Status message -->
-        <div id="ocr-status" class="ocr-status" style="display:none;"></div>
-
-        <!-- Extracted fields + fill button -->
-        <div id="ocr-results" style="display:none;">
-          <div class="ocr-fields">
-            <div class="ocr-frow"><span>Box 1</span><input id="ocr-first"  class="field-input" maxlength="15" /></div>
-            <div class="ocr-frow"><span>Box 2</span><input id="ocr-second" class="field-input" maxlength="15" /></div>
-            <div class="ocr-frow"><span>Box 3</span><input id="ocr-third"  class="field-input" maxlength="15" /></div>
-            <div class="ocr-frow"><span>Box 4</span><input id="ocr-family" class="field-input" maxlength="15" /></div>
-            <div class="ocr-frow"><span>DOB</span>   <input id="ocr-dob"    class="field-input" placeholder="YYYY-MM-DD" /></div>
-            <div class="ocr-frow"><span>Issue</span> <input id="ocr-issue"  class="field-input" placeholder="YYYY-MM-DD" /></div>
-            <div class="ocr-frow"><span>Gender</span><input id="ocr-gender" class="field-input" /></div>
+          <div class="ocr-group">
+            <div class="ocr-group-title">Person</div>
+            <div class="ocr-drow"><span>Full Name</span>   <b id="d-fullname"></b></div>
+            <div class="ocr-drow"><span>Surname</span>     <b id="d-surname"></b></div>
+            <div class="ocr-drow"><span>Given Names</span> <b id="d-given"></b></div>
+            <div class="ocr-drow"><span>Father</span>      <b id="d-father"></b></div>
+            <div class="ocr-drow"><span>City of Birth</span><b id="d-city"></b></div>
+            <div class="ocr-drow"><span>Date of Birth</span><b id="d-dob"></b></div>
+            <div class="ocr-drow"><span>Sex</span>         <b id="d-sex"></b></div>
           </div>
-          <button id="ocr-fill-btn" class="ocr-fill-btn">Fill Form</button>
+
+          <div class="ocr-group">
+            <div class="ocr-group-title">Document</div>
+            <div class="ocr-drow"><span>Type</span>        <b id="d-type"></b></div>
+            <div class="ocr-drow"><span>Passport No</span> <b id="d-passport"></b></div>
+            <div class="ocr-drow"><span>Nationality</span> <b id="d-nat"></b></div>
+            <div class="ocr-drow"><span>Issuing Country</span><b id="d-country"></b></div>
+            <div class="ocr-drow"><span>National / ID No</span><b id="d-personal"></b></div>
+            <div class="ocr-drow"><span>Issue Date</span>  <b id="d-issue"></b></div>
+            <div class="ocr-drow"><span>Expiry Date</span> <b id="d-expiry"></b></div>
+          </div>
+
+          <div class="ocr-group">
+            <div class="ocr-group-title">Form mapping (name boxes)</div>
+            <div class="ocr-drow"><span>Box 1</span><b id="d-b1"></b></div>
+            <div class="ocr-drow"><span>Box 2</span><b id="d-b2"></b></div>
+            <div class="ocr-drow"><span>Box 3</span><b id="d-b3"></b></div>
+            <div class="ocr-drow"><span>Box 4</span><b id="d-b4"></b></div>
+          </div>
+
+          <div class="ocr-group">
+            <div class="ocr-group-title">MRZ check digits</div>
+            <div id="d-checks" class="ocr-checks"></div>
+          </div>
+
+          <div class="ocr-group">
+            <div class="ocr-group-title">MRZ</div>
+            <code id="d-mrz1" class="ocr-mrz"></code>
+            <code id="d-mrz2" class="ocr-mrz"></code>
+          </div>
         </div>
 
       </div>
     </div>
+    </div><!-- /panel-passport -->
+
+    <!-- Panel: Logs -->
+    <div class="tab-panel" id="panel-logs">
 
     <!-- Section: Logs -->
     <div class="section">
@@ -296,14 +418,19 @@
         <div class="logs-empty" id="logs-empty">No logs yet</div>
       </div>
     </div>
+    </div><!-- /panel-logs -->
 
     <!-- Footer -->
     <div class="footer">
       <span>Nuskomate</span>
       <span class="footer-dot">·</span>
-      <span>v2.0</span>
+      <span>v2.1</span>
     </div>
 
+    <script src="../utils/license.js"></script>
+    <script src="../utils/passport-parser.js"></script>
+    <script src="../utils/xlsx-mini.js"></script>
     <script src="popup.js"></script>
+    <script src="bulk.js"></script>
   </body>
 </html>
