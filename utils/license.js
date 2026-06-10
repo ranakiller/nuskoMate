@@ -20,6 +20,35 @@
 
   function getKey() { return read(["licenseKey"]).then((x) => x.licenseKey || ""); }
 
+  // All network calls go through the background service worker. Its fetches are
+  // governed only by host_permissions, so they are NOT blocked by the page's
+  // Content-Security-Policy (which blocks fetch() from content scripts).
+  function send(msg) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(msg, (r) => {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: "Cannot reach the license server" });
+          } else {
+            resolve(r || { ok: false, error: "No response from background" });
+          }
+        });
+      } catch (_) {
+        resolve({ ok: false, error: "Cannot reach the license server" });
+      }
+    });
+  }
+
+  // File/Blob → base64 string (messages must be JSON-serializable).
+  function fileToB64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(new Error("read failed"));
+      r.readAsDataURL(file);
+    });
+  }
+
   // A stable per-install id so a key can be bound to a limited number of
   // devices. Generated once and kept in local storage.
   async function getDevice() {
@@ -48,23 +77,14 @@
     if (!enforced()) return { ok: true };
     key = (key || "").trim();
     if (!key) return { ok: false, error: "Enter a key" };
-    try {
-      const device = await getDevice();
-      const res = await fetch(base + "/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, device }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
-        await store({ licenseKey: key, licenseValid: true, licenseName: data.name || "", licenseCheckedAt: Date.now() });
-        return { ok: true, name: data.name };
-      }
-      await store({ licenseValid: false });
-      return { ok: false, error: data.error || "Invalid or revoked key" };
-    } catch (_) {
-      return { ok: false, error: "Cannot reach the license server" };
+    const device = await getDevice();
+    const data = await send({ type: "nkLicense", action: "activate", base, key, device });
+    if (data && data.ok) {
+      await store({ licenseKey: key, licenseValid: true, licenseName: data.name || "", licenseCheckedAt: Date.now() });
+      return { ok: true, name: data.name };
     }
+    await store({ licenseValid: false });
+    return { ok: false, error: (data && data.error) || "Invalid or revoked key" };
   }
 
   async function deactivate() {
@@ -77,17 +97,24 @@
     if (!enforced()) return { ok: false, error: "Licensing not configured" };
     const key = await getKey();
     if (!key) return { ok: false, error: "Not activated" };
-    try {
-      const device = await getDevice();
-      const fd = new FormData();
-      fd.append("file", file, file.name || "scan.jpg");
-      const res = await fetch(base + "/scan", { method: "POST", headers: { "X-License": key, "X-Device": device }, body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 403) { await store({ licenseValid: false }); } // key pulled
-      return data && typeof data === "object" ? data : { ok: false, error: "Bad server response" };
-    } catch (_) {
-      return { ok: false, error: "Cannot reach the license server" };
+    const device = await getDevice();
+
+    let fileB64;
+    try { fileB64 = await fileToB64(file); }
+    catch (_) { return { ok: false, error: "Could not read image" }; }
+
+    const r = await send({
+      type: "nkLicense", action: "scan", base, key, device,
+      fileB64, fileName: file.name || "scan.jpg", fileType: file.type || "image/jpeg",
+    });
+
+    // Background returns { status, data } for an HTTP response, or
+    // { ok:false, error } if it couldn't reach the server at all.
+    if (r && r.data) {
+      if (r.status === 403) await store({ licenseValid: false }); // key revoked / device limit
+      return (r.data && typeof r.data === "object") ? r.data : { ok: false, error: "Bad server response" };
     }
+    return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
   }
 
   window.NkLicense = { enforced, getStatus, getKey, activate, deactivate, scan };
