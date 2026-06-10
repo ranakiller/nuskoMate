@@ -145,6 +145,15 @@
       mrzExpiry = m.expiry || "";
       result.dob    = m.dob;
       result.gender = m.gender;
+
+      // Repair MRZ name tokens corrupted by "<" filler misread as letters,
+      // using the clean name printed in the visual zone (e.g. RAHMANK→RAHMAN).
+      const viz = vizWords(lines, mrz);
+      mrzGiven  = mrzGiven.map((t) => correctNameToken(t, viz));
+      mrzFamily = mrzFamily.split(/\s+/).filter(Boolean)
+                           .map((t) => correctNameToken(t, viz)).join(" ");
+      m.givenParts = mrzGiven;
+      m.familyName = mrzFamily;
     }
 
     // Issue date — the visible date that is neither DOB nor expiry (from MRZ),
@@ -556,6 +565,32 @@
     return false;
   }
 
+  // Build the set of clean words printed in the visual (non-MRZ) zone. Used to
+  // repair MRZ name tokens whose trailing char is actually misread "<" filler.
+  function vizWords(lines, mrz) {
+    const skip = new Set((mrz || []).map((l) => l.replace(/\s/g, "").toUpperCase()));
+    const set = new Set();
+    for (const ln of lines) {
+      if (skip.has(ln.replace(/\s/g, "").toUpperCase())) continue;
+      for (const w of ln.toUpperCase().split(/[^A-Z]+/)) {
+        if (w.length >= 2) set.add(w);
+      }
+    }
+    return set;
+  }
+
+  // If an MRZ name token is absent from the visual zone but trimming its last
+  // letter matches a visual-zone word, that last letter is OCR debris from the
+  // "<" padding (e.g. RAHMAN<< misread as RAHMANK<) — drop it. Conservative:
+  // only acts on tokens ≥4 chars and only when the page itself shows the
+  // shorter form, so correctly-read names (which appear verbatim) are untouched.
+  function correctNameToken(tokTitle, viz) {
+    const u = tokTitle.toUpperCase();
+    if (!u || viz.has(u)) return tokTitle;
+    if (u.length >= 4 && viz.has(u.slice(0, -1))) return toTitleCase(u.slice(0, -1));
+    return tokTitle;
+  }
+
   function parseMRZLines(l1, l2) {
     const r = { givenParts: [] };
     // Line 1: P<CCC SURNAME<<GIVEN NAMES
@@ -565,21 +600,25 @@
     const sep     = nameStr.indexOf("<<");
     let famRaw = sep >= 0 ? nameStr.slice(0, sep) : nameStr;
     let givRaw = sep >= 0 ? nameStr.slice(sep + 2) : "";
+
+    let givenParts = givRaw.replace(/<+$/, "").split("<")
+                           .filter((t) => t && !isGarbageToken(t)).map(toTitleCase);
     // OCR frequently misreads the "<<" surname/given separator as a single "<"
-    // (or a stray letter), so the real split is lost and the first "<<" we find
-    // is just trailing padding — dumping both names into famRaw. Detect that
-    // (no given name, but an internal "<" survives) and re-split: first token
-    // is the surname, the rest are given names.
-    if (famRaw.includes("<") && !givRaw.replace(/</g, "").trim()) {
+    // (or a stray letter), so the real split is lost and the "<<" we found is
+    // just trailing padding — dumping both names into famRaw. Detect that (no
+    // VALID given name survived, but an internal "<" remains in famRaw) and
+    // re-split: first token = surname, the rest = given names. This also covers
+    // the case where the given side is present but pure OCR garbage (e.g. the
+    // "<" padding misread as "SKKKKKK…").
+    if (!givenParts.length && famRaw.replace(/<+$/, "").includes("<")) {
       const toks = famRaw.replace(/<+$/, "").split("<").filter(Boolean);
       famRaw = toks[0] || "";
-      givRaw = toks.slice(1).join("<");
+      givenParts = toks.slice(1).filter((t) => !isGarbageToken(t)).map(toTitleCase);
     }
     r.familyName = famRaw.replace(/</g, " ").trim()
                          .split(/\s+/).filter((w) => w && !isGarbageToken(w))
                          .map(toTitleCase).join(" ");
-    r.givenParts = givRaw.replace(/<+$/, "").split("<")
-                         .filter((t) => t && !isGarbageToken(t)).map(toTitleCase);
+    r.givenParts = givenParts;
     // Line 2: passportNo(9) chk natl(3) dob(6) chk sex expiry(6) chk personal(14) …
     r.passportNo  = l2.slice(0, 9).replace(/</g, "");
     r.nationality = l2.slice(10, 13).replace(/</g, "");
