@@ -181,9 +181,12 @@
     clearTimeout(debounceTimer);
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleTranslate"], (result) => {
     if (result.extensionEnabled === false) return;
-    isEnabled = !!result.moduleTranslate;
+    isEnabled = !!result.moduleTranslate && premiumOK();
     if (isEnabled) startModule();
   });
 
@@ -192,8 +195,16 @@
       if (changes.extensionEnabled && !changes.extensionEnabled.newValue) { isEnabled = false; stopModule(); return; }
     }
     if (namespace === "local" && changes.moduleTranslate) {
-      isEnabled = !!changes.moduleTranslate.newValue;
+      isEnabled = !!changes.moduleTranslate.newValue && premiumOK();
       isEnabled ? startModule() : stopModule();
     }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleTranslate"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleTranslate && premiumOK();
+      isEnabled ? startModule() : stopModule();
+    });
   });
 })();

@@ -9,6 +9,7 @@
   };
 
   let isEnabled       = true;
+  let fatherEnabled   = true; // Father Name module: ON = fill name boxes from OCR; OFF = leave Masar's own MRZ names
   let scanned         = {};
   let fillTimer       = null;
   let calcTimer       = null;
@@ -19,19 +20,33 @@
   let started         = false;
 
   // ── Lifecycle ───────────────────────────────────────────────
-  chrome.storage.local.get(["extensionEnabled", "moduleOcr"], (res) => {
+  // Premium feature — requires an active license (free tier = Autofill only).
+  // (The scan itself is also server-gated, so this is defence-in-depth.)
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
+  chrome.storage.local.get(["extensionEnabled", "moduleOcr", "moduleFatherName"], (res) => {
+    fatherEnabled = res.moduleFatherName !== false;
     if (res.extensionEnabled === false) { isEnabled = false; return; }
-    isEnabled = res.moduleOcr !== false;
+    isEnabled = res.moduleOcr !== false && premiumOK();
     if (isEnabled) start();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
+    if (changes.moduleFatherName !== undefined) fatherEnabled = changes.moduleFatherName.newValue !== false;
     if (changes.extensionEnabled && !changes.extensionEnabled.newValue) { isEnabled = false; stop(); return; }
     if (changes.moduleOcr !== undefined) {
-      isEnabled = changes.moduleOcr.newValue !== false;
+      isEnabled = changes.moduleOcr.newValue !== false && premiumOK();
       isEnabled ? start() : stop();
     }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleOcr"], (r) => {
+      isEnabled = r.extensionEnabled !== false && r.moduleOcr !== false && premiumOK();
+      isEnabled ? start() : stop();
+    });
   });
 
   function start() {
@@ -50,7 +65,6 @@
       clearInterval(calcTimer);
       log.info("[Nuskomate OCR] issue date released to manual control");
     };
-    log.info("[Nuskomate OCR] started");
   }
 
   function stop() {
@@ -131,7 +145,7 @@
     toast("Scanning passport…", "neutral");
 
     try {
-      let data;
+      let data, raw = "";
 
       if (window.NkLicense && window.NkLicense.enforced()) {
         // ── Licensed mode: the server validates the key, OCRs, AND parses ──
@@ -142,12 +156,14 @@
           return;
         }
         data = r.result;
+        raw  = r.raw || "";
         log.info("[Nuskomate OCR] server raw text:\n", r.raw);
         log.info("[Nuskomate OCR] server parsed:", data);
       } else {
         // ── Dev mode: OCR + parse locally ──
         const apiKey = await getApiKey();
         const text = await callOCR(file, apiKey);
+        raw = text;
         log.info("[Nuskomate OCR] raw text:\n", text);
         data = parsePassport(text);
         log.info("[Nuskomate OCR] parsed:", data);
@@ -161,7 +177,9 @@
             try {
               const text2 = await callOCR(enhanced, apiKey);
               const data2 = parsePassport(text2);
-              data = pickBetterScan(data, data2);
+              const better = pickBetterScan(data, data2);
+              if (better === data2) raw = text2;
+              data = better;
               log.info("[Nuskomate OCR] using", data === data2 ? "ENHANCED" : "ORIGINAL", "result");
             } catch (e2) {
               log.warn("[Nuskomate OCR] enhanced pass failed:", e2.message);
@@ -184,6 +202,7 @@
       if (data.nameBoxes?.some(b => b)) {
         scanned = data;
         saveToStorage();
+        appendToBulkHistory(data, raw); // mirror page scans into the bulk list
         scheduleFill();
 
         if (data.issueDate) {
@@ -203,6 +222,30 @@
       log.error("[Nuskomate OCR] error:", err);
       toast("✗ OCR failed: " + err.message, "err");
     }
+  }
+
+  // Mirror a page scan into the same persistent list the Bulk Parser uses, so
+  // passports scanned one-by-one on masar also build a saveable/exportable list.
+  // One row per passport number: a re-scan updates the existing row in place.
+  function appendToBulkHistory(data, raw) {
+    const HISTORY_KEY = "bulkResults";
+    const CAP = 10000;
+    const details = (data && data.details) || {};
+    const pno = details.passportNo || "";
+    const entry = {
+      file: details.fullName || pno || "masar scan",
+      details,
+      raw: raw || "",
+      ok: !!(pno || details.fullName),
+    };
+    chrome.storage.local.get([HISTORY_KEY], (x) => {
+      let list = Array.isArray(x[HISTORY_KEY]) ? x[HISTORY_KEY] : [];
+      const idx = pno ? list.findIndex((e) => e && e.details && e.details.passportNo === pno) : -1;
+      if (idx >= 0) list[idx] = entry;
+      else list.push(entry);
+      if (list.length > CAP) list = list.slice(-CAP);
+      chrome.storage.local.set({ [HISTORY_KEY]: list });
+    });
   }
 
   // ── Fill form ───────────────────────────────────────────────
@@ -276,7 +319,9 @@
     // re-assert every tick until all boxes are correct and stable.
     let allBoxesCorrect = true;
     const snapshot = []; // diagnostic: state of each box this tick
-    (scanned.nameBoxes || []).forEach((val, i) => {
+    // Father Name module OFF → don't fill any name box; let Masar's own MRZ
+    // auto-fill stand. (Issue date / city / warnings below still run.)
+    (fatherEnabled ? (scanned.nameBoxes || []) : []).forEach((val, i) => {
       const sel = BOX_SEL[i];
       if (!sel) return;
       const want = val ?? "";
@@ -322,8 +367,13 @@
   // Fill every city field (any formcontrolname containing "city") with the
   // place-of-birth city extracted from the passport.
   function fillCity() {
-    const city = scanned.birthCity;
-    if (!city) return;
+    // Only act once a passport has actually been scanned — never touch city
+    // fields on a blank page.
+    const hasScan = !!(scanned && (scanned.birthCity || scanned.details ||
+                       scanned.nameBoxes?.some((b) => b)));
+    if (!hasScan) return;
+    // If OCR couldn't read the place of birth, fall back to "Pakistan".
+    const city = scanned.birthCity || "Pakistan";
     let any = false;
     document.querySelectorAll("input[formcontrolname]").forEach((inp) => {
       if (!/city/i.test(inp.getAttribute("formcontrolname") || "")) return;

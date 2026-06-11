@@ -18,6 +18,28 @@
   function store(obj) { return new Promise((r) => chrome.storage.local.set(obj, r)); }
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
 
+  // ── Activation cache (for gating premium content-script modules) ──────────
+  // Fail-closed: in enforced mode we assume NOT activated until storage confirms
+  // a valid license, so premium modules stay off by default.
+  let _activated = !enforced();
+  const _premiumSubs = [];
+  function _applyActivation(v) {
+    v = !!v;
+    if (v === _activated) return;
+    _activated = v;
+    _premiumSubs.forEach((f) => { try { f(_activated); } catch (_) {} });
+  }
+  function refreshActivation() {
+    read(["licenseValid"]).then((x) => _applyActivation(enforced() ? !!x.licenseValid : true));
+  }
+  const isActivated  = () => _activated;
+  const premiumOK    = () => !enforced() || _activated;          // may premium features run?
+  const onPremiumChange = (cb) => { if (typeof cb === "function") _premiumSubs.push(cb); };
+  refreshActivation();
+  chrome.storage.onChanged.addListener((c, a) => {
+    if (a === "local" && c.licenseValid !== undefined) refreshActivation();
+  });
+
   function getKey() { return read(["licenseKey"]).then((x) => x.licenseKey || ""); }
 
   // All network calls go through the background service worker. Its fetches are
@@ -117,5 +139,8 @@
     return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
   }
 
-  window.NkLicense = { enforced, getStatus, getKey, activate, deactivate, scan };
+  window.NkLicense = {
+    enforced, getStatus, getKey, activate, deactivate, scan,
+    isActivated, premiumOK, onPremiumChange,
+  };
 })();

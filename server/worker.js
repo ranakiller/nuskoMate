@@ -33,9 +33,10 @@ const DEFAULT_SEATS = 2;
 
 // Load a key's record. A KV value can be either:
 //   • a JSON object  {name, seats, devices}        (full record)
+//   • a JSON object  {name, master:true}           (MASTER — unlimited devices)
 //   • a plain string "Ali Travels"                 (legacy → default seats)
 //   • the word       "revoked"                      (disabled)
-// Returns a normalized {name, seats, devices} object, or null if invalid.
+// Returns a normalized {name, seats, devices, master} object, or null if invalid.
 async function getRecord(env, key) {
   if (!key || !env.LICENSES) return null;
   const raw = await env.LICENSES.get(key.trim());
@@ -49,12 +50,14 @@ async function getRecord(env, key) {
   if (typeof rec.seats !== "number" || rec.seats < 1) rec.seats = DEFAULT_SEATS;
   if (!Array.isArray(rec.devices)) rec.devices = [];
   if (!rec.name) rec.name = "active";
+  rec.master = !!rec.master;
   return rec;
 }
 
 // Decide whether this device may use the key, registering it if there's room.
 // Mutates rec.devices when a new device is admitted (caller persists it).
 function admitDevice(rec, device) {
+  if (rec.master) return { ok: true, changed: false }; // master key = unlimited, no tracking
   device = (device || "").trim();
   if (!device) return { ok: false, error: "Missing device id" };
   if (rec.devices.includes(device)) return { ok: true, changed: false };

@@ -98,9 +98,12 @@
     uploadVaccine();
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleVaccineUpload"], (res) => {
     if (res.extensionEnabled === false) return;
-    isEnabled = !!res.moduleVaccineUpload;
+    isEnabled = !!res.moduleVaccineUpload && premiumOK();
     if (isEnabled) start();
   });
 
@@ -109,14 +112,22 @@
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { isEnabled = false; stop(); return; }
       chrome.storage.local.get(["moduleVaccineUpload"], (r) => {
-        isEnabled = !!r.moduleVaccineUpload;
+        isEnabled = !!r.moduleVaccineUpload && premiumOK();
         isEnabled ? start() : stop();
       });
       return;
     }
     if (changes.moduleVaccineUpload) {
-      isEnabled = !!changes.moduleVaccineUpload.newValue;
+      isEnabled = !!changes.moduleVaccineUpload.newValue && premiumOK();
       isEnabled ? start() : stop();
     }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleVaccineUpload"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleVaccineUpload && premiumOK();
+      isEnabled ? start() : stop();
+    });
   });
 })();

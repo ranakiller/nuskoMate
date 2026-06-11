@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "nkLogs";
-  const MAX_ENTRIES = 500; // cap to keep storage small; user clears manually
+  const MAX_ENTRIES = 10000; // rolling cap; oldest drop off, newest kept
 
   let buffer    = [];
   let seeded    = false;

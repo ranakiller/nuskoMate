@@ -1,39 +1,109 @@
 document.addEventListener("DOMContentLoaded", () => {
 
-  // ── Activation gate ─────────────────────────────────────────
-  // Only shown when licensing is configured (utils/license.js → LICENSE_SERVER
-  // set) AND the user hasn't activated yet. In dev mode it stays hidden.
+  // ── Activation / freemium ───────────────────────────────────
+  // Free tier (no key) = Autofill only. Everything else is premium and stays
+  // locked, with a "pay to enjoy full features" upsell, until a valid key is
+  // entered here in Settings. The crown-jewel features (OCR/parse) are ALSO
+  // enforced server-side, so they cannot be used without paying.
   (function () {
-    const gate   = document.getElementById("activation-gate");
-    const keyIn  = document.getElementById("activation-key");
-    const btn    = document.getElementById("activation-btn");
-    const msg    = document.getElementById("activation-msg");
-    if (!gate || !window.NkLicense) return;
+    if (!window.NkLicense) return;
+    const keyIn      = document.getElementById("act-key");
+    const eye        = document.getElementById("act-eye");
+    const activateBt = document.getElementById("act-activate");
+    const deactivate = document.getElementById("act-deactivate");
+    const entry      = document.getElementById("act-entry");
+    const msg        = document.getElementById("act-msg");
+    const dot        = document.getElementById("act-dot");
+    const statusText = document.getElementById("act-status-text");
+    const upsell     = document.getElementById("premium-upsell");
+    const ppContent  = document.getElementById("passport-content");
+    const upsellBtn  = document.getElementById("premium-upsell-btn");
 
-    const showGate = (show) => { gate.hidden = !show; };
+    // Premium module toggles (everything except Autofill).
+    const PREMIUM_TOGGLES = [
+      "toggle-reload", "toggle-overlay", "toggle-translate", "toggle-issue-date",
+      "toggle-vaccine", "toggle-ocr", "toggle-father", "toggle-batch",
+    ];
 
-    window.NkLicense.getStatus().then((st) => {
-      if (st.enforced && !st.activated) showGate(true);
-    });
+    function applyLocks(activated) {
+      // Lock/unlock premium module cards
+      PREMIUM_TOGGLES.forEach((id) => {
+        const el = document.getElementById(id);
+        const card = el && el.closest(".module-card");
+        if (!card) return;
+        card.classList.toggle("module-locked", !activated);
+        if (el) el.disabled = !activated;
+      });
+      // Passport tab: show upsell instead of the tools when locked
+      if (upsell)    upsell.style.display    = activated ? "none" : "block";
+      if (ppContent) ppContent.style.display = activated ? ""     : "none";
+    }
 
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
+    function renderStatus(st) {
+      const activated = st.activated;
+      if (dot) dot.classList.toggle("on", activated);
+      if (statusText) {
+        statusText.textContent = activated
+          ? (st.name ? `Premium active — ${st.name}` : "Premium active")
+          : "Free plan — Autofill only";
+      }
+      if (entry)      entry.style.display      = activated ? "none" : "flex";
+      if (deactivate) deactivate.style.display = activated ? "block" : "none";
+      applyLocks(activated);
+    }
+
+    function refresh() { window.NkLicense.getStatus().then(renderStatus); }
+
+    // Eye toggle: reveal/hide the key (password field)
+    if (eye && keyIn) {
+      eye.addEventListener("click", () => {
+        keyIn.type = keyIn.type === "password" ? "text" : "password";
+        eye.classList.toggle("on", keyIn.type === "text");
+      });
+    }
+
+    async function doActivate() {
+      activateBt.disabled = true;
       msg.textContent = "Activating…";
-      msg.className = "activation-msg";
+      msg.className = "act-msg";
       const r = await window.NkLicense.activate(keyIn.value);
+      activateBt.disabled = false;
       if (r.ok) {
-        msg.textContent = "✓ Activated" + (r.name ? " — " + r.name : "");
-        msg.className = "activation-msg ok";
-        setTimeout(() => showGate(false), 700);
+        msg.textContent = "✓ Activated" + (r.name ? ` — ${r.name}` : "");
+        msg.className = "act-msg ok";
+        keyIn.value = "";
+        refresh();
       } else {
         msg.textContent = "✗ " + (r.error || "Activation failed");
-        msg.className = "activation-msg err";
-        btn.disabled = false;
+        msg.className = "act-msg err";
       }
+    }
+
+    if (activateBt) activateBt.addEventListener("click", doActivate);
+    if (keyIn) keyIn.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); doActivate(); }
     });
-    keyIn.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); btn.click(); }
+
+    if (deactivate) deactivate.addEventListener("click", async () => {
+      if (!confirm("Deactivate premium on this device? It frees the seat for another device.")) return;
+      await window.NkLicense.deactivate();
+      msg.textContent = "Deactivated"; msg.className = "act-msg";
+      refresh();
     });
+
+    // Upsell button → jump to Settings so the user can enter a key
+    if (upsellBtn) upsellBtn.addEventListener("click", () => {
+      const tab = document.querySelector('[data-tab="settings"]');
+      if (tab) tab.click();
+      setTimeout(() => keyIn && keyIn.focus(), 50);
+    });
+
+    // Keep the UI in sync if activation changes elsewhere
+    chrome.storage.onChanged.addListener((c, a) => {
+      if (a === "local" && c.licenseValid !== undefined) refresh();
+    });
+
+    refresh();
   })();
 
   // ── Theme ───────────────────────────────────────────────────
@@ -116,6 +186,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-issue-date", key: "moduleIssueDateCalc"  },
     { id: "toggle-vaccine",    key: "moduleVaccineUpload"  },
     { id: "toggle-ocr",       key: "moduleOcr"            },
+    { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
   ];
 
@@ -125,7 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // — except Issue Date Calc, which defaults OFF.
   const defaultOnKeys = new Set([
     "moduleReload", "moduleDisableOverlay", "moduleAutofill",
-    "moduleTranslate", "moduleVaccineUpload", "moduleOcr",
+    "moduleTranslate", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
   ]);
 
   toggles.forEach(({ id, key }) => {
@@ -207,6 +278,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const logsEmpty   = document.getElementById("logs-empty");
   const logsCount   = document.getElementById("logs-count");
   const logsRefresh = document.getElementById("logs-refresh");
+  const logsCopy    = document.getElementById("logs-copy");
   const logsClear   = document.getElementById("logs-clear");
 
   function fmtLogTime(ts) {
@@ -251,6 +323,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   logsRefresh.addEventListener("click", loadLogs);
+
+  logsCopy.addEventListener("click", () => {
+    chrome.storage.local.get([LOGS_KEY], (res) => {
+      const logs = Array.isArray(res[LOGS_KEY]) ? res[LOGS_KEY] : [];
+      if (!logs.length) { showToast("No logs to copy"); return; }
+      // Chronological (oldest → newest), with a level tag for warn/error.
+      const text = logs.map((e) => {
+        const tag = e.lvl === "warn" ? " [WARN]" : e.lvl === "error" ? " [ERROR]" : "";
+        return `${fmtLogTime(e.t)}${tag} ${e.m}`;
+      }).join("\n");
+      navigator.clipboard.writeText(text)
+        .then(() => showToast(`✓ Copied ${logs.length} logs`))
+        .catch(() => showToast("✗ Copy failed"));
+    });
+  });
 
   logsClear.addEventListener("click", () => {
     chrome.storage.local.set({ [LOGS_KEY]: [] }, () => {

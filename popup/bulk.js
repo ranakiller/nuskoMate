@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let results = [];            // { file, details, raw, ok }
   const HISTORY_KEY = "bulkResults";
-  const CAP = 500;             // persisted rolling history (≥ the 50 you asked for)
+  const CAP = 10000;           // persisted rolling history (oldest drop off)
 
   function saveHistory() {
     chrome.storage.local.set({ [HISTORY_KEY]: results.slice(-CAP) });
@@ -67,8 +67,8 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.appendChild(tr);
   }
 
-  fileInput.addEventListener("change", async (e) => {
-    const files = [...e.target.files]
+  async function processFiles(fileList) {
+    const files = [...fileList]
       .filter((f) => f.type.startsWith("image/"))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
     if (!files.length) return;
@@ -128,6 +128,31 @@ document.addEventListener("DOMContentLoaded", () => {
     actions.style.display = "flex";
     fileInput.disabled = false;
     fileInput.value = "";
+  }
+
+  // Pick via the file dialog
+  fileInput.addEventListener("change", (e) => processFiles(e.target.files));
+
+  // Drag & drop: accept images dropped anywhere on the popup (or on the button)
+  const dropZone = document.querySelector(".bulk-pick");
+  document.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    if (dropZone) dropZone.classList.add("drag-over");
+  });
+  document.addEventListener("dragleave", (e) => {
+    // Only clear the highlight when the cursor leaves the window entirely
+    if (e.relatedTarget === null && dropZone) dropZone.classList.remove("drag-over");
+  });
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (dropZone) dropZone.classList.remove("drag-over");
+    const dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    // Jump to the Passport tab so the user sees the results build up
+    const tab = document.querySelector('[data-tab="passport"]');
+    if (tab) tab.click();
+    processFiles(dt.files);
   });
 
   // ── Exports ─────────────────────────────────────────────────

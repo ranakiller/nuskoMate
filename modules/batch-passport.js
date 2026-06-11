@@ -318,7 +318,6 @@
     pollTimer = setInterval(() => { enableMultiple(); tick(); }, 1000);
     enableMultiple();
     updatePanel();
-    log.info("[Nuskomate Batch] started");
   }
 
   function stop() {
@@ -334,10 +333,13 @@
     settleMs = Math.max(MIN_SETTLE, (Number.isFinite(s) ? s : 2) * 1000);
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleBatchUpload", "batchDelay"], (res) => {
     applyDelay(res.batchDelay ?? 2);
     if (res.extensionEnabled === false) return;
-    isEnabled = !!res.moduleBatchUpload;
+    isEnabled = !!res.moduleBatchUpload && premiumOK();
     if (isEnabled) start();
   });
 
@@ -347,14 +349,22 @@
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { isEnabled = false; stop(); return; }
       chrome.storage.local.get(["moduleBatchUpload"], (r) => {
-        isEnabled = !!r.moduleBatchUpload;
+        isEnabled = !!r.moduleBatchUpload && premiumOK();
         isEnabled ? start() : stop();
       });
       return;
     }
     if (changes.moduleBatchUpload) {
-      isEnabled = !!changes.moduleBatchUpload.newValue;
+      isEnabled = !!changes.moduleBatchUpload.newValue && premiumOK();
       isEnabled ? start() : stop();
     }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleBatchUpload"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleBatchUpload && premiumOK();
+      isEnabled ? start() : stop();
+    });
   });
 })();

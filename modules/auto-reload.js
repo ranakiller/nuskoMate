@@ -27,9 +27,12 @@
     clearTimeout(reloadTimer);
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleReload", "reloadInterval"], (result) => {
     if (result.extensionEnabled === false) return;
-    isEnabled = !!result.moduleReload;
+    isEnabled = !!result.moduleReload && premiumOK();
     reloadIntervalMinutes = result.reloadInterval || 1.5;
     if (isEnabled) scheduleReload();
   });
@@ -38,11 +41,19 @@
     if (namespace !== "local") return;
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { stop(); return; }
-      else { chrome.storage.local.get(["moduleReload","reloadInterval"], (r) => { isEnabled = !!r.moduleReload; reloadIntervalMinutes = r.reloadInterval || 1.5; if (isEnabled) scheduleReload(); }); return; }
+      else { chrome.storage.local.get(["moduleReload","reloadInterval"], (r) => { isEnabled = !!r.moduleReload && premiumOK(); reloadIntervalMinutes = r.reloadInterval || 1.5; if (isEnabled) scheduleReload(); }); return; }
     }
-    if (changes.moduleReload) isEnabled = !!changes.moduleReload.newValue;
+    if (changes.moduleReload) isEnabled = !!changes.moduleReload.newValue && premiumOK();
     if (changes.reloadInterval) reloadIntervalMinutes = changes.reloadInterval.newValue;
     isEnabled ? scheduleReload() : stop();
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleReload"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleReload && premiumOK();
+      isEnabled ? scheduleReload() : stop();
+    });
   });
 
   document.addEventListener("visibilitychange", () => {

@@ -20,9 +20,12 @@
     if (observer) { observer.disconnect(); observer = null; }
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleDisableOverlay"], (res) => {
     if (res.extensionEnabled === false) return;
-    isEnabled = !!res.moduleDisableOverlay;
+    isEnabled = !!res.moduleDisableOverlay && premiumOK();
     if (isEnabled) start();
   });
 
@@ -30,11 +33,19 @@
     if (area !== "local") return;
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { stop(); return; }
-      else { chrome.storage.local.get(["moduleDisableOverlay"], (r) => { isEnabled = !!r.moduleDisableOverlay; if (isEnabled) start(); }); return; }
+      else { chrome.storage.local.get(["moduleDisableOverlay"], (r) => { isEnabled = !!r.moduleDisableOverlay && premiumOK(); if (isEnabled) start(); }); return; }
     }
     if (changes.moduleDisableOverlay) {
-      isEnabled = !!changes.moduleDisableOverlay.newValue;
+      isEnabled = !!changes.moduleDisableOverlay.newValue && premiumOK();
       isEnabled ? start() : stop();
     }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleDisableOverlay"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleDisableOverlay && premiumOK();
+      isEnabled ? start() : stop();
+    });
   });
 })();

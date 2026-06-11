@@ -6,18 +6,6 @@
   </head>
   <body>
 
-    <!-- Activation gate (covers everything until activated; only when licensing is on) -->
-    <div id="activation-gate" class="activation-gate" hidden>
-      <div class="activation-box">
-        <img src="../images/icon48.png" class="activation-logo" alt="Nuskomate" />
-        <div class="activation-title">Activate Nuskomate</div>
-        <div class="activation-sub">Enter your activation key to use the extension.</div>
-        <input type="text" id="activation-key" class="activation-input" placeholder="Activation key" autocomplete="off" />
-        <button id="activation-btn" class="activation-btn">Activate</button>
-        <div id="activation-msg" class="activation-msg"></div>
-      </div>
-    </div>
-
     <!-- Header -->
     <div class="header">
       <div class="header-left">
@@ -192,6 +180,23 @@
         </div>
       </div>
 
+      <!-- Father Name (fill name boxes from OCR) -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon ocr-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Father Name</div>
+            <div class="module-desc">Fill names from OCR (off: keep Masar's)</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-father" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
       <!-- Batch Passport Upload -->
       <div class="module-card">
         <div class="module-header">
@@ -241,6 +246,31 @@
 
     <!-- Panel: Settings (emails, autofill fields, OCR key) -->
     <div class="tab-panel" id="panel-settings">
+
+    <!-- Section: Activation -->
+    <div class="section">
+      <div class="section-title">Activation</div>
+      <div class="act-status" id="act-status">
+        <span class="act-dot" id="act-dot"></span>
+        <span id="act-status-text">Free plan — Autofill only</span>
+      </div>
+
+      <!-- Enter key (hidden like a password, eye toggles visibility) -->
+      <div class="act-row" id="act-entry">
+        <div class="act-input-wrap">
+          <input type="password" id="act-key" class="act-input" placeholder="Activation key" autocomplete="off" spellcheck="false" />
+          <button type="button" id="act-eye" class="act-eye" title="Show / hide key" aria-label="Show key">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <button id="act-activate" class="act-btn">Activate</button>
+      </div>
+
+      <!-- Active state: deactivate -->
+      <button id="act-deactivate" class="act-deactivate" style="display:none;">Deactivate this device</button>
+
+      <div id="act-msg" class="act-msg"></div>
+    </div>
 
     <!-- Section: Email Manager -->
     <div class="section">
@@ -298,6 +328,18 @@
 
     <!-- Panel: Passport -->
     <div class="tab-panel" id="panel-passport">
+
+    <!-- Premium upsell (shown when not activated) -->
+    <div id="premium-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Pay to enjoy full features</div>
+      <div class="premium-upsell-text">Passport OCR, bulk &amp; batch parsing, translation, and more are premium. Enter your activation key in <b>Settings</b> to unlock everything.</div>
+      <button id="premium-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="passport-content">
 
     <!-- Section: Bulk MRZ Parser -->
     <div class="section">
@@ -395,6 +437,7 @@
 
       </div>
     </div>
+    </div><!-- /passport-content -->
     </div><!-- /panel-passport -->
 
     <!-- Panel: Logs -->
@@ -408,6 +451,9 @@
           <span class="logs-count" id="logs-count">0</span>
           <button class="logs-btn" id="logs-refresh" title="Refresh">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <button class="logs-btn" id="logs-copy" title="Copy all logs">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           </button>
           <button class="logs-btn logs-btn-danger" id="logs-clear" title="Clear all logs">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>

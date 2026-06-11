@@ -398,9 +398,12 @@
     removeWidget();
   }
 
+  // Premium feature — requires an active license (free tier = Autofill only).
+  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+
   chrome.storage.local.get(["extensionEnabled", "moduleIssueDateCalc"], (res) => {
     if (res.extensionEnabled === false) return;
-    isEnabled = !!res.moduleIssueDateCalc;
+    isEnabled = !!res.moduleIssueDateCalc && premiumOK();
     start();
   });
 
@@ -408,8 +411,16 @@
     if (area !== "local") return;
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { stop(); return; }
-      else { chrome.storage.local.get(["moduleIssueDateCalc"], (r) => { isEnabled = !!r.moduleIssueDateCalc; start(); }); return; }
+      else { chrome.storage.local.get(["moduleIssueDateCalc"], (r) => { isEnabled = !!r.moduleIssueDateCalc && premiumOK(); start(); }); return; }
     }
-    if (changes.moduleIssueDateCalc) { isEnabled = !!changes.moduleIssueDateCalc.newValue; if (isEnabled) handleDateLogic(); else removeWidget(); }
+    if (changes.moduleIssueDateCalc) { isEnabled = !!changes.moduleIssueDateCalc.newValue && premiumOK(); if (isEnabled) handleDateLogic(); else removeWidget(); }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleIssueDateCalc"], (r) => {
+      isEnabled = r.extensionEnabled !== false && !!r.moduleIssueDateCalc && premiumOK();
+      if (isEnabled) handleDateLogic(); else removeWidget();
+    });
   });
 })();

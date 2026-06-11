@@ -46,10 +46,34 @@
     return days > 0 ? days : null;
   }
 
+  // Approximate "autofit" column widths from cell content (in character units,
+  // matching how Excel measures width). Date cells render as "dd-mmm-yy" (9
+  // chars) regardless of the stored serial. Padded a little and clamped.
+  function colWidths(rows, dateCols) {
+    const dc = new Set(dateCols || []);
+    const widths = [];
+    rows.forEach((row, r) => {
+      row.forEach((val, c) => {
+        const len = (r > 0 && dc.has(c)) ? 9 : String(val == null ? "" : val).length;
+        if (len > (widths[c] || 0)) widths[c] = len;
+      });
+    });
+    return widths.map((w) => Math.min(Math.max((w || 0) + 2, 6), 60));
+  }
+
   // ── Worksheet / workbook XML ────────────────────────────────
   // dateCols = column indices whose DATA cells are dates (style s="1", dd-mmm-yy).
   function sheetXml(rows, dateCols) {
     const dc = new Set(dateCols || []);
+
+    // <cols> must come before <sheetData>. Mark each column customWidth+bestFit
+    // so it opens already fitted to its content.
+    const widths = colWidths(rows, dateCols);
+    const colsXml = widths.length
+      ? `<cols>${widths.map((w, i) =>
+          `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1" bestFit="1"/>`).join("")}</cols>`
+      : "";
+
     let body = "";
     rows.forEach((row, r) => {
       let cells = "";
@@ -66,7 +90,7 @@
     });
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-      `<sheetData>${body}</sheetData></worksheet>`;
+      `${colsXml}<sheetData>${body}</sheetData></worksheet>`;
   }
 
   const FILES_BASE = {
@@ -99,7 +123,7 @@
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
       `<numFmts count="1"><numFmt numFmtId="164" formatCode="dd-mmm-yy"/></numFmts>` +
-      `<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>` +
+      `<fonts count="1"><font><sz val="10"/><name val="Consolas"/></font></fonts>` +
       `<fills count="1"><fill><patternFill patternType="none"/></fill></fills>` +
       `<borders count="1"><border/></borders>` +
       `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
