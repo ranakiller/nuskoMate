@@ -524,24 +524,36 @@
       // OCR routinely misreads the MRZ "<" filler as "&" (and the type/country
       // "P<" as "P&"). Those stray chars otherwise fail the MRZ char test and
       // make us reject an entire valid MRZ — normalise them back to "<".
-      const l = raw.replace(/\s/g, "").toUpperCase().replace(/&/g, "<");
+      let l = raw.replace(/\s/g, "").toUpperCase().replace(/&/g, "<");
       if (!l) continue;
+      // If a line is MOSTLY MRZ characters, coerce the few stray ones (".", "/",
+      // non-ASCII OCR noise, etc.) to "<" filler instead of rejecting the whole
+      // line. A scattered dot in the "<" padding must not lose the entire MRZ.
+      const clean = l.replace(/[^A-Z0-9<]/g, "");
+      if (clean.length >= l.length * 0.7) l = l.replace(/[^A-Z0-9<]/g, "<");
       // A pure-"<" fragment is dropped padding → reattach to the previous line
       if (/^<+$/.test(l) && merged.length) merged[merged.length - 1] += l;
       else merged.push(l);
     }
 
-    const mrzChars = /^[A-Z0-9<]+$/;
     // Line 2 signature: passportNo(9) + checkdigit + nationality(3) + dob(6)…
     const line2Re = /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9<]{6}/;
+    // Line 1: starts with the canonical "P<" (type P + filler) and carries the
+    // surname/given "<<" separator. This is specific enough to never match a
+    // place-of-birth line like "PAKPATTAN<PAK" or a line-2 data row.
+    const isL1 = (s) => s.length >= 10 && /^P</.test(s) && s.includes("<<");
+    const isL2 = (s) => s.length >= 28 && line2Re.test(s);
 
-    for (let i = 0; i < merged.length - 1; i++) {
-      const l1 = merged[i], l2 = merged[i + 1];
-      if (!mrzChars.test(l1) || !mrzChars.test(l2)) continue;
-      // line 1 = passport type "P" + contains name separators; line 2 = data row
-      if (l1[0] === "P" && l1.includes("<") && l2.length >= 28 && line2Re.test(l2)) {
-        return [l1.padEnd(44, "<").slice(0, 44), l2.padEnd(44, "<").slice(0, 44)];
-      }
+    // Pick the first line-1 and first line-2 found ANYWHERE in the block — this
+    // tolerates rotated/landscape scans where the data line is printed before
+    // the name line, and ignores stray text lines sitting between them.
+    let l1 = null, l2 = null;
+    for (const s of merged) {
+      if (!l1 && isL1(s)) l1 = s;
+      else if (!l2 && isL2(s)) l2 = s;
+    }
+    if (l1 && l2) {
+      return [l1.padEnd(44, "<").slice(0, 44), l2.padEnd(44, "<").slice(0, 44)];
     }
     return null;
   }
