@@ -333,8 +333,8 @@
     settleMs = Math.max(MIN_SETTLE, (Number.isFinite(s) ? s : 2) * 1000);
   }
 
-  // Premium feature — requires an active license (free tier = Autofill only).
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  // Premium feature — requires a license that includes this tool.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("batch");
 
   chrome.storage.local.get(["extensionEnabled", "moduleBatchUpload", "batchDelay"], (res) => {
     applyDelay(res.batchDelay ?? 2);

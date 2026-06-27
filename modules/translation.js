@@ -181,8 +181,8 @@
     clearTimeout(debounceTimer);
   }
 
-  // Premium feature — requires an active license (free tier = Autofill only).
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  // Premium feature — requires a license that includes this tool.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("translate");
 
   chrome.storage.local.get(["extensionEnabled", "moduleTranslate"], (result) => {
     if (result.extensionEnabled === false) return;

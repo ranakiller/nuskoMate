@@ -27,8 +27,8 @@
     clearTimeout(reloadTimer);
   }
 
-  // Premium feature — requires an active license (free tier = Autofill only).
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  // Premium feature — requires a license that includes this tool.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("reload");
 
   chrome.storage.local.get(["extensionEnabled", "moduleReload", "reloadInterval"], (result) => {
     if (result.extensionEnabled === false) return;

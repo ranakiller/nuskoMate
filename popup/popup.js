@@ -1,5 +1,47 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+  // ── Footer version (always reflects the manifest) ────────────
+  const verEl = document.getElementById("footer-version");
+  if (verEl && chrome.runtime?.getManifest) verEl.textContent = "v" + chrome.runtime.getManifest().version;
+
+  // ── Update check (GitHub releases) ───────────────────────────
+  // Chrome can't auto-install a sideloaded extension, so we notify + one-click
+  // open the new build. Compares this build's version to the latest release.
+  (function checkForUpdate() {
+    const REPO = "ranakiller/nuskoMate";
+    const cur = (chrome.runtime?.getManifest && chrome.runtime.getManifest().version) || "0";
+    const banner = document.getElementById("update-banner");
+    const text   = document.getElementById("update-text");
+    const btn    = document.getElementById("update-btn");
+    if (!banner) return;
+
+    const cmpVer = (a, b) => {
+      const pa = String(a).split("."), pb = String(b).split(".");
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0);
+        if (d) return d > 0 ? 1 : -1;
+      }
+      return 0;
+    };
+
+    fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rel) => {
+        if (!rel || !rel.tag_name) return;
+        const latest = String(rel.tag_name).replace(/^v/i, "");
+        if (cmpVer(latest, cur) <= 0) return; // already up to date
+        // Prefer the .zip asset; fall back to the release page.
+        const asset = (rel.assets || []).find((a) => /\.zip$/i.test(a.name));
+        const url = (asset && asset.browser_download_url) || rel.html_url;
+        text.textContent = `Update available — v${latest}`;
+        btn.addEventListener("click", () => {
+          if (chrome.tabs?.create) chrome.tabs.create({ url }); else window.open(url, "_blank");
+        });
+        banner.style.display = "flex";
+      })
+      .catch(() => {});
+  })();
+
   // ── Activation / freemium ───────────────────────────────────
   // Free tier (no key) = Autofill only. Everything else is premium and stays
   // locked, with a "pay to enjoy full features" upsell, until a valid key is
@@ -19,37 +61,61 @@ document.addEventListener("DOMContentLoaded", () => {
     const ppContent  = document.getElementById("passport-content");
     const upsellBtn  = document.getElementById("premium-upsell-btn");
 
-    // Premium module toggles (everything except Autofill).
-    const PREMIUM_TOGGLES = [
-      "toggle-reload", "toggle-overlay", "toggle-translate", "toggle-issue-date",
-      "toggle-vaccine", "toggle-ocr", "toggle-father", "toggle-batch",
-    ];
+    // Each premium toggle maps to the tool id the key must include.
+    const TOGGLE_FEATURE = {
+      "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
+      "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
+      "toggle-father": "ocr", "toggle-batch": "batch",
+    };
 
-    function applyLocks(activated) {
-      // Lock/unlock premium module cards
-      PREMIUM_TOGGLES.forEach((id) => {
+    // Is a given tool unlocked for the current key? (features null = all tools)
+    function has(st, feat) {
+      if (!st.activated) return false;
+      return st.features === null || (Array.isArray(st.features) && st.features.includes(feat));
+    }
+
+    function applyLocks(st) {
+      // Lock/unlock each premium module card by its specific tool entitlement
+      Object.keys(TOGGLE_FEATURE).forEach((id) => {
         const el = document.getElementById(id);
         const card = el && el.closest(".module-card");
         if (!card) return;
-        card.classList.toggle("module-locked", !activated);
-        if (el) el.disabled = !activated;
+        const ok = has(st, TOGGLE_FEATURE[id]);
+        card.classList.toggle("module-locked", !ok);
+        if (el) el.disabled = !ok;
       });
-      // Passport tab: show upsell instead of the tools when locked
-      if (upsell)    upsell.style.display    = activated ? "none" : "block";
-      if (ppContent) ppContent.style.display = activated ? ""     : "none";
+      // Passport tab: upsell when not activated at all; otherwise show content.
+      if (upsell)    upsell.style.display    = st.activated ? "none" : "block";
+      if (ppContent) ppContent.style.display = st.activated ? ""     : "none";
+      // The Bulk Parser section needs the "bulk" tool specifically.
+      const bulkSection = document.getElementById("bulk-section");
+      if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
     }
 
     function renderStatus(st) {
       const activated = st.activated;
       if (dot) dot.classList.toggle("on", activated);
       if (statusText) {
-        statusText.textContent = activated
+        let t = activated
           ? (st.name ? `Premium active — ${st.name}` : "Premium active")
           : "Free plan — Autofill only";
+        if (activated && st.expires) t += `  ·  expires ${st.expires}`;
+        statusText.textContent = t;
       }
       if (entry)      entry.style.display      = activated ? "none" : "flex";
       if (deactivate) deactivate.style.display = activated ? "block" : "none";
-      applyLocks(activated);
+
+      // The Keys admin tab is only visible to the master key.
+      const keysTab = document.getElementById("tab-keys");
+      if (keysTab) {
+        keysTab.style.display = st.master ? "" : "none";
+        // If we're sitting on the Keys tab but lost master, bounce to Modules.
+        if (!st.master && keysTab.classList.contains("tab-active")) {
+          const m = document.querySelector('[data-tab="modules"]');
+          if (m) m.click();
+        }
+      }
+      applyLocks(st);
     }
 
     function refresh() { window.NkLicense.getStatus().then(renderStatus); }

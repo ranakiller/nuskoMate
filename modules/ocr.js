@@ -14,15 +14,15 @@
   let fillTimer       = null;
   let calcTimer       = null;
   let issueDateTimer  = null;
-  let extrasTimer     = null; // city fill + check-digit warnings (Identity Details renders late)
+  let extrasTimer     = null; // city fill (Identity Details renders late)
   let issueDateReleased = false; // user took manual control via the calc's Insert button
   let lastFileId      = null;
   let started         = false;
 
   // ── Lifecycle ───────────────────────────────────────────────
-  // Premium feature — requires an active license (free tier = Autofill only).
+  // Premium feature — requires a license that includes passport OCR.
   // (The scan itself is also server-gated, so this is defence-in-depth.)
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("ocr");
 
   chrome.storage.local.get(["extensionEnabled", "moduleOcr", "moduleFatherName"], (res) => {
     fatherEnabled = res.moduleFatherName !== false;
@@ -149,7 +149,7 @@
 
       if (window.NkLicense && window.NkLicense.enforced()) {
         // ── Licensed mode: the server validates the key, OCRs, AND parses ──
-        const r = await window.NkLicense.scan(file);
+        const r = await window.NkLicense.scan(file, "ocr");
         if (!r.ok) {
           toast("✗ " + (r.error || "Scan refused"), "err");
           log.warn("[Nuskomate OCR] server scan refused:", r.error);
@@ -293,12 +293,11 @@
       setTimeout(() => clearInterval(issueDateTimer), 180000);
     }
 
-    // City + check-digit warnings — independent of the name-fill loop, which
-    // stops once names stabilise (~5s). The Identity Details section (expiry,
-    // passport number, City of Issued) renders later, so keep applying them for
-    // the full window.
+    // City fill — independent of the name-fill loop, which stops once names
+    // stabilise (~5s). The Identity Details section (City of Issued) renders
+    // later, so keep applying it for the full window.
     clearInterval(extrasTimer);
-    extrasTimer = setInterval(() => { fillCity(); applyWarnings(); }, 1000);
+    extrasTimer = setInterval(() => { fillCity(); }, 1000);
     setTimeout(() => clearInterval(extrasTimer), 180000);
   }
 
@@ -356,8 +355,8 @@
       fillCalendar('p-calendar[formcontrolname="passportIssueDate"]', scanned.issueDate);
     }
 
-    // (City fill + check-digit warnings run on their own persistent timer —
-    //  the Identity Details section renders after the names stabilise.)
+    // (City fill runs on its own persistent timer — the Identity Details
+    //  section renders after the names stabilise.)
 
     // Only stop the retry interval once all boxes are present AND correct
     return allBoxesCorrect;
@@ -383,78 +382,6 @@
       }
     });
     if (any) log.info("[Nuskomate OCR] city →", city);
-  }
-
-  // ── On-page check-digit status (green = OK, red = misread) ───
-  function ensureWarnStyles() {
-    if (document.getElementById("nk-warn-style")) return;
-    const st = document.createElement("style");
-    st.id = "nk-warn-style";
-    st.textContent =
-      ".nk-warn-field, .nk-warn-field input, .nk-warn-field .p-inputtext {" +
-      "  border: 2px solid #ef4444 !important; border-radius: 6px !important;" +
-      "  background-color: rgba(239,68,68,.06) !important; }" +
-      ".nk-ok-field, .nk-ok-field input, .nk-ok-field .p-inputtext {" +
-      "  border: 2px solid #22c55e !important; border-radius: 6px !important; }" +
-      ".nk-warn-note { color:#ef4444; font-size:11.5px; font-weight:700;" +
-      "  margin:3px 0 2px; display:flex; align-items:center; gap:5px;" +
-      "  font-family: system-ui, sans-serif; }" +
-      ".nk-warn-note::before { content:'\\26A0'; font-size:13px; }";
-    document.head.appendChild(st);
-  }
-
-  // ok=true → green border (verified); ok=false → red border + warning note
-  function setFieldStatus(el, ok, message) {
-    if (!el) return;
-    const anchor = el.closest(".form-mb, .col-md-4, .col-lg-4, .my-3") || el.parentElement || el;
-    let note = anchor.querySelector(":scope > .nk-warn-note");
-    el.classList.toggle("nk-ok-field", !!ok);
-    el.classList.toggle("nk-warn-field", !ok);
-    if (ok) {
-      if (note) note.remove();
-    } else {
-      if (!note) {
-        note = document.createElement("div");
-        note.className = "nk-warn-note";
-        anchor.insertBefore(note, anchor.firstChild);
-      }
-      note.textContent = message;
-    }
-  }
-
-  function findPassportNoInput() {
-    return document.querySelector('input[formcontrolname="passportNumber"]')
-        || document.querySelector('input[formcontrolname="passportNo"]')
-        || [...document.querySelectorAll("label")]
-             .find((l) => /passport\s*(number|no)\b/i.test(l.textContent || ""))
-             ?.closest(".form-mb, .col-md-4, .col-lg-4, div")?.querySelector('input')
-        || null;
-  }
-
-  function applyWarnings() {
-    const c = scanned.checks;
-    if (!c) return;
-    ensureWarnStyles();
-
-    setFieldStatus(
-      document.querySelector('p-calendar[formcontrolname="birthDate"]'),
-      c.dob,
-      "Date of birth may be misread — verify against the passport"
-    );
-    setFieldStatus(
-      document.querySelector('p-calendar[formcontrolname="passportExpiryDate"]'),
-      c.expiry,
-      "Expiry date may be misread — verify against the passport"
-    );
-
-    const passInp = findPassportNoInput();
-    setFieldStatus(
-      passInp,
-      c.passportNo && c.composite,
-      !c.passportNo
-        ? "Passport number may be misread — verify against the passport"
-        : "Passport MRZ checksum mismatch — double-check all passport details"
-    );
   }
 
   // Reverse-populate the Issue Date Calculator widget.

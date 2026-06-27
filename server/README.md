@@ -44,6 +44,11 @@ Because a freeloader who clears storage just consumes another seat, a shared
 key can never exceed its cap — sharing is self-defeating.
 
 ## Issuing a key to a paying customer
+
+> **Easiest:** activate the extension with the **master key**, open the **Keys**
+> tab that appears, and create / edit / reset / revoke / delete keys right there
+> (pick the tools and validity per key). The CLI below is just a fallback.
+
 Pick any hard-to-guess string (e.g. a UUID). For the **default 2 seats**, a
 plain note is enough:
 

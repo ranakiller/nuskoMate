@@ -21,7 +21,7 @@ import NkPassport from "../utils/passport-parser.js";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-License",
+  "Access-Control-Allow-Headers": "Content-Type, X-License, X-Device, X-Feature, X-Admin",
 };
 
 const json = (obj, status = 200) =>
@@ -32,11 +32,12 @@ const json = (obj, status = 200) =>
 const DEFAULT_SEATS = 2;
 
 // Load a key's record. A KV value can be either:
-//   • a JSON object  {name, seats, devices}        (full record)
-//   • a JSON object  {name, master:true}           (MASTER — unlimited devices)
-//   • a plain string "Ali Travels"                 (legacy → default seats)
-//   • the word       "revoked"                      (disabled)
-// Returns a normalized {name, seats, devices, master} object, or null if invalid.
+//   • a JSON object  {name, seats, devices, features?, expires?}   (full record)
+//   • a JSON object  {name, master:true}            (MASTER — everything, never expires)
+//   • a plain string "Ali Travels"                  (legacy → default seats, all features)
+//   • the word       "revoked"                       (disabled)
+// features : array of enabled tool ids, or null = ALL enabled (legacy/default).
+// expires  : ISO date "YYYY-MM-DD" or epoch ms, or null = never expires.
 async function getRecord(env, key) {
   if (!key || !env.LICENSES) return null;
   const raw = await env.LICENSES.get(key.trim());
@@ -51,7 +52,30 @@ async function getRecord(env, key) {
   if (!Array.isArray(rec.devices)) rec.devices = [];
   if (!rec.name) rec.name = "active";
   rec.master = !!rec.master;
+  rec.features = Array.isArray(rec.features) ? rec.features.map(String) : null; // null = all
+  if (rec.expires === undefined) rec.expires = null;
   return rec;
+}
+
+// A key is expired when "expires" is set and we're past the END of that day.
+function isExpired(rec) {
+  if (rec.master || !rec.expires) return false;
+  const t = typeof rec.expires === "number" ? rec.expires : Date.parse(rec.expires);
+  return Number.isFinite(t) && Date.now() > (t + 86400000); // +1 day = valid through that date
+}
+
+// Whether a key includes a given tool. Master / null features = everything.
+function featureAllowed(rec, feature) {
+  if (rec.master || rec.features === null) return true;
+  return rec.features.includes(feature);
+}
+
+// Admin = the request carries a valid MASTER key in X-Admin. Only the master
+// key holder may list/create/update/delete keys.
+async function isAdmin(env, request) {
+  const k = request.headers.get("X-Admin") || "";
+  const rec = await getRecord(env, k);
+  return !!(rec && rec.master);
 }
 
 // Decide whether this device may use the key, registering it if there's room.
@@ -97,19 +121,84 @@ export default {
         const { key, device } = await request.json();
         const rec = await getRecord(env, key);
         if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
         const adm = admitDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
         if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
-        return json({ ok: true, name: rec.name, seats: rec.seats, used: rec.devices.length });
+        return json({
+          ok: true, name: rec.name, seats: rec.seats, used: rec.devices.length,
+          features: rec.master ? null : rec.features, // null = all tools
+          expires: rec.expires || null,
+          master: rec.master, // unlocks the in-extension Keys admin tab
+        });
+      }
+
+      // ── Admin (master key only): manage the whole key list ──────────────
+      if (url.pathname.startsWith("/admin/") && request.method === "POST") {
+        if (!(await isAdmin(env, request))) return json({ ok: false, error: "Not authorized" }, 403);
+
+        if (url.pathname === "/admin/list") {
+          const list = await env.LICENSES.list();
+          const keys = [];
+          for (const k of list.keys) {
+            const raw = await env.LICENSES.get(k.name);
+            const revoked = String(raw || "").trim().toLowerCase() === "revoked";
+            let rec = null;
+            try { rec = JSON.parse(raw); } catch (_) {}
+            if (rec && typeof rec === "object") {
+              keys.push({
+                key: k.name, name: rec.name || "", seats: rec.seats ?? null,
+                devices: Array.isArray(rec.devices) ? rec.devices : [],
+                features: Array.isArray(rec.features) ? rec.features : null,
+                expires: rec.expires || null, master: !!rec.master, revoked: false,
+              });
+            } else {
+              keys.push({
+                key: k.name, name: revoked ? "(revoked)" : String(raw || ""),
+                seats: null, devices: [], features: null, expires: null,
+                master: false, revoked,
+              });
+            }
+          }
+          keys.sort((a, b) => a.key.localeCompare(b.key));
+          return json({ ok: true, keys });
+        }
+
+        if (url.pathname === "/admin/put") {
+          const { key, record } = await request.json();
+          if (!key || !key.trim()) return json({ ok: false, error: "No key" }, 400);
+          if (!record || typeof record !== "object") return json({ ok: false, error: "Bad record" }, 400);
+          await env.LICENSES.put(key.trim(), JSON.stringify(record));
+          return json({ ok: true });
+        }
+
+        if (url.pathname === "/admin/revoke") {
+          const { key } = await request.json();
+          if (!key || !key.trim()) return json({ ok: false, error: "No key" }, 400);
+          await env.LICENSES.put(key.trim(), "revoked");
+          return json({ ok: true });
+        }
+
+        if (url.pathname === "/admin/delete") {
+          const { key } = await request.json();
+          if (!key || !key.trim()) return json({ ok: false, error: "No key" }, 400);
+          await env.LICENSES.delete(key.trim());
+          return json({ ok: true });
+        }
+
+        return json({ ok: false, error: "Unknown admin action" }, 404);
       }
 
       if (url.pathname === "/scan" && request.method === "POST") {
         const key = request.headers.get("X-License") || "";
         const device = request.headers.get("X-Device") || "";
+        const feature = request.headers.get("X-Feature") || "ocr";
         const rec = await getRecord(env, key);
         if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
         const adm = admitDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+        if (!featureAllowed(rec, feature)) return json({ ok: false, error: "This key does not include this feature" }, 403);
         if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
 
         const form = await request.formData();

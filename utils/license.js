@@ -18,26 +18,40 @@
   function store(obj) { return new Promise((r) => chrome.storage.local.set(obj, r)); }
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
 
-  // ── Activation cache (for gating premium content-script modules) ──────────
+  // Canonical list of per-key tool ids (kept in sync with the popup + modules).
+  const FEATURES = ["ocr", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay"];
+
+  // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms
   // a valid license, so premium modules stay off by default.
+  //   _features === null  → all tools enabled (master / legacy keys)
+  //   _features === [...]  → only those tools enabled
   let _activated = !enforced();
-  const _premiumSubs = [];
-  function _applyActivation(v) {
-    v = !!v;
-    if (v === _activated) return;
-    _activated = v;
-    _premiumSubs.forEach((f) => { try { f(_activated); } catch (_) {} });
+  let _features  = null;
+  const _subs = [];
+  function _notify() { _subs.forEach((f) => { try { f(); } catch (_) {} }); }
+  async function refreshEntitlements() {
+    const x = await read(["licenseValid", "licenseFeatures"]);
+    const act = enforced() ? !!x.licenseValid : true;
+    let feats = null;
+    try { feats = x.licenseFeatures ? JSON.parse(x.licenseFeatures) : null; } catch (_) { feats = null; }
+    feats = Array.isArray(feats) ? feats : null;
+    const changed = act !== _activated || JSON.stringify(feats) !== JSON.stringify(_features);
+    _activated = act;
+    _features = feats;
+    if (changed) _notify();
   }
-  function refreshActivation() {
-    read(["licenseValid"]).then((x) => _applyActivation(enforced() ? !!x.licenseValid : true));
+  const isActivated = () => _activated;
+  const premiumOK   = () => !enforced() || _activated;       // is the license active at all?
+  function featureOK(name) {                                  // is THIS tool included?
+    if (!enforced()) return true;                            // dev mode = all on
+    if (!_activated) return false;
+    return _features === null || _features.includes(name);   // null = all tools
   }
-  const isActivated  = () => _activated;
-  const premiumOK    = () => !enforced() || _activated;          // may premium features run?
-  const onPremiumChange = (cb) => { if (typeof cb === "function") _premiumSubs.push(cb); };
-  refreshActivation();
+  const onPremiumChange = (cb) => { if (typeof cb === "function") _subs.push(cb); };
+  refreshEntitlements();
   chrome.storage.onChanged.addListener((c, a) => {
-    if (a === "local" && c.licenseValid !== undefined) refreshActivation();
+    if (a === "local" && (c.licenseValid !== undefined || c.licenseFeatures !== undefined)) refreshEntitlements();
   });
 
   function getKey() { return read(["licenseKey"]).then((x) => x.licenseKey || ""); }
@@ -85,16 +99,21 @@
 
   // Current activation status (used to gate the popup + modules)
   async function getStatus() {
-    const x = await read(["licenseKey", "licenseValid", "licenseName"]);
+    const x = await read(["licenseKey", "licenseValid", "licenseName", "licenseFeatures", "licenseExpiry", "licenseMaster"]);
+    let feats = null;
+    try { feats = x.licenseFeatures ? JSON.parse(x.licenseFeatures) : null; } catch (_) { feats = null; }
     return {
       enforced: enforced(),
       activated: enforced() ? !!x.licenseValid : true, // dev mode = always "activated"
       key: x.licenseKey || "",
       name: x.licenseName || "",
+      features: Array.isArray(feats) ? feats : null,   // null = all tools
+      expires: x.licenseExpiry || "",
+      master: !!x.licenseMaster,                       // unlocks the Keys admin tab
     };
   }
 
-  // Validate a key with the server and remember it on success.
+  // Validate a key with the server and remember it (incl. features + expiry).
   async function activate(key) {
     if (!enforced()) return { ok: true };
     key = (key || "").trim();
@@ -102,20 +121,44 @@
     const device = await getDevice();
     const data = await send({ type: "nkLicense", action: "activate", base, key, device });
     if (data && data.ok) {
-      await store({ licenseKey: key, licenseValid: true, licenseName: data.name || "", licenseCheckedAt: Date.now() });
-      return { ok: true, name: data.name };
+      await store({
+        licenseKey: key, licenseValid: true, licenseName: data.name || "",
+        licenseFeatures: JSON.stringify(data.features ?? null), // null = all
+        licenseExpiry: data.expires || "",
+        licenseMaster: !!data.master,
+        licenseCheckedAt: Date.now(),
+      });
+      await refreshEntitlements();
+      return { ok: true, name: data.name, features: data.features ?? null, expires: data.expires || "", master: !!data.master };
     }
     await store({ licenseValid: false });
     return { ok: false, error: (data && data.error) || "Invalid or revoked key" };
   }
 
   async function deactivate() {
-    await store({ licenseKey: "", licenseValid: false, licenseName: "" });
+    await store({ licenseKey: "", licenseValid: false, licenseName: "", licenseFeatures: "", licenseExpiry: "", licenseMaster: false });
+    await refreshEntitlements();
   }
+
+  // ── Admin (master key only) — manage the whole key list ───────────────────
+  // The active key (stored licenseKey) is sent as the master credential; the
+  // server only allows these when that key has master:true.
+  async function admin(path, body) {
+    if (!enforced()) return { ok: false, error: "Licensing not configured" };
+    const adminKey = await getKey();
+    if (!adminKey) return { ok: false, error: "Not activated" };
+    const r = await send({ type: "nkLicense", action: "admin", base, adminKey, path, body: body || {} });
+    if (r && r.data) return (r.data && typeof r.data === "object") ? r.data : { ok: false, error: "Bad server response" };
+    return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
+  }
+  const adminList   = ()            => admin("/admin/list", {});
+  const adminPut    = (key, record) => admin("/admin/put", { key, record });
+  const adminRevoke = (key)         => admin("/admin/revoke", { key });
+  const adminDelete = (key)         => admin("/admin/delete", { key });
 
   // Send an image to the server, which validates the key, runs OCR + parsing,
   // and returns { ok, result, raw }. result is the full parsed passport object.
-  async function scan(file) {
+  async function scan(file, feature) {
     if (!enforced()) return { ok: false, error: "Licensing not configured" };
     const key = await getKey();
     if (!key) return { ok: false, error: "Not activated" };
@@ -127,13 +170,19 @@
 
     const r = await send({
       type: "nkLicense", action: "scan", base, key, device,
+      feature: feature || "ocr",
       fileB64, fileName: file.name || "scan.jpg", fileType: file.type || "image/jpeg",
     });
 
     // Background returns { status, data } for an HTTP response, or
     // { ok:false, error } if it couldn't reach the server at all.
     if (r && r.data) {
-      if (r.status === 403) await store({ licenseValid: false }); // key revoked / device limit
+      // Only deactivate when the KEY itself is dead (revoked/expired/invalid).
+      // A "feature not included" or "device limit" 403 must NOT wipe a valid key.
+      if (r.status === 403) {
+        const err = (r.data && r.data.error) || "";
+        if (/invalid|revoked|expired/i.test(err)) await store({ licenseValid: false });
+      }
       return (r.data && typeof r.data === "object") ? r.data : { ok: false, error: "Bad server response" };
     }
     return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
@@ -141,6 +190,7 @@
 
   window.NkLicense = {
     enforced, getStatus, getKey, activate, deactivate, scan,
-    isActivated, premiumOK, onPremiumChange,
+    isActivated, premiumOK, featureOK, onPremiumChange, FEATURES,
+    adminList, adminPut, adminRevoke, adminDelete,
   };
 })();

@@ -36,8 +36,19 @@ async function handle(msg) {
     fd.append("file", blob, msg.fileName || "scan.jpg");
     const res = await fetch(base + "/scan", {
       method: "POST",
-      headers: { "X-License": msg.key || "", "X-Device": msg.device || "" },
+      headers: { "X-License": msg.key || "", "X-Device": msg.device || "", "X-Feature": msg.feature || "ocr" },
       body: fd,
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
+    return { status: res.status, data };
+  }
+
+  if (msg.action === "admin") {
+    // Master-key-gated key management. msg.path = "/admin/list" etc.
+    const res = await fetch(base + msg.path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin": msg.adminKey || "" },
+      body: JSON.stringify(msg.body || {}),
     });
     const data = await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
     return { status: res.status, data };

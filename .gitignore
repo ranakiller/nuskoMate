@@ -2,3 +2,4 @@ node_modules/
 dist/
 releases/
 server/.wrangler/
+server/.cf-token

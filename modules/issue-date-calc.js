@@ -398,8 +398,8 @@
     removeWidget();
   }
 
-  // Premium feature — requires an active license (free tier = Autofill only).
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  // Premium feature — requires a license that includes this tool.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("issuedate");
 
   chrome.storage.local.get(["extensionEnabled", "moduleIssueDateCalc"], (res) => {
     if (res.extensionEnabled === false) return;

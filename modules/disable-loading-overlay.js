@@ -20,8 +20,8 @@
     if (observer) { observer.disconnect(); observer = null; }
   }
 
-  // Premium feature — requires an active license (free tier = Autofill only).
-  const premiumOK = () => !window.NkLicense || window.NkLicense.premiumOK();
+  // Premium feature — requires a license that includes this tool.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("overlay");
 
   chrome.storage.local.get(["extensionEnabled", "moduleDisableOverlay"], (res) => {
     if (res.extensionEnabled === false) return;

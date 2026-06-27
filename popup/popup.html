@@ -35,11 +35,18 @@
       </div>
     </div>
 
+    <!-- Update banner (shown when a newer GitHub release exists) -->
+    <div id="update-banner" class="update-banner" style="display:none;">
+      <span id="update-text">Update available</span>
+      <button id="update-btn" class="update-btn">Get update</button>
+    </div>
+
     <!-- Tab bar -->
     <div class="tabbar">
       <button class="tab tab-active" data-tab="modules">Modules</button>
       <button class="tab" data-tab="passport">Passport</button>
       <button class="tab" data-tab="logs">Logs<span class="tab-badge" id="tab-log-count"></span></button>
+      <button class="tab" data-tab="keys" id="tab-keys" style="display:none;">Keys</button>
       <button class="tab tab-gear" data-tab="settings" title="Settings" aria-label="Settings">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -342,7 +349,7 @@
     <div id="passport-content">
 
     <!-- Section: Bulk MRZ Parser -->
-    <div class="section">
+    <div class="section" id="bulk-section">
       <div class="section-title">Bulk Passport Parser</div>
 
       <div class="ocr-card">
@@ -466,11 +473,55 @@
     </div>
     </div><!-- /panel-logs -->
 
+    <!-- Panel: Keys (admin — only shown when the master key is active) -->
+    <div class="tab-panel" id="panel-keys">
+
+      <!-- Create / edit form -->
+      <div class="section">
+        <div class="section-title" id="k-form-title">Create a key</div>
+        <input type="text" id="k-name" class="field-input" placeholder="Customer name / note (e.g. Lahore Office)" autocomplete="off" />
+        <div class="k-row">
+          <input type="text" id="k-key" class="field-input" placeholder="Key (blank = auto-generate)" autocomplete="off" spellcheck="false" />
+          <input type="number" id="k-seats" class="field-input k-seats" min="1" value="4" title="Devices (seats)" />
+        </div>
+
+        <div class="k-sub">Tools included</div>
+        <label class="k-check"><input type="checkbox" id="k-all" checked /> <b>All tools</b></label>
+        <div class="k-tools" id="k-tools"><!-- tool checkboxes injected by keys-admin.js --></div>
+
+        <div class="k-sub">Validity</div>
+        <div class="k-row">
+          <input type="number" id="k-months" class="field-input" min="0" placeholder="Months (blank = never expires)" />
+        </div>
+
+        <div class="k-actions">
+          <button id="k-save" class="bulk-btn bulk-btn-primary">Create key</button>
+          <button id="k-cancel" class="bulk-btn bulk-btn-soft" style="display:none;">Cancel edit</button>
+        </div>
+        <div id="k-msg" class="act-msg"></div>
+      </div>
+
+      <!-- Existing keys -->
+      <div class="section">
+        <div class="logs-header">
+          <div class="section-title" style="margin-bottom:0;">Existing keys</div>
+          <div class="logs-actions">
+            <span class="logs-count" id="k-count">0</span>
+            <button class="logs-btn" id="k-refresh" title="Refresh">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="k-list" class="k-list"><div class="logs-empty">Loading…</div></div>
+      </div>
+
+    </div><!-- /panel-keys -->
+
     <!-- Footer -->
     <div class="footer">
       <span>Nuskomate</span>
       <span class="footer-dot">·</span>
-      <span>v2.1</span>
+      <span id="footer-version">v3.1</span>
     </div>
 
     <script src="../utils/license.js"></script>
@@ -478,5 +529,6 @@
     <script src="../utils/xlsx-mini.js"></script>
     <script src="popup.js"></script>
     <script src="bulk.js"></script>
+    <script src="keys-admin.js"></script>
   </body>
 </html>

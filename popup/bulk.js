@@ -90,7 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let parsed;
         if (window.NkLicense && window.NkLicense.enforced()) {
           // Licensed mode: server validates the key, OCRs + parses
-          const r = await window.NkLicense.scan(files[i]);
+          const r = await window.NkLicense.scan(files[i], "bulk");
           if (!r.ok) throw new Error(r.error || "scan refused");
           raw = r.raw || "";
           parsed = r.result;
