@@ -4,6 +4,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const verEl = document.getElementById("footer-version");
   if (verEl && chrome.runtime?.getManifest) verEl.textContent = "v" + chrome.runtime.getManifest().version;
 
+  // ── Sidebar collapse / expand (remembered) ───────────────────
+  const layoutEl = document.querySelector(".layout");
+  const collapseBtn = document.getElementById("side-collapse");
+  if (layoutEl && collapseBtn) {
+    chrome.storage.local.get(["uiSidebarCollapsed"], (r) => {
+      if (r.uiSidebarCollapsed) layoutEl.classList.add("collapsed");
+    });
+    collapseBtn.addEventListener("click", () => {
+      const collapsed = layoutEl.classList.toggle("collapsed");
+      chrome.storage.local.set({ uiSidebarCollapsed: collapsed });
+    });
+  }
+
   // ── Update check (GitHub releases) ───────────────────────────
   // Chrome can't auto-install a sideloaded extension, so we notify + one-click
   // open the new build. Compares this build's version to the latest release.
@@ -65,7 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const TOGGLE_FEATURE = {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
-      "toggle-father": "ocr", "toggle-batch": "batch",
+      "toggle-father": "father", "toggle-batch": "batch",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -354,21 +367,31 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const tabLogCount = document.getElementById("tab-log-count");
+  const logsSearch  = document.getElementById("logs-search");
+  let allLogs = [];
 
-  function renderLogs(logs) {
-    logs = Array.isArray(logs) ? logs : [];
-    logsCount.textContent = logs.length;
-    if (tabLogCount) tabLogCount.textContent = logs.length > 99 ? "99+" : (logs.length || "");
+  // The logs matching the current search term (or all of them when empty).
+  function filteredLogs() {
+    const term = (logsSearch && logsSearch.value || "").trim().toLowerCase();
+    if (!term) return allLogs;
+    return allLogs.filter((e) => (e.m || "").toLowerCase().includes(term) || fmtLogTime(e.t).includes(term));
+  }
 
-    if (!logs.length) {
-      logsBox.innerHTML = '<div class="logs-empty" id="logs-empty">No logs yet</div>';
+  // Draw the (optionally filtered) logs, newest first.
+  function drawLogs() {
+    const term = (logsSearch && logsSearch.value || "").trim();
+    const filtered = filteredLogs();
+
+    logsCount.textContent = term ? `${filtered.length}/${allLogs.length}` : allLogs.length;
+
+    if (!filtered.length) {
+      logsBox.innerHTML = `<div class="logs-empty">${allLogs.length ? "No matching logs" : "No logs yet"}</div>`;
       return;
     }
 
-    // Newest first
     const frag = document.createDocumentFragment();
-    for (let i = logs.length - 1; i >= 0; i--) {
-      const entry = logs[i];
+    for (let i = filtered.length - 1; i >= 0; i--) {
+      const entry = filtered[i];
       const row = document.createElement("div");
       row.className = "log-row" + (entry.lvl === "warn" ? " log-warn" : entry.lvl === "error" ? " log-error" : "");
       const time = document.createElement("span");
@@ -384,6 +407,14 @@ document.addEventListener("DOMContentLoaded", () => {
     logsBox.appendChild(frag);
   }
 
+  function renderLogs(logs) {
+    allLogs = Array.isArray(logs) ? logs : [];
+    if (tabLogCount) tabLogCount.textContent = allLogs.length > 99 ? "99+" : (allLogs.length || "");
+    drawLogs();
+  }
+
+  if (logsSearch) logsSearch.addEventListener("input", drawLogs);
+
   function loadLogs() {
     chrome.storage.local.get([LOGS_KEY], (res) => renderLogs(res[LOGS_KEY]));
   }
@@ -391,18 +422,17 @@ document.addEventListener("DOMContentLoaded", () => {
   logsRefresh.addEventListener("click", loadLogs);
 
   logsCopy.addEventListener("click", () => {
-    chrome.storage.local.get([LOGS_KEY], (res) => {
-      const logs = Array.isArray(res[LOGS_KEY]) ? res[LOGS_KEY] : [];
-      if (!logs.length) { showToast("No logs to copy"); return; }
-      // Chronological (oldest → newest), with a level tag for warn/error.
-      const text = logs.map((e) => {
-        const tag = e.lvl === "warn" ? " [WARN]" : e.lvl === "error" ? " [ERROR]" : "";
-        return `${fmtLogTime(e.t)}${tag} ${e.m}`;
-      }).join("\n");
-      navigator.clipboard.writeText(text)
-        .then(() => showToast(`✓ Copied ${logs.length} logs`))
-        .catch(() => showToast("✗ Copy failed"));
-    });
+    // Copy what's shown — i.e. the current search results (or all if no filter).
+    const logs = filteredLogs();
+    if (!logs.length) { showToast("No logs to copy"); return; }
+    // Chronological (oldest → newest), with a level tag for warn/error.
+    const text = logs.map((e) => {
+      const tag = e.lvl === "warn" ? " [WARN]" : e.lvl === "error" ? " [ERROR]" : "";
+      return `${fmtLogTime(e.t)}${tag} ${e.m}`;
+    }).join("\n");
+    navigator.clipboard.writeText(text)
+      .then(() => showToast(`✓ Copied ${logs.length} logs`))
+      .catch(() => showToast("✗ Copy failed"));
   });
 
   logsClear.addEventListener("click", () => {

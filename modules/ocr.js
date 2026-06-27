@@ -23,9 +23,11 @@
   // Premium feature — requires a license that includes passport OCR.
   // (The scan itself is also server-gated, so this is defence-in-depth.)
   const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("ocr");
+  // Father-name fill is its own licensable tool (a key can have OCR but not it).
+  const fatherOK  = () => !window.NkLicense || window.NkLicense.featureOK("father");
 
   chrome.storage.local.get(["extensionEnabled", "moduleOcr", "moduleFatherName"], (res) => {
-    fatherEnabled = res.moduleFatherName !== false;
+    fatherEnabled = res.moduleFatherName !== false && fatherOK();
     if (res.extensionEnabled === false) { isEnabled = false; return; }
     isEnabled = res.moduleOcr !== false && premiumOK();
     if (isEnabled) start();
@@ -33,7 +35,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.moduleFatherName !== undefined) fatherEnabled = changes.moduleFatherName.newValue !== false;
+    if (changes.moduleFatherName !== undefined) fatherEnabled = changes.moduleFatherName.newValue !== false && fatherOK();
     if (changes.extensionEnabled && !changes.extensionEnabled.newValue) { isEnabled = false; stop(); return; }
     if (changes.moduleOcr !== undefined) {
       isEnabled = changes.moduleOcr.newValue !== false && premiumOK();
@@ -43,7 +45,8 @@
 
   // React to license activation/deactivation while the page is open.
   window.NkLicense && window.NkLicense.onPremiumChange(() => {
-    chrome.storage.local.get(["extensionEnabled", "moduleOcr"], (r) => {
+    chrome.storage.local.get(["extensionEnabled", "moduleOcr", "moduleFatherName"], (r) => {
+      fatherEnabled = r.moduleFatherName !== false && fatherOK();
       isEnabled = r.extensionEnabled !== false && r.moduleOcr !== false && premiumOK();
       isEnabled ? start() : stop();
     });

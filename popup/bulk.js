@@ -18,6 +18,22 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ [HISTORY_KEY]: results.slice(-CAP) });
   }
 
+  // Bulk runs in the popup, so it can't use the page logger — write straight
+  // into the shared nkLogs store so bulk activity shows in the Logs tab.
+  // Writes are chained so multiple lines per passport don't race each other.
+  let logChain = Promise.resolve();
+  function bulkLog(message, lvl) {
+    logChain = logChain.then(() => new Promise((resolve) => {
+      chrome.storage.local.get(["nkLogs"], (x) => {
+        let logs = Array.isArray(x.nkLogs) ? x.nkLogs : [];
+        logs.push({ t: Date.now(), m: message, lvl: lvl || "info" });
+        if (logs.length > 10000) logs = logs.slice(-10000);
+        chrome.storage.local.set({ nkLogs: logs }, resolve);
+      });
+    }));
+    return logChain;
+  }
+
   function getApiKey() {
     return new Promise((r) => chrome.storage.local.get(["ocrApiKey"], (x) => r(x.ocrApiKey || "helloworld")));
   }
@@ -28,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
       results = Array.isArray(x[HISTORY_KEY]) ? x[HISTORY_KEY] : [];
       if (!results.length) return;
       tbody.innerHTML = "";
-      results.forEach((r, i) => addRow(i, r.file, r.details, r.ok));
+      results.forEach((r, i) => addRow(i, r.file, r.details, r.ok, r.error));
       tableWrap.style.display = "block";
       actions.style.display = "flex";
       pickLabel.textContent = `${results.length} in history — upload more`;
@@ -52,17 +68,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
 
-  function addRow(i, fname, d, ok) {
+  function addRow(i, fname, d, ok, err) {
     d = d || {};
     const tr = document.createElement("tr");
     if (!ok) tr.className = "bulk-row-bad";
-    tr.title = fname;
+    tr.title = ok ? fname : `${fname} — ${err || "failed"}`;
+    // For failed rows, show the reason inline (across the data columns) so it's
+    // visible without hovering.
+    const body = ok
+      ? `<td>${esc(d.fullName)}</td>` +
+        `<td>${esc(d.passportNo)}</td>` +
+        `<td>${esc(d.nationality)}</td>` +
+        `<td>${esc(d.age)}</td>`
+      : `<td colspan="4" class="bulk-err">${esc(err || "failed")}</td>`;
     tr.innerHTML =
-      `<td>${i + 1}</td>` +
-      `<td>${esc(d.fullName)}</td>` +
-      `<td>${esc(d.passportNo)}</td>` +
-      `<td>${esc(d.nationality)}</td>` +
-      `<td>${esc(d.age)}</td>` +
+      `<td>${i + 1}</td>` + body +
       `<td class="bulk-status">${ok ? "✓" : "⚠"}</td>`;
     tbody.appendChild(tr);
   }
@@ -85,9 +105,8 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 0; i < files.length; i++) {
       barFill.style.width = `${Math.round((i / files.length) * 100)}%`;
       progressText.textContent = `Scanning ${i + 1} / ${files.length}…`;
-      let raw = "", details = null, ok = false;
+      let raw = "", details = null, ok = false, errMsg = "", parsed = null;
       try {
-        let parsed;
         if (window.NkLicense && window.NkLicense.enforced()) {
           // Licensed mode: server validates the key, OCRs + parses
           const r = await window.NkLicense.scan(files[i], "bulk");
@@ -101,6 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         details = parsed.details;
         ok = !!(details.passportNo || details.fullName);
+        if (!ok) errMsg = "no passport data found (blurry / not a passport?)";
         // Mirror into the "Last Scanned Passport" viewer (shared with page scans)
         if (ok) {
           chrome.storage.local.set({
@@ -114,10 +134,16 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         }
       } catch (err) {
+        errMsg = err.message;
         raw = "ERROR: " + err.message;
       }
-      results.push({ file: files[i].name, details: details || {}, raw, ok });
-      addRow(startCount + i, files[i].name, details, ok);
+      // Log raw text + parsed JSON for each passport (mirrors the masar page
+      // scanner) so it can be reviewed later in the Logs tab.
+      bulkLog(`[Bulk] ${files[i].name} — ${ok ? "OK → " + (details.passportNo || details.fullName) : "FAILED: " + errMsg}`, ok ? "info" : "error");
+      if (raw) bulkLog(`[Bulk] raw text:\n${raw}`);
+      if (parsed) bulkLog(`[Bulk] parsed: ${JSON.stringify(parsed)}`);
+      results.push({ file: files[i].name, details: details || {}, raw, ok, error: errMsg });
+      addRow(startCount + i, files[i].name, details, ok, errMsg);
       if (i % 10 === 9) saveHistory(); // periodic save so a mid-run close keeps progress
     }
 
@@ -157,10 +183,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── Exports ─────────────────────────────────────────────────
   const HEADERS = [
-    "SR", "Title", "Given Name", "Surname", "Full Name", "Passport No", "Father Name",
-    "Nationality", "Date of Birth", "Age", "Category", "Issue Date", "Expiry Date",
+    "SR", "Title", "Given Name", "Surname", "Full Name", "Passport No", "Father/Husband Name",
+    "Gender", "Nationality", "Date of Birth", "Age", "Category", "Issue Date", "Expiry Date",
   ];
-  const DATE_COLS = [8, 11, 12]; // Date of Birth, Issue Date, Expiry Date
+  const DATE_COLS = [9, 12, 13]; // Date of Birth, Issue Date, Expiry Date
+  const NUM_COLS  = [0, 10];     // SR, Age — real numbers (not text)
+
+  // Normalize the parsed sex into a clean Gender label.
+  function genderOf(d) {
+    const s = (d.sex || "").toLowerCase();
+    if (s.startsWith("m")) return "Male";
+    if (s.startsWith("f")) return "Female";
+    return "";
+  }
 
   function ageOf(d) {
     const n = parseInt(d.age, 10);
@@ -175,10 +210,10 @@ document.addEventListener("DOMContentLoaded", () => {
     return "Adult";
   }
 
-  // Male → Mr.  |  Female ≥12 → Mrs.  |  Female <12 → Miss
+  // Male → Mr.  |  Female under 18 → Miss  |  Female 18+ → Mrs.
   function titleOf(d, age) {
     const sex = (d.sex || "").toLowerCase();
-    if (sex.startsWith("f")) return (age != null && age < 12) ? "Miss" : "Mrs.";
+    if (sex.startsWith("f")) return (age != null && age < 18) ? "Miss" : "Mrs.";
     if (sex.startsWith("m")) return "Mr.";
     return "";
   }
@@ -188,16 +223,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const d = r.details || {};
       const age = ageOf(d);
       return [
-        String(i + 1),                  // SR
+        i + 1,                          // SR (number)
         titleOf(d, age),                // Title
         d.givenNames || "",             // Given Name
         d.surname || "",                // Surname
         d.fullName || "",               // Full Name
         d.passportNo || "",             // Passport No
         d.fatherName || "",             // Father Name
+        genderOf(d),                    // Gender
         d.nationality || "",            // Nationality
         d.dob || "",                    // Date of Birth
-        d.age || "",                    // Age
+        d.age || "",                    // Age (number)
         categoryOf(age),                // Category
         d.issueDate || "",              // Issue Date
         d.expiry || "",                 // Expiry Date
@@ -217,7 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document.getElementById("bulk-dl-excel").addEventListener("click", () => {
-    if (results.length) download(window.NkXlsx.blob(HEADERS, excelRows(), DATE_COLS), "passports.xlsx");
+    if (results.length) download(window.NkXlsx.blob(HEADERS, excelRows(), DATE_COLS, NUM_COLS), "passports.xlsx");
   });
   document.getElementById("bulk-dl-raw").addEventListener("click", () => {
     if (results.length) download(new Blob([rawText()], { type: "text/plain" }), "passports-raw.txt");

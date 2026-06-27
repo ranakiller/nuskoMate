@@ -19,7 +19,7 @@
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
 
   // Canonical list of per-key tool ids (kept in sync with the popup + modules).
-  const FEATURES = ["ocr", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay"];
+  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms
@@ -73,6 +73,38 @@
         resolve({ ok: false, error: "Cannot reach the license server" });
       }
     });
+  }
+
+  // OCR.space (free) chokes on images that are too big in BYTES *or* too large
+  // in PIXELS — a 730 KB high-res photo failed even though it's under 1 MB.
+  // So decode every image and downscale when either dimension or size is too
+  // big. The long side is capped (MRZ stays legible) and JPEG quality steps
+  // down until it fits comfortably under the limit.
+  async function shrinkImage(file, maxBytes = 700000, maxDim = 1600) {
+    try {
+      if (!file) return file;
+      const bmp = await createImageBitmap(file);
+      let w = bmp.width, h = bmp.height;
+      const big = Math.max(w, h);
+      // Already small in both bytes and pixels → send as-is.
+      if ((file.size || 0) <= maxBytes && big <= maxDim) {
+        if (bmp.close) bmp.close();
+        return file;
+      }
+      const scale = Math.min(1, maxDim / big);
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      let blob = null;
+      for (let q = 0.82; q >= 0.4; q -= 0.12) {
+        blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", q));
+        if (blob && blob.size <= maxBytes) break;
+      }
+      return blob || file;
+    } catch (_) { return file; } // any failure → send the original
   }
 
   // File/Blob → base64 string (messages must be JSON-serializable).
@@ -164,14 +196,15 @@
     if (!key) return { ok: false, error: "Not activated" };
     const device = await getDevice();
 
+    const sized = await shrinkImage(file); // fit OCR.space's 1 MB free-tier limit
     let fileB64;
-    try { fileB64 = await fileToB64(file); }
+    try { fileB64 = await fileToB64(sized); }
     catch (_) { return { ok: false, error: "Could not read image" }; }
 
     const r = await send({
       type: "nkLicense", action: "scan", base, key, device,
       feature: feature || "ocr",
-      fileB64, fileName: file.name || "scan.jpg", fileType: file.type || "image/jpeg",
+      fileB64, fileName: file.name || "scan.jpg", fileType: sized.type || file.type || "image/jpeg",
     });
 
     // Background returns { status, data } for an HTTP response, or

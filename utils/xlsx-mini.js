@@ -63,8 +63,10 @@
 
   // ── Worksheet / workbook XML ────────────────────────────────
   // dateCols = column indices whose DATA cells are dates (style s="1", dd-mmm-yy).
-  function sheetXml(rows, dateCols) {
+  // numCols  = column indices whose DATA cells are plain numbers.
+  function sheetXml(rows, dateCols, numCols) {
     const dc = new Set(dateCols || []);
+    const nc = new Set(numCols || []);
 
     // <cols> must come before <sheetData>. Mark each column customWidth+bestFit
     // so it opens already fitted to its content.
@@ -80,8 +82,12 @@
       row.forEach((val, c) => {
         const ref = colName(c) + (r + 1);
         const serial = (r > 0 && dc.has(c)) ? excelDate(val) : null; // row 0 = header
+        const num = (r > 0 && nc.has(c) && val !== "" && val != null && isFinite(Number(val)))
+          ? Number(val) : null;
         if (serial != null) {
           cells += `<c r="${ref}" s="1"><v>${serial}</v></c>`;
+        } else if (num != null) {
+          cells += `<c r="${ref}"><v>${num}</v></c>`; // no t attr = numeric cell
         } else {
           cells += `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(val)}</t></is></c>`;
         }
@@ -186,11 +192,13 @@
   }
 
   // ── Public API ──────────────────────────────────────────────
-  // blob(headers, rows, dateCols) — dateCols: column indices to format as dates.
-  function blob(headers, rows, dateCols) {
+  // blob(headers, rows, dateCols, numCols)
+  //   dateCols: column indices formatted as dates (dd-mmm-yy)
+  //   numCols:  column indices written as plain numbers
+  function blob(headers, rows, dateCols, numCols) {
     const aoa = [headers, ...rows];
     const files = Object.entries(FILES_BASE).map(([name, xml]) => ({ name, data: enc(xml) }));
-    files.push({ name: "xl/worksheets/sheet1.xml", data: enc(sheetXml(aoa, dateCols)) });
+    files.push({ name: "xl/worksheets/sheet1.xml", data: enc(sheetXml(aoa, dateCols, numCols)) });
     const bytes = zip(files);
     return new Blob([bytes], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

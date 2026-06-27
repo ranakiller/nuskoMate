@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const TOOL_LABELS = {
     ocr: "Passport OCR (page scan)",
+    father: "Father Name fill",
     bulk: "Bulk Parser",
     batch: "Batch Passports",
     translate: "Auto Translate",
@@ -18,7 +19,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const $ = (id) => document.getElementById(id);
   const nameEl = $("k-name"), keyEl = $("k-key"), seatsEl = $("k-seats");
-  const allEl = $("k-all"), toolsEl = $("k-tools"), monthsEl = $("k-months");
+  const allEl = $("k-all"), toolsEl = $("k-tools");
+  const yearsEl = $("k-years"), monthsEl = $("k-months"), daysEl = $("k-days"), dateEl = $("k-expiry");
   const saveBtn = $("k-save"), cancelBtn = $("k-cancel"), msgEl = $("k-msg");
   const titleEl = $("k-form-title"), listEl = $("k-list"), countEl = $("k-count");
   const refreshBtn = $("k-refresh"), tabBtn = $("tab-keys");
@@ -50,12 +52,50 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 0; i < 8; i++) h += "0123456789ABCDEF"[Math.floor(Math.random() * 16)];
     return "NUSK-" + h.slice(0, 4) + "-" + h.slice(4);
   }
-  function monthsToExpiry(m) {
-    const n = parseInt(m, 10);
-    if (!Number.isFinite(n) || n < 1) return "";
-    const d = new Date(); d.setMonth(d.getMonth() + n);
-    return d.toISOString().slice(0, 10);
+  // ── Validity: keep the Years/Months/Days boxes and the exact-date field in
+  //    sync, both ways, live. The date field is the source of truth on save.
+  function today0() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+  function fmtLocal(d) { const p = (n) => String(n).padStart(2, "0"); return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()); }
+  function parseLocal(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); if (!m) return null; const d = new Date(+m[1], +m[2] - 1, +m[3]); d.setHours(0, 0, 0, 0); return d; }
+
+  // Calendar breakdown of (target - today) into whole years, months, days.
+  function diffYMD(from, to) {
+    let y = to.getFullYear() - from.getFullYear();
+    let m = to.getMonth() - from.getMonth();
+    let d = to.getDate() - from.getDate();
+    if (d < 0) { m--; d += new Date(to.getFullYear(), to.getMonth(), 0).getDate(); }
+    if (m < 0) { y--; m += 12; }
+    return { y: Math.max(0, y), m: Math.max(0, m), d: Math.max(0, d) };
   }
+
+  // duration boxes changed → recompute the exact date (programmatic .value
+  // assignment does NOT fire events, so there's no feedback loop)
+  function durationToDate() {
+    const y = parseInt(yearsEl.value, 10) || 0;
+    const m = parseInt(monthsEl.value, 10) || 0;
+    const d = parseInt(daysEl.value, 10) || 0;
+    if (y <= 0 && m <= 0 && d <= 0) { dateEl.value = ""; return; }
+    const dt = today0();
+    dt.setFullYear(dt.getFullYear() + y);
+    dt.setMonth(dt.getMonth() + m);
+    dt.setDate(dt.getDate() + d);
+    dateEl.value = fmtLocal(dt);
+  }
+
+  // date changed → recompute the Years/Months/Days breakdown
+  function dateToDuration() {
+    const target = parseLocal(dateEl.value);
+    if (!target) { yearsEl.value = ""; monthsEl.value = ""; daysEl.value = ""; return; }
+    const { y, m, d } = diffYMD(today0(), target);
+    yearsEl.value = y || ""; monthsEl.value = m || ""; daysEl.value = d || "";
+  }
+
+  [yearsEl, monthsEl, daysEl].forEach((el) => el.addEventListener("input", durationToDate));
+  dateEl.addEventListener("input", dateToDuration);
+  dateEl.addEventListener("change", dateToDuration);
+
+  // On save, the date field holds the resolved expiry ("" = never).
+  function computeExpiry() { return dateEl.value || ""; }
   function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
   function setMsg(t, cls) { msgEl.textContent = t || ""; msgEl.className = "act-msg" + (cls ? " " + cls : ""); }
   function selectedFeatures() { return allEl.checked ? null : toolBoxes().filter((b) => b.checked).map((b) => b.value); }
@@ -66,7 +106,8 @@ document.addEventListener("DOMContentLoaded", () => {
     saveBtn.textContent = "Create key";
     cancelBtn.style.display = "none";
     nameEl.value = ""; keyEl.value = ""; keyEl.disabled = false;
-    seatsEl.value = 4; monthsEl.value = "";
+    seatsEl.value = 4;
+    yearsEl.value = ""; monthsEl.value = ""; daysEl.value = ""; dateEl.value = "";
     allEl.checked = true; syncAll();
     setMsg("");
   }
@@ -134,11 +175,12 @@ document.addEventListener("DOMContentLoaded", () => {
     nameEl.value = k.name || "";
     keyEl.value = k.key; keyEl.disabled = true;          // can't rename the key id
     seatsEl.value = k.seats || 4;
-    monthsEl.value = "";                                  // blank = keep current expiry
+    dateEl.value = k.expires || "";                       // prefill current expiry; clear = never
+    dateToDuration();                                     // sync the Years/Months/Days boxes to it
     if (k.features === null) allEl.checked = true;
     else { allEl.checked = false; toolBoxes().forEach((b) => { b.checked = k.features.includes(b.value); }); }
     syncAll();
-    setMsg(`Editing ${k.key} — leave Months blank to keep its expiry (${k.expires || "never"}).`);
+    setMsg(`Editing ${k.key} — current expiry: ${k.expires || "never"}.`);
     nameEl.scrollIntoView({ block: "nearest" });
   }
 
@@ -151,9 +193,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const features = selectedFeatures();
     if (features !== null) record.features = features;
 
-    const newExp = monthsToExpiry(monthsEl.value);
-    if (newExp) record.expires = newExp;                 // months entered → new date
-    else if (editing && editing.expires) record.expires = editing.expires; // keep current
+    const exp = computeExpiry();             // date field, or yr/mo/day from today, or "" = never
+    if (exp) record.expires = exp;
     if (editing && editing.master) record.master = true;
 
     saveBtn.disabled = true; setMsg("Saving…");

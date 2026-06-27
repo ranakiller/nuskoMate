@@ -15,23 +15,12 @@
           <div class="app-sub">Smart Automation</div>
         </div>
       </div>
-      <div class="master-toggle-wrap">
+      <div class="master-toggle-wrap master-toggle-end">
         <span class="master-status" id="master-status">On</span>
         <label class="toggle-switch master-toggle" title="Enable / disable entire extension">
           <input type="checkbox" id="toggle-master" checked />
           <span class="slider"></span>
         </label>
-      </div>
-      <div class="theme-controls">
-        <button class="theme-btn" id="theme-system" title="System theme">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        </button>
-        <button class="theme-btn" id="theme-light" title="Light theme">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        </button>
-        <button class="theme-btn" id="theme-dark" title="Dark theme">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        </button>
       </div>
     </div>
 
@@ -41,16 +30,44 @@
       <button id="update-btn" class="update-btn">Get update</button>
     </div>
 
-    <!-- Tab bar -->
-    <div class="tabbar">
-      <button class="tab tab-active" data-tab="modules">Modules</button>
-      <button class="tab" data-tab="passport">Passport</button>
-      <button class="tab" data-tab="logs">Logs<span class="tab-badge" id="tab-log-count"></span></button>
-      <button class="tab" data-tab="keys" id="tab-keys" style="display:none;">Keys</button>
-      <button class="tab tab-gear" data-tab="settings" title="Settings" aria-label="Settings">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
-    </div>
+    <!-- App layout: left sidebar + content -->
+    <div class="layout">
+
+      <!-- Left sidebar nav -->
+      <nav class="tabbar">
+        <button class="side-collapse" id="side-collapse" title="Collapse / expand sidebar" aria-label="Collapse or expand sidebar">
+          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div class="side-group">
+          <button class="tab tab-active" data-tab="modules" title="Modules">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>Modules</span>
+          </button>
+          <button class="tab" data-tab="passport" title="Passport">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
+            <span>Passport</span>
+          </button>
+          <button class="tab" data-tab="logs" title="Logs">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span>Logs</span><span class="tab-badge" id="tab-log-count"></span>
+          </button>
+          <button class="tab" data-tab="keys" id="tab-keys" title="Keys" style="display:none;">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <span>Keys</span>
+          </button>
+        </div>
+
+        <div class="side-foot">
+          <button class="tab" data-tab="settings" title="Settings">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Settings</span>
+          </button>
+          <div class="side-ver" id="footer-version">v3.2</div>
+        </div>
+      </nav>
+
+      <!-- Right content area (panels) -->
+      <div class="content">
 
     <!-- Panel: Modules -->
     <div class="tab-panel tab-panel-active" id="panel-modules">
@@ -279,6 +296,25 @@
       <div id="act-msg" class="act-msg"></div>
     </div>
 
+    <!-- Section: Appearance (theme) -->
+    <div class="section">
+      <div class="section-title">Appearance</div>
+      <div class="theme-controls">
+        <button class="theme-btn" id="theme-system" title="System theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>System</span>
+        </button>
+        <button class="theme-btn" id="theme-light" title="Light theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <span>Light</span>
+        </button>
+        <button class="theme-btn" id="theme-dark" title="Dark theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span>Dark</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Section: Email Manager -->
     <div class="section">
       <div class="section-title">Email Manager</div>
@@ -467,6 +503,7 @@
           </button>
         </div>
       </div>
+      <input type="search" id="logs-search" class="logs-search" placeholder="Search logs…" autocomplete="off" />
       <div class="logs-box" id="logs-box">
         <div class="logs-empty" id="logs-empty">No logs yet</div>
       </div>
@@ -486,13 +523,19 @@
         </div>
 
         <div class="k-sub">Tools included</div>
-        <label class="k-check"><input type="checkbox" id="k-all" checked /> <b>All tools</b></label>
+        <label class="k-check k-check-all"><input type="checkbox" id="k-all" checked /> <b>All tools</b></label>
         <div class="k-tools" id="k-tools"><!-- tool checkboxes injected by keys-admin.js --></div>
+        <div class="k-hint">Autofill (email · phone · dropdowns) is always free for everyone.</div>
 
         <div class="k-sub">Validity</div>
-        <div class="k-row">
-          <input type="number" id="k-months" class="field-input" min="0" placeholder="Months (blank = never expires)" />
+        <div class="k-dur">
+          <input type="number" id="k-years"  class="field-input k-num" min="0" placeholder="Years" title="Years from today" />
+          <input type="number" id="k-months" class="field-input k-num" min="0" placeholder="Months" title="Months from today" />
+          <input type="number" id="k-days"   class="field-input k-num" min="0" placeholder="Days" title="Days from today" />
         </div>
+        <div class="k-or">— or pick an exact date —</div>
+        <input type="date" id="k-expiry" class="field-input" required title="Exact expiry date (overrides the duration above)" />
+        <div class="k-hint">Leave everything blank = never expires</div>
 
         <div class="k-actions">
           <button id="k-save" class="bulk-btn bulk-btn-primary">Create key</button>
@@ -517,12 +560,8 @@
 
     </div><!-- /panel-keys -->
 
-    <!-- Footer -->
-    <div class="footer">
-      <span>Nuskomate</span>
-      <span class="footer-dot">·</span>
-      <span id="footer-version">v3.1</span>
-    </div>
+      </div><!-- /content -->
+    </div><!-- /layout -->
 
     <script src="../utils/license.js"></script>
     <script src="../utils/passport-parser.js"></script>

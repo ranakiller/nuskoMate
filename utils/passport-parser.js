@@ -139,7 +139,11 @@
     let mrzGiven = [], mrzFamily = "", mrzExpiry = "", m = null;
     const mrz = findMRZ(lines);
     if (mrz) {
-      m         = parseMRZLines(mrz[0], mrz[1]);
+      // Visible-zone lines (no "<") — used to tell a compound surname from a
+      // surname+given split that OCR mangled.
+      const vizLines = lines.filter((l) => !l.includes("<"))
+                            .map((l) => l.replace(/\s+/g, " ").trim().toUpperCase());
+      m         = parseMRZLines(mrz[0], mrz[1], vizLines);
       mrzGiven  = m.givenParts || [];
       mrzFamily = m.familyName || "";
       mrzExpiry = m.expiry || "";
@@ -211,8 +215,11 @@
       log.warn("[Nuskomate OCR] MRZ check digits failed — image may be blurry");
     }
 
-    // 2. Clean digits that crept into name tokens (e.g. T→1, O→0)
-    const mrzClean    = cleanNameTokens([...mrzGiven, ...(mrzFamily ? [mrzFamily] : [])]);
+    // 2. Clean digits that crept into name tokens (e.g. T→1, O→0). Split the
+    //    family name into individual words so multi-word surnames distribute
+    //    across the name boxes instead of overflowing one.
+    const familyWords = mrzFamily ? mrzFamily.split(/\s+/).filter(Boolean) : [];
+    const mrzClean    = cleanNameTokens([...mrzGiven, ...familyWords]);
     const fatherClean = cleanNameTokens(fatherTokens);
     if (mrzClean.corrected || fatherClean.corrected) {
       blurry = true;
@@ -245,6 +252,11 @@
     if (isPlaceName(s)) return false;
     if (/^(PAKISTANI|PAKISTAN|PASSPORT|NATIONALITY|TYPE|SEX|MALE|FEMALE|REPUBLIC|ISLAMIC)$/.test(s)) return false;
     if (parseTextDate(s)) return false;
+    // Must contain a plausible name token (≥3 letters with a vowel) so OCR junk
+    // sitting between fields — e.g. "WW N", "S/W", "CARRYCO" — isn't mistaken
+    // for a name and grabbed instead of the real father/husband line below it.
+    const tokens = s.split(/[\s,]+/).filter(Boolean);
+    if (!tokens.some((t) => t.length >= 3 && /[AEIOU]/.test(t))) return false;
     return true;
   }
 
@@ -538,10 +550,12 @@
 
     // Line 2 signature: passportNo(9) + checkdigit + nationality(3) + dob(6)…
     const line2Re = /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9<]{6}/;
-    // Line 1: starts with the canonical "P<" (type P + filler) and carries the
-    // surname/given "<<" separator. This is specific enough to never match a
-    // place-of-birth line like "PAKPATTAN<PAK" or a line-2 data row.
-    const isL1 = (s) => s.length >= 10 && /^P</.test(s) && s.includes("<<");
+    // Line 1: type "P" + a 5-char letters/"<" head (P<CCC… — OCR sometimes
+    // misreads the "P<" filler as a letter, e.g. "PSPAK"), carrying the
+    // surname/given "<<" separator. The "<<" requirement keeps place-of-birth
+    // lines ("PAKPATTAN<PAK", single "<") and line-2 data rows (digits in the
+    // head) from matching.
+    const isL1 = (s) => s.length >= 10 && s[0] === "P" && /^[A-Z<]{5}/.test(s) && s.includes("<<");
     const isL2 = (s) => s.length >= 28 && line2Re.test(s);
 
     // Pick the first line-1 and first line-2 found ANYWHERE in the block — this
@@ -603,7 +617,7 @@
     return tokTitle;
   }
 
-  function parseMRZLines(l1, l2) {
+  function parseMRZLines(l1, l2, vizLines) {
     const r = { givenParts: [] };
     // Line 1: P<CCC SURNAME<<GIVEN NAMES
     r.docType         = l1.slice(0, 1).replace(/</g, "");
@@ -622,8 +636,17 @@
     // re-split: first token = surname, the rest = given names. This also covers
     // the case where the given side is present but pure OCR garbage (e.g. the
     // "<" padding misread as "SKKKKKK…").
-    if (!givenParts.length && famRaw.replace(/<+$/, "").includes("<")) {
-      const toks = famRaw.replace(/<+$/, "").split("<").filter(Boolean);
+    //
+    // BUT some passports legitimately have a multi-word SURNAME with NO given
+    // name (e.g. "HAMMAD<UL<HASSAN<<" → surname "HAMMAD UL HASSAN"). That looks
+    // identical in the MRZ, so we check the visible zone: if the full surname
+    // appears there as one line, it's a real compound surname — don't re-split.
+    const famClean = famRaw.replace(/<+$/, "");
+    const famSpaced = famClean.replace(/</g, " ").trim();
+    const isCompoundSurname = !!(vizLines && famSpaced.includes(" ") &&
+      vizLines.some((l) => l.includes(famSpaced)));
+    if (!givenParts.length && famClean.includes("<") && !isCompoundSurname) {
+      const toks = famClean.split("<").filter(Boolean);
       famRaw = toks[0] || "";
       givenParts = toks.slice(1).filter((t) => !isGarbageToken(t)).map(toTitleCase);
     }
