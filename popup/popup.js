@@ -79,6 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
+      "toggle-embassy": "embassy",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -267,15 +268,15 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-ocr",       key: "moduleOcr"            },
     { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
+    { id: "toggle-embassy",   key: "moduleEmbassy"        },
   ];
-
-  const embassyMirror = document.getElementById("toggle-autofill-embassy");
 
   // All modules default ON for new installs (key never set = treat as true)
   // — except Issue Date Calc, which defaults OFF.
   const defaultOnKeys = new Set([
     "moduleReload", "moduleDisableOverlay", "moduleAutofill",
     "moduleTranslate", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
+    "moduleEmbassy",
   ]);
 
   toggles.forEach(({ id, key }) => {
@@ -286,11 +287,9 @@ document.addEventListener("DOMContentLoaded", () => {
       el.checked = !!val;
       // Persist the default so the content script reads it correctly on next load
       if (!(key in res) && defaultOnKeys.has(key)) chrome.storage.local.set({ [key]: true });
-      if (id === "toggle-autofill" && embassyMirror) embassyMirror.checked = !!val;
     });
     el.addEventListener("change", () => {
       chrome.storage.local.set({ [key]: el.checked });
-      if (id === "toggle-autofill" && embassyMirror) embassyMirror.checked = el.checked;
     });
   });
 

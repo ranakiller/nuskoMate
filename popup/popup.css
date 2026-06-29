@@ -1273,9 +1273,9 @@ body { width: 500px; }
 
 /* ── Sidebar collapse / expand ──────────────────────────────────────── */
 .side-collapse {
-  align-self: flex-end;
+  align-self: flex-start;            /* anchored to the fixed left edge — stays put */
   display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; margin-bottom: 4px;
+  width: 32px; height: 28px; margin-bottom: 4px;
   border: none; background: transparent; color: var(--text-muted);
   border-radius: var(--radius-xs); cursor: pointer;
 }
@@ -1287,7 +1287,8 @@ body { width: 500px; }
 .layout.collapsed .tab span { display: none; }
 .layout.collapsed .tab-badge { display: none; }
 .layout.collapsed .side-ver { display: none; }
-.layout.collapsed .side-collapse { align-self: center; }
+/* Keep the collapse button at the same left position whether open or closed */
+.layout.collapsed .side-collapse { align-self: flex-start; }
 .layout.collapsed .side-collapse .tab-ico { transform: rotate(180deg); }
 
 /* Bulk parser — inline failure reason on bad rows */
@@ -1307,3 +1308,11 @@ body { width: 500px; }
   outline: none;
 }
 .logs-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* Version badge in the header (next to the app name) */
+.app-ver { font-size: 10px; font-weight: 700; color: var(--text-sub); letter-spacing: .02em; }
+/* Collapse button sits above Settings, right-aligned (centers when collapsed) */
+.side-foot .side-collapse { margin-bottom: 2px; }
+
+/* Father Name nested under Passport OCR */
+.module-sub { margin-left: 16px; }

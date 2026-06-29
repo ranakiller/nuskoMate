@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
     issuedate: "Issue Date Calc",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
+    embassy: "Embassy Selector",
   };
   const TOOLS = window.NkLicense.FEATURES || Object.keys(TOOL_LABELS);
 

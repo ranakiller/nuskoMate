@@ -48,18 +48,33 @@
     if (observer) { observer.disconnect(); observer = null; }
   }
 
-  chrome.storage.local.get(["extensionEnabled", "moduleAutofill"], (res) => {
+  // Premium feature — its own per-key tool, independent of Autofill.
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("embassy");
+
+  chrome.storage.local.get(["extensionEnabled", "moduleEmbassy"], (res) => {
     if (res.extensionEnabled === false) return;
-    isEnabled = !!res.moduleAutofill;
-    start();
+    isEnabled = res.moduleEmbassy !== false && premiumOK();
+    if (isEnabled) start();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { stop(); return; }
-      else { chrome.storage.local.get(["moduleAutofill"], (r) => { isEnabled = !!r.moduleAutofill; start(); }); return; }
+      chrome.storage.local.get(["moduleEmbassy"], (r) => { isEnabled = r.moduleEmbassy !== false && premiumOK(); if (isEnabled) start(); });
+      return;
     }
-    if (changes.moduleAutofill) { isEnabled = !!changes.moduleAutofill.newValue; if (isEnabled) runEmbassySelection(); }
+    if (changes.moduleEmbassy !== undefined) {
+      isEnabled = changes.moduleEmbassy.newValue !== false && premiumOK();
+      isEnabled ? start() : stop();
+    }
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    chrome.storage.local.get(["extensionEnabled", "moduleEmbassy"], (r) => {
+      isEnabled = r.extensionEnabled !== false && r.moduleEmbassy !== false && premiumOK();
+      isEnabled ? start() : stop();
+    });
   });
 })();
