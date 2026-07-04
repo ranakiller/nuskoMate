@@ -34,13 +34,44 @@
       .replace(/[^\u0000-\u007F]/g, (c) => HOMOGLYPHS[c] || c);
   }
 
+  // 2-digit year → 4-digit. Issue/expiry sit in the 2000s; a DOB may be 1900s.
+  // Pivot at 50 (00–50 → 2000s, 51–99 → 1900s) — matches the MRZ century logic,
+  // so a visible "71" → 1971 (DOB) and "22"/"32" → 2022/2032 (issue/expiry).
+  function pivotYear(yy) { return yy <= 50 ? 2000 + yy : 1900 + yy; }
+  function isoDate(y, mo, d) {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return ""; // reject impossible (e.g. "15/92/71")
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+
+  // Parse ONE visible date in any common passport format → "YYYY-MM-DD".
+  // Global, not country-specific:
+  //   • alphabetic month   "14 FEB 2025", "05 JAN 22", "14 FEBRUARY 2025"
+  //   • bilingual repeat    "05 JAN /JAN 22"  (skips the second month token)
+  //   • numeric day-first   "19/01/2024", "14.08.1966", "18-01-34"
+  //   • ISO year-first      "2024-01-19"
   function parseTextDate(str) {
-    // Handles "22 APR 2024", "22APR2024", "01 NOV 1978"
-    const m = str.match(/(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/i);
-    if (!m) return "";
-    const mon = MONTHS[m[2].toUpperCase()];
-    if (!mon) return "";
-    return `${m[3]}-${String(mon).padStart(2, "0")}-${String(+m[1]).padStart(2, "0")}`;
+    if (!str) return "";
+    const s = str.toUpperCase();
+
+    // Alphabetic month — [A-Z]* eats a full month name, [^0-9]*? skips spaces /
+    // slashes / a repeated bilingual month before the year.
+    let m = s.match(/(\d{1,2})\s*([A-Z]{3})[A-Z]*[^0-9]*?(\d{4}|\d{2})(?!\d)/);
+    if (m && MONTHS[m[2]]) {
+      let yr = +m[3]; if (m[3].length === 2) yr = pivotYear(yr);
+      const d = isoDate(yr, MONTHS[m[2]], +m[1]);
+      if (d) return d;
+    }
+    // ISO year-first: 2024-01-19
+    m = s.match(/\b(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
+    if (m) { const d = isoDate(+m[1], +m[2], +m[3]); if (d) return d; }
+    // Numeric day-first: 19/01/2024, 14.08.1966, 18-01-34
+    m = s.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})\b/);
+    if (m) {
+      let yr = +m[3]; if (m[3].length === 2) yr = pivotYear(yr);
+      const d = isoDate(yr, +m[2], +m[1]);
+      if (d) return d;
+    }
+    return "";
   }
 
   // Extract the issue date from the visible text.
@@ -50,11 +81,36 @@
   // Expiry from the MRZ, so the issue date is simply the remaining visible
   // date that matches neither. Falls back to label-matching if MRZ is absent.
   function extractDates(lines, mrzDob, mrzExpiry) {
-    // All distinct "DD MON YYYY" dates in the visible text, in order
+    // All distinct dates in the VISIBLE text, in order (skip MRZ rows — their
+    // long digit runs aren't dates).
     const visible = [];
     for (const line of lines) {
+      if (line.includes("<")) continue;
       const d = parseTextDate(line);
       if (d && !visible.includes(d)) visible.push(d);
+    }
+
+    // Fallback for passports that print the day-month and the YEAR on SEPARATE
+    // lines (e.g. Jordan: "08 AUG" … then a block "1978 2022 2027"). Collect the
+    // standalone "DD MON" fragments and the standalone years, in order, and pair
+    // them by position. Only when normal parsing found too few full dates.
+    if (visible.length < 2) {
+      const frags = [], years = [];
+      for (const line of lines) {
+        if (line.includes("<")) continue;
+        const t = line.trim();
+        const fm = t.match(/^\s*(\d{1,2})\s*([A-Z]{3})/i);
+        if (fm && MONTHS[fm[2].toUpperCase()] && !/\d{4}/.test(t)) {
+          frags.push({ day: +fm[1], mon: MONTHS[fm[2].toUpperCase()] });
+          continue;
+        }
+        const ym = t.match(/^(\d{4})$/);
+        if (ym && +ym[1] >= 1900 && +ym[1] <= 2100) years.push(+ym[1]);
+      }
+      for (let i = 0; i < Math.min(frags.length, years.length); i++) {
+        const d = isoDate(years[i], frags[i].mon, frags[i].day);
+        if (d && !visible.includes(d)) visible.push(d);
+      }
     }
 
     // Primary: odd-one-out using MRZ dates (label-independent, OCR-proof)
@@ -160,6 +216,14 @@
       m.familyName = mrzFamily;
     }
 
+    // Country-specific visible-zone fields (father name, CNIC, place of birth,
+    // etc.) are laid out differently per country, so we only extract them for
+    // issuing countries we have a profile for — today that's Pakistan ("PAK").
+    // For any other passport we stay MRZ-only (name/passport/nationality/DOB/
+    // sex/expiry all come from the universal MRZ), so we never mislabel e.g. a
+    // place-of-birth line as the father name on an Indian/UK passport.
+    const isPK = !!(m && m.issuingCountry === "PAK");
+
     // Issue date — the visible date that is neither DOB nor expiry (from MRZ),
     // then cross-checked against the expiry to catch/correct OCR typos.
     const rawIssue = extractDates(lines, result.dob, mrzExpiry).issueDate;
@@ -167,7 +231,7 @@
     result.issueDate = refined.issueDate;
 
     // Place-of-birth city (e.g. "HANGU, PAK" → "Hangu") for the city fields
-    result.birthCity = extractBirthCity(lines);
+    result.birthCity = isPK ? extractBirthCity(lines) : "";
 
     // Per-field MRZ check-digit results (drives the on-page warnings)
     result.checks = mrz
@@ -188,13 +252,13 @@
       sex:            m ? (m.gender || m.sexCode) : "",
       expiry:         mrzExpiry,
       personalNo:     m ? m.personalNo : "",
-      fatherName:     normaliseParentName(fatherRaw).join(" "),
+      fatherName:     isPK ? normaliseParentName(fatherRaw).join(" ") : "",
       birthCity:      result.birthCity || "",
-      placeOfBirth:   extractPlaceOfBirth(lines),
-      issuingAuthority: extractIssuingAuthority(lines),
-      cnic:           extractCNIC(text),
-      trackingNumber: extractTracking(lines),
-      bookletNumber:  extractBooklet(lines),
+      placeOfBirth:   isPK ? extractPlaceOfBirth(lines) : "",
+      issuingAuthority: isPK ? extractIssuingAuthority(lines) : "",
+      cnic:           isPK ? extractCNIC(text) : "",
+      trackingNumber: isPK ? extractTracking(lines) : "",
+      bookletNumber:  isPK ? extractBooklet(lines) : "",
       age:            computeAge(result.dob),
       issueDate:      result.issueDate || "",
       mrzLine1:       mrz ? mrz[0] : "",
@@ -220,7 +284,7 @@
     //    across the name boxes instead of overflowing one.
     const familyWords = mrzFamily ? mrzFamily.split(/\s+/).filter(Boolean) : [];
     const mrzClean    = cleanNameTokens([...mrzGiven, ...familyWords]);
-    const fatherClean = cleanNameTokens(fatherTokens);
+    const fatherClean = cleanNameTokens(isPK ? fatherTokens : []);
     if (mrzClean.corrected || fatherClean.corrected) {
       blurry = true;
       log.warn("[Nuskomate OCR] digit-in-name corrections applied:", {
@@ -231,14 +295,17 @@
 
     result.blurry = blurry;
 
-    // ── Box distribution (using cleaned tokens) ─────────────────
-    const [b1, b2]  = distributeWords(mrzClean.tokens, 2, 15);
-    result.nameBoxes[0] = b1;
-    result.nameBoxes[1] = b2;
-
-    const [b3, b4]  = fatherToBoxes(fatherClean.tokens);
-    result.nameBoxes[2] = b3;
-    result.nameBoxes[3] = b4;
+    // ── Box distribution (constant rule, country-independent) ───
+    // The name word list is the MRZ name; for Pakistan we also have a father
+    // name to append. The SAME distributor runs either way — appending the
+    // father just makes the list longer. We publish both:
+    //   nameBoxes         → with the father name (used when the toggle is ON)
+    //   nameBoxesNoFather → MRZ name only        (used when the toggle is OFF)
+    // (Father data only exists for PK; for other countries the two are equal.)
+    const personTokens = mrzClean.tokens;   // MRZ name (given + family)
+    const fatherT      = fatherClean.tokens; // father name (PK only; else [])
+    result.nameBoxes         = nameToBoxes([...personTokens, ...fatherT]);
+    result.nameBoxesNoFather = nameToBoxes(personTokens);
 
     return result;
   }
@@ -258,6 +325,49 @@
     const tokens = s.split(/[\s,]+/).filter(Boolean);
     if (!tokens.some((t) => t.length >= 3 && /[AEIOU]/.test(t))) return false;
     return true;
+  }
+
+  // Recover a name whose MRZ "<" separators were OCR'd as LETTERS, merging the
+  // surname + given names into one blob with no split point
+  // (e.g. "FARUQI<<LUTFUL<HAQUE" → "FARUQISLUTFULCHAQUE"). We use the visible
+  // zone as the source of truth and the blob as the anchor: the surname is the
+  // VIZ name line that PREFIXES the blob, and the given names are a VIZ line that
+  // matches the remainder (allowing a couple of stray misread-separator letters
+  // between words). Anchoring to the blob keeps father/mother/other names out.
+  function recoverNameFromViz(nameStr, vizLines) {
+    const B = (nameStr || "").replace(/[^A-Z]/g, ""); // blob letters, surname first
+    if (B.length < 4 || !vizLines) return null;
+    const cands = vizLines
+      .filter((l) => isLikelyNameLine(l))
+      .map((l) => ({ words: l.split(/\s+/).filter(Boolean), letters: l.replace(/[^A-Z]/g, "") }))
+      .filter((c) => c.letters.length >= 2 && c.letters.length < B.length);
+
+    // Do these words appear in the blob in order, each contiguous, with ≤2 stray
+    // separator letters before each word after the first, and only padding left?
+    const aligns = (words) => {
+      let pos = 0;
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        let found = -1;
+        for (let s = 0; s <= (i === 0 ? 0 : 2); s++) {
+          if (B.substr(pos + s, w.length) === w) { found = pos + s; break; }
+        }
+        if (found < 0) return false;
+        pos = found + w.length;
+      }
+      return (B.length - pos) <= 3;
+    };
+
+    for (const surn of cands) {
+      if (!B.startsWith(surn.letters)) continue;           // surname prefixes the blob
+      for (const giv of cands) {
+        if (giv === surn) continue;
+        if (aligns([...surn.words, ...giv.words])) {
+          return { surname: surn.words.map(toTitleCase).join(" "), given: giv.words.map(toTitleCase) };
+        }
+      }
+    }
+    return null;
   }
 
   // Extract the father / husband name from OCR lines.
@@ -449,6 +559,34 @@
     return distributeWords(tokens, 2, 15);
   }
 
+  // CONSTANT name distributor — identical for every country, with or without a
+  // father name. Takes a flat list of name words and fills the 4 boxes by
+  // priority box1 & box4 first, then box2, then box3:
+  //   • front half (first ceil(n/2) words) → box1, overflow → box2
+  //   • back  half (last  floor(n/2) words) → box4, overflow → box3
+  // Each box holds ≤15 chars and never splits a word. So the last component
+  // (surname / father) lands in box4, the first name in box1, and longer names
+  // spill into boxes 2 then 3. Examples (15-char rule):
+  //   [A B]        → [A, , , B]
+  //   [A B C]      → [A B, , , C]   (if "A B"≤15)  else [A, B, , C]
+  //   [A B C D]    → [A B, , , C D] (if both ≤15)  else split into 2/3
+  function nameToBoxes(tokens) {
+    const boxes = ["", "", "", ""];
+    const n = tokens.length;
+    if (!n) return boxes;
+    const backCount = Math.floor(n / 2);          // 0,1,1,2,2,3… for n=1,2,3,4,5,6…
+    const front = tokens.slice(0, n - backCount); // first ceil(n/2) words
+    const back  = tokens.slice(n - backCount);    // last  floor(n/2) words
+    const [f0, f1] = distributeWords(front, 2, 15);
+    boxes[0] = f0; boxes[1] = f1;
+    if (back.length) {
+      const [p0, p1] = distributeWords(back, 2, 15);
+      if (p1) { boxes[2] = p0; boxes[3] = p1; } // overflow: box3=earlier, box4=last
+      else    { boxes[3] = p0; }                // fits: all in box4
+    }
+    return boxes;
+  }
+
   // Pack word tokens into `boxes` slots; each slot ≤ maxLen chars; never split a word.
   function distributeWords(tokens, boxes, maxLen) {
     const result = Array(boxes).fill("");
@@ -531,40 +669,47 @@
     // OCR often mangles the long "<" runs — splitting a line's padding onto its
     // own line(s), or dropping padding entirely. So we identify the two lines by
     // STRUCTURE, not length, then pad each back out to the canonical 44 chars.
-    const merged = [];
+    // Stage 1 — MRZ rows carry the "<" chevron filler; ordinary text and labels
+    // do not. Count GENUINE chevrons (before fixing stray OCR chars), so a
+    // punctuation-heavy label like "Passport No./Passeport No." (which has zero
+    // real "<") can never be mistaken for an MRZ line. ("&" is a common OCR
+    // misread of "<", so we count it as a chevron.)
+    const merged = []; // { s: cleaned line, ch: number of real "<" }
     for (const raw of lines) {
-      // OCR routinely misreads the MRZ "<" filler as "&" (and the type/country
-      // "P<" as "P&"). Those stray chars otherwise fail the MRZ char test and
-      // make us reject an entire valid MRZ — normalise them back to "<".
-      let l = raw.replace(/\s/g, "").toUpperCase().replace(/&/g, "<");
-      if (!l) continue;
-      // If a line is MOSTLY MRZ characters, coerce the few stray ones (".", "/",
-      // non-ASCII OCR noise, etc.) to "<" filler instead of rejecting the whole
-      // line. A scattered dot in the "<" padding must not lose the entire MRZ.
-      const clean = l.replace(/[^A-Z0-9<]/g, "");
-      if (clean.length >= l.length * 0.7) l = l.replace(/[^A-Z0-9<]/g, "<");
-      // A pure-"<" fragment is dropped padding → reattach to the previous line
-      if (/^<+$/.test(l) && merged.length) merged[merged.length - 1] += l;
-      else merged.push(l);
+      const up = raw.replace(/\s/g, "").toUpperCase().replace(/&/g, "<");
+      if (!up) continue;
+      const ch = (up.match(/</g) || []).length;
+      const coerced = up.replace(/[^A-Z0-9<]/g, "<"); // fix stray chars within MRZ
+      if (/^<+$/.test(coerced) && merged.length) {     // dropped "<" padding → reattach
+        merged[merged.length - 1].s += coerced;
+        merged[merged.length - 1].ch += ch;
+        continue;
+      }
+      merged.push({ s: coerced, ch });
     }
 
-    // Line 2 signature: passportNo(9) + checkdigit + nationality(3) + dob(6)…
-    const line2Re = /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9<]{6}/;
-    // Line 1: type "P" + a 5-char letters/"<" head (P<CCC… — OCR sometimes
-    // misreads the "P<" filler as a letter, e.g. "PSPAK"), carrying the
-    // surname/given "<<" separator. The "<<" requirement keeps place-of-birth
-    // lines ("PAKPATTAN<PAK", single "<") and line-2 data rows (digits in the
-    // head) from matching.
-    const isL1 = (s) => s.length >= 10 && s[0] === "P" && /^[A-Z<]{5}/.test(s) && s.includes("<<");
-    const isL2 = (s) => s.length >= 28 && line2Re.test(s);
+    // Stage 2 — among the MRZ rows, match the two patterns:
+    //   line 1: "P<CCC SURNAME<<GIVEN" — must carry real chevrons (>=2)
+    //   line 2: passportNo(9) chk natl(3) dob(6)… data row (digit-structured)
+    // Nationality is [A-Z0-9<] (not just letters) so an OCR slip like JOR→"J0R"
+    // (O read as zero) doesn't make us reject an otherwise-valid line 2.
+    const line2Re = /^[A-Z0-9<]{9}[0-9<][A-Z0-9<]{3}[0-9<]{6}/;
+    const isL1 = (m) => m.ch >= 2 && m.s.length >= 10 && m.s[0] === "P" &&
+                        /^[A-Z<]{5}/.test(m.s) && m.s.includes("<<");
+    const isL2 = (m) => m.s.length >= 28 && line2Re.test(m.s);
 
-    // Pick the first line-1 and first line-2 found ANYWHERE in the block — this
-    // tolerates rotated/landscape scans where the data line is printed before
-    // the name line, and ignores stray text lines sitting between them.
-    let l1 = null, l2 = null;
-    for (const s of merged) {
-      if (!l1 && isL1(s)) l1 = s;
-      else if (!l2 && isL2(s)) l2 = s;
+    const l1cands = merged.filter(isL1).map((m) => m.s);
+    const l2item  = merged.find(isL2);
+    const l2 = l2item ? l2item.s : null;
+
+    // Pick line 1: prefer the candidate whose issuing country (chars 2-4) matches
+    // line 2's nationality (chars 10-12), then a canonical "P<" start, else first.
+    let l1 = null;
+    if (l1cands.length) {
+      const natl = l2 ? l2.slice(10, 13).replace(/</g, "") : "";
+      l1 = (natl && l1cands.find((s) => s.slice(2, 5).replace(/</g, "") === natl))
+        || l1cands.find((s) => s.startsWith("P<"))
+        || l1cands[0];
     }
     if (l1 && l2) {
       return [l1.padEnd(44, "<").slice(0, 44), l2.padEnd(44, "<").slice(0, 44)];
@@ -654,9 +799,16 @@
                          .split(/\s+/).filter((w) => w && !isGarbageToken(w))
                          .map(toTitleCase).join(" ");
     r.givenParts = givenParts;
+    // OCR read the "<" separators as letters → surname+given merged into one
+    // blob with no split. Recover the name from the visible zone.
+    if (!r.givenParts.length) {
+      const rec = recoverNameFromViz(nameStr, vizLines);
+      if (rec) { r.familyName = rec.surname; r.givenParts = rec.given; }
+    }
     // Line 2: passportNo(9) chk natl(3) dob(6) chk sex expiry(6) chk personal(14) …
     r.passportNo  = l2.slice(0, 9).replace(/</g, "");
-    r.nationality = l2.slice(10, 13).replace(/</g, "");
+    // Nationality is always letters — undo OCR digit-for-letter slips (J0R→JOR).
+    r.nationality = l2.slice(10, 13).replace(/</g, "").replace(/[0-9]/g, (d) => DIGIT_LETTER[d] || d);
     r.dob    = mrzDate(l2.slice(13, 19), true);
     r.expiry = mrzDate(l2.slice(21, 27), false);
     const sx = l2[20];

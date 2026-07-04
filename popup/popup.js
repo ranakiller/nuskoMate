@@ -79,7 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
-      "toggle-embassy": "embassy",
+      "toggle-embassy": "embassy", "toggle-autoclicker": "autoclick",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -104,6 +104,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // The Bulk Parser section needs the "bulk" tool specifically.
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
+      // Auto Clicker tab: upsell unless the "autoclick" tool is licensed.
+      const acUpsell  = document.getElementById("ac-upsell");
+      const acContent = document.getElementById("ac-content");
+      const acOk = has(st, "autoclick");
+      if (acUpsell)  acUpsell.style.display  = acOk ? "none" : "block";
+      if (acContent) acContent.style.display = acOk ? ""     : "none";
     }
 
     function renderStatus(st) {
@@ -171,12 +177,15 @@ document.addEventListener("DOMContentLoaded", () => {
       refresh();
     });
 
-    // Upsell button → jump to Settings so the user can enter a key
-    if (upsellBtn) upsellBtn.addEventListener("click", () => {
+    // Upsell buttons → jump to Settings so the user can enter a key
+    const jumpToSettings = () => {
       const tab = document.querySelector('[data-tab="settings"]');
       if (tab) tab.click();
       setTimeout(() => keyIn && keyIn.focus(), 50);
-    });
+    };
+    if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
+    const acUpsellBtn = document.getElementById("ac-upsell-btn");
+    if (acUpsellBtn) acUpsellBtn.addEventListener("click", jumpToSettings);
 
     // Keep the UI in sync if activation changes elsewhere
     chrome.storage.onChanged.addListener((c, a) => {
@@ -269,6 +278,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
     { id: "toggle-embassy",   key: "moduleEmbassy"        },
+    { id: "toggle-autoclicker", key: "moduleAutoClicker"  },
   ];
 
   // All modules default ON for new installs (key never set = treat as true)

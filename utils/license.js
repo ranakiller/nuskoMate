@@ -19,7 +19,7 @@
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
 
   // Canonical list of per-key tool ids (kept in sync with the popup + modules).
-  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "embassy"];
+  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "embassy", "autoclick"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms

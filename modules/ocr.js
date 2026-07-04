@@ -18,6 +18,14 @@
   let issueDateReleased = false; // user took manual control via the calc's Insert button
   let lastFileId      = null;
   let started         = false;
+  // "Don't fight the user" tracking. We only overwrite a name box / city while
+  // it's blank, still holds OUR value, or we're inside a short window after the
+  // boxes first appear (to beat Masar's own MRZ auto-fill). After that, a value
+  // the user typed is left untouched.
+  let boxesSeenAt     = 0;    // when the name boxes first rendered
+  let ourBox          = {};   // per-index value we wrote
+  let ourCity         = "";   // city value we wrote
+  const NAME_GRACE_MS = 8000; // overwrite window after boxes appear
 
   // ── Lifecycle ───────────────────────────────────────────────
   // Premium feature — requires a license that includes passport OCR.
@@ -35,7 +43,10 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.moduleFatherName !== undefined) fatherEnabled = changes.moduleFatherName.newValue !== false && fatherOK();
+    if (changes.moduleFatherName !== undefined) {
+      fatherEnabled = changes.moduleFatherName.newValue !== false && fatherOK();
+      scheduleFill(); // re-fill with the right box set (with / without father)
+    }
     if (changes.extensionEnabled && !changes.extensionEnabled.newValue) { isEnabled = false; stop(); return; }
     if (changes.moduleOcr !== undefined) {
       isEnabled = changes.moduleOcr.newValue !== false && premiumOK();
@@ -254,6 +265,7 @@
   // ── Fill form ───────────────────────────────────────────────
   function scheduleFill() {
     issueDateReleased = false; // a fresh scan re-takes control of the issue date
+    boxesSeenAt = 0; ourBox = {}; ourCity = ""; // fresh scan → fresh overwrite window
     clearInterval(fillTimer);
     clearInterval(calcTimer);
 
@@ -314,16 +326,22 @@
   function applyFields() {
     // Wait until at least the first box is in the DOM
     if (!document.querySelector(BOX_SEL[0])) return false;
+    if (!boxesSeenAt) boxesSeenAt = Date.now(); // boxes just appeared → start grace window
 
-    // Keep retrying until EVERY name box actually holds its intended value.
-    // The form can render box-by-box, and other modules (e.g. autofill copying
-    // firstName→familyName) may overwrite a box right after we set it — so we
-    // re-assert every tick until all boxes are correct and stable.
+    // Re-assert names until they hold. The form can render box-by-box, and the
+    // nusuk page fills its own MRZ names the instant the boxes appear — so for a
+    // short grace window after the boxes show we overwrite anything that differs
+    // (to beat that). After the window we only (re)write a box that is blank or
+    // still holds OUR value, so a name the USER edits is left alone.
+    const aggressive = (Date.now() - boxesSeenAt) < NAME_GRACE_MS;
     let allBoxesCorrect = true;
     const snapshot = []; // diagnostic: state of each box this tick
-    // Father Name module OFF → don't fill any name box; let Masar's own MRZ
-    // auto-fill stand. (Issue date / city / warnings below still run.)
-    (fatherEnabled ? (scanned.nameBoxes || []) : []).forEach((val, i) => {
+    // Names ALWAYS fill. The Father Name toggle only chooses WHICH precomputed
+    // box set to use: with the father name (ON) or the MRZ name only (OFF). The
+    // distribution rule is identical either way (see parser nameToBoxes).
+    const useBoxes = (fatherEnabled ? scanned.nameBoxes
+                                    : (scanned.nameBoxesNoFather || scanned.nameBoxes)) || [];
+    useBoxes.forEach((val, i) => {
       const sel = BOX_SEL[i];
       if (!sel) return;
       const want = val ?? "";
@@ -338,12 +356,17 @@
         return;
       }
       const before = el.value;
-      if (el.value !== want) {
+      if (before === want) {
+        snapshot.push(`box${i}:ok="${want}"`);
+      } else if (before === "" || before === ourBox[i] || aggressive) {
         fill(sel, want);
+        ourBox[i] = want;
         snapshot.push(`box${i}:was="${before}"→set="${want}"`);
         allBoxesCorrect = false;
       } else {
-        snapshot.push(`box${i}:ok="${want}"`);
+        // User edited this box after the grace window → leave it (treated as
+        // settled so the retry loop can stop).
+        snapshot.push(`box${i}:user="${before}"`);
       }
     });
 
@@ -374,17 +397,24 @@
     const hasScan = !!(scanned && (scanned.birthCity || scanned.details ||
                        scanned.nameBoxes?.some((b) => b)));
     if (!hasScan) return;
-    // If OCR couldn't read the place of birth, fall back to "Pakistan".
-    const city = scanned.birthCity || "Pakistan";
+    // Use the read place-of-birth city; otherwise fall back to the passport's
+    // own country (GBR → "United Kingdom", PAK → "Pakistan", …). Unknown country
+    // code → leave the field for the user rather than guessing.
+    const code = scanned.details && scanned.details.issuingCountry;
+    const country = window.NkCountries ? window.NkCountries.name(code) : "";
+    const city = scanned.birthCity || country || "";
+    if (!city) return;
     let any = false;
     document.querySelectorAll("input[formcontrolname]").forEach((inp) => {
       if (!/city/i.test(inp.getAttribute("formcontrolname") || "")) return;
-      if (inp.value !== city && typeof window.simulateAngularInput === "function") {
+      const cur = inp.value.trim();
+      if (cur !== "" && cur !== ourCity) return;        // user owns it → leave
+      if (cur !== city && typeof window.simulateAngularInput === "function") {
         window.simulateAngularInput(inp, city);
         any = true;
       }
     });
-    if (any) log.info("[Nuskomate OCR] city →", city);
+    if (any) { ourCity = city; log.info("[Nuskomate OCR] city →", city); }
   }
 
   // Reverse-populate the Issue Date Calculator widget.

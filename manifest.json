@@ -38,6 +38,9 @@
         "utils/route-watcher.js",
         "utils/angular-simulator.js",
         "utils/dropdown-helper.js",
+        "utils/element-type-detector.js",
+        "utils/inspector.js",
+        "utils/countries.js",
         "utils/passport-parser.js",
         "modules/auto-reload.js",
         "modules/autofill.js",
@@ -47,7 +50,8 @@
         "modules/embassy-selector.js",
         "modules/disable-loading-overlay.js",
         "modules/ocr.js",
-        "modules/batch-passport.js"
+        "modules/batch-passport.js",
+        "modules/auto-clicker.js"
       ],
       "run_at": "document_idle"
     }

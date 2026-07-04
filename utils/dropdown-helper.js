@@ -26,13 +26,17 @@
   }
 
   function pickOption(wantedText) {
-    const items = document.querySelectorAll('ul[role="listbox"] li');
-    for (const li of items) {
-      if (li.textContent.trim().toLowerCase().includes(wantedText)) {
-        li.click();
-        li.dispatchEvent(new Event("click", { bubbles: true }));
-        return true;
-      }
+    const items = [...document.querySelectorAll('ul[role="listbox"] li')];
+    // Prefer an EXACT match so a dial code like "+44" can't match "+441"
+    // (Bermuda etc.); fall back to a substring match for partial labels
+    // (e.g. "pakistan" inside "Pakistan (PK)").
+    const norm = (li) => li.textContent.trim().toLowerCase();
+    const target = items.find((li) => norm(li) === wantedText)
+                || items.find((li) => norm(li).includes(wantedText));
+    if (target) {
+      target.click();
+      target.dispatchEvent(new Event("click", { bubbles: true }));
+      return true;
     }
     return false;
   }
