@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     overlay: "Disable Overlay",
     embassy: "Embassy Selector",
     autoclick: "Auto Clicker",
+    autofill: "Autofill (form fill)",
   };
   const TOOLS = window.NkLicense.FEATURES || Object.keys(TOOL_LABELS);
 

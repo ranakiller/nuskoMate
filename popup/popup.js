@@ -55,11 +55,11 @@ document.addEventListener("DOMContentLoaded", () => {
       .catch(() => {});
   })();
 
-  // ── Activation / freemium ───────────────────────────────────
-  // Free tier (no key) = Autofill only. Everything else is premium and stays
-  // locked, with a "pay to enjoy full features" upsell, until a valid key is
-  // entered here in Settings. The crown-jewel features (OCR/parse) are ALSO
-  // enforced server-side, so they cannot be used without paying.
+  // ── Activation ──────────────────────────────────────────────
+  // Every module (including Autofill) is premium now — nothing works without a
+  // valid key. Each toggle is gated by its tool entitlement (TOGGLE_FEATURE);
+  // until a key is entered here in Settings, all modules stay locked. The
+  // crown-jewel features (OCR/parse) are ALSO enforced server-side.
   (function () {
     if (!window.NkLicense) return;
     const keyIn      = document.getElementById("act-key");
@@ -76,6 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Each premium toggle maps to the tool id the key must include.
     const TOGGLE_FEATURE = {
+      "toggle-autofill": "autofill",
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
@@ -120,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (statusText) {
         let t = activated
           ? (st.name ? `Premium active — ${st.name}` : "Premium active")
-          : "Free plan — Autofill only";
+          : "Not activated — enter a key to use Nuskomate";
         if (activated && st.expires) t += `  ·  expires ${st.expires}`;
         statusText.textContent = t;
       }

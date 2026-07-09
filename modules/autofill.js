@@ -128,10 +128,13 @@
     if (observer) { observer.disconnect(); observer = null; }
   }
 
+  // Autofill is now a premium tool — requires a license that includes "autofill".
+  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("autofill");
+
   chrome.storage.local.get(null, (settings) => {
     if (settings.extensionEnabled === false) return;
     settingsCache = settings || {};
-    isEnabled = !!settingsCache.moduleAutofill;
+    isEnabled = !!settingsCache.moduleAutofill && premiumOK();
     start();
   });
 
@@ -139,10 +142,16 @@
     if (area !== "local") return;
     if (changes.extensionEnabled) {
       if (!changes.extensionEnabled.newValue) { stop(); return; }
-      else { chrome.storage.local.get(null, (s) => { settingsCache = s; isEnabled = !!s.moduleAutofill; start(); }); return; }
+      else { chrome.storage.local.get(null, (s) => { settingsCache = s; isEnabled = !!s.moduleAutofill && premiumOK(); start(); }); return; }
     }
     Object.entries(changes).forEach(([key, change]) => { settingsCache[key] = change.newValue; });
-    if (changes.moduleAutofill) isEnabled = !!changes.moduleAutofill.newValue;
+    if (changes.moduleAutofill) isEnabled = !!changes.moduleAutofill.newValue && premiumOK();
     scheduleSync();
+  });
+
+  // React to license activation/deactivation while the page is open.
+  window.NkLicense && window.NkLicense.onPremiumChange(() => {
+    isEnabled = settingsCache.extensionEnabled !== false && !!settingsCache.moduleAutofill && premiumOK();
+    if (isEnabled) start(); else stop();
   });
 })();
