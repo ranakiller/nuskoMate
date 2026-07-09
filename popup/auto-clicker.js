@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
+  const collapsedGroups = new Set(); // URL groups collapsed in the rules list
   let draggedId = null; // id of the rule currently being dragged (reliable across drop)
 
   // ── "module off" hint ─────────────────────────────────────────────────────
@@ -249,7 +250,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      displayed.forEach((rule) => {
+      const buildRuleCard = (rule) => {
         const id = String(rule.id);
         if (!knownRuleIds.has(id)) { knownRuleIds.add(id); collapsedRuleIds.add(id); }
 
@@ -348,7 +349,27 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         card.append(head, summary, body);
-        listDiv.appendChild(card);
+        return card;
+      };
+
+      // Group displayed rules by their match URL (pathname), with collapsible headers.
+      const groups = new Map();
+      displayed.forEach((rule) => {
+        const key = (rule.pathname || "").trim() || "__any__";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(rule);
+      });
+      groups.forEach((grpRules, key) => {
+        const gh = document.createElement("div"); gh.className = "rule-group-head";
+        const gcol = collapsedGroups.has(key);
+        const caret = document.createElement("span"); caret.className = "rule-group-caret"; caret.textContent = gcol ? "▸" : "▾";
+        const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = key === "__any__" ? "Any page" : key;
+        const gc = document.createElement("span"); gc.className = "rule-group-count"; gc.textContent = grpRules.length;
+        gh.append(caret, gt, gc);
+        gh.addEventListener("click", () => { collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key); renderRules(); });
+        listDiv.appendChild(gh);
+        if (gcol) return;
+        grpRules.forEach((rule) => listDiv.appendChild(buildRuleCard(rule)));
       });
 
       listDiv.querySelectorAll(".enable-toggle").forEach((cb) => {
@@ -436,12 +457,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const STATUS_KEY = "acRunStatus";
   const wfListEl = document.getElementById("wf-list");
   const wfKnown = new Set();
+  const wfSettingsOpen = new Set(); // workflow ids whose settings panel is expanded
+  const wfCollapsed = new Set();    // collapsed (hidden body) workflow ids
+  let draggedWfId = null;
   let liveStatus = {};
 
   const STEP_LABEL = {
     button: "CLICK", click: "CLICK", input: "FILL", dropdown: "SELECT",
     checkbox: "CHECK", radio: "RADIO", waitFor: "WAIT+", waitGone: "WAIT-", wait: "DELAY", delay: "DELAY",
+    capture: "GET", if: "IF", else: "ELSE", endif: "END IF", loopStart: "LOOP", loopEnd: "END LOOP",
   };
+  const MARKER_TYPES = new Set(["else", "endif", "loopEnd"]);       // no fields, minimal row
+  const NO_HIGHLIGHT = new Set(["wait", "delay", "else", "endif", "loopEnd", "loopStart"]);
 
   function saveWorkflows(wfs, cb) { chrome.storage.local.set({ [WF_KEY]: wfs }, cb); }
   function withWorkflows(fn) { chrome.storage.local.get([WF_KEY], (res) => fn(res[WF_KEY] || [])); }
@@ -493,6 +520,62 @@ document.addEventListener("DOMContentLoaded", () => {
   function addWorkflow() {
     withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
   }
+  function reorderWorkflows(srcId, targetId) {
+    withWorkflows((wfs) => {
+      const from = wfs.findIndex((w) => String(w.id) === String(srcId));
+      const to = wfs.findIndex((w) => String(w.id) === String(targetId));
+      if (from < 0 || to < 0 || from === to) return;
+      const next = [...wfs];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      saveWorkflows(next, renderWorkflows);
+    });
+  }
+  function addStep(wfId, step) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), step] } : w), renderWorkflows));
+  }
+  function addSteps(wfId, arr) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), ...arr] } : w), renderWorkflows));
+  }
+  function addCapture(wfId) { addStep(wfId, { id: uid(), type: "capture", name: "Capture", requiredElements: [""], selector: "", varName: "myVar", captureSource: "text", timeoutMs: 8000 }); }
+  function addIf(wfId)   { addSteps(wfId, [{ id: uid(), type: "if", name: "If", requiredElements: [""], selector: "", condition: "visible", value: "" }, { id: uid(), type: "endif", name: "End if" }]); }
+  function addElse(wfId) { addStep(wfId, { id: uid(), type: "else", name: "Else" }); }
+  function addLoop(wfId) { addSteps(wfId, [{ id: uid(), type: "loopStart", name: "Loop", loopMode: "count", count: 2, requiredElements: [""], selector: "" }, { id: uid(), type: "loopEnd", name: "End loop" }]); }
+
+  function patchRepeat(wfId, patch) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, repeat: { ...(w.repeat || { mode: "off" }), ...patch } } : w), renderWorkflows));
+  }
+
+  // Minimal CSV parser (handles quoted fields). First row = column names.
+  function parseCSV(text) {
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
+    if (!lines.length) return { columns: [], rows: [] };
+    const parseLine = (l) => {
+      const out = []; let cur = "", q = false;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (q) { if (c === '"') { if (l[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+        else if (c === '"') q = true;
+        else if (c === ",") { out.push(cur); cur = ""; }
+        else cur += c;
+      }
+      out.push(cur); return out.map((s) => s.trim());
+    };
+    return { columns: parseLine(lines[0]), rows: lines.slice(1).map(parseLine) };
+  }
+
+  // Indent depth per step (for loop / if block nesting).
+  function computeDepths(steps) {
+    const depths = []; let d = 0;
+    for (const s of steps) {
+      const t = s.type;
+      if (t === "loopEnd" || t === "endif") d = Math.max(0, d - 1);
+      if (t === "else") { depths.push(Math.max(0, d - 1)); continue; }
+      depths.push(d);
+      if (t === "loopStart" || t === "if") d++;
+    }
+    return depths;
+  }
 
   function stepSummary(step) {
     const sel = (step.requiredElements && step.requiredElements[0]) || step.selector || "—";
@@ -503,6 +586,12 @@ document.addEventListener("DOMContentLoaded", () => {
       case "input":    return `fill "${step.fillValue || ""}"`;
       case "dropdown": return `select "${step.selectValue || ""}"`;
       case "checkbox": case "radio": return `${step.targetState || "checked"}`;
+      case "capture":  return `${step.varName || "var"} = ${step.captureSource || "text"} of ${sel}`;
+      case "if":       return `if ${sel} ${step.condition || "visible"}${step.value ? ` "${step.value}"` : ""}`;
+      case "else":     return "else";
+      case "endif":    return "end if";
+      case "loopStart":return step.loopMode === "while" ? `loop while ${sel} visible` : `loop ${step.count || 1}×`;
+      case "loopEnd":  return "end loop";
       default:         return `click`;
     }
   }
@@ -527,56 +616,123 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function stepFields(wf, step) {
+    const P = (patch) => patchStep(wf.id, step.id, patch);
     const selVal = (step.requiredElements && step.requiredElements[0]) || step.selector || "";
     const isDelay = step.type === "wait" || step.type === "delay";
     const isWait = step.type === "waitFor" || step.type === "waitGone";
+    const isText = step.type === "if" && (step.condition === "textIncludes" || step.condition === "textEquals");
     const fields = [];
 
-    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => patchStep(wf.id, step.id, { requiredElements: [v], selector: v }))));
-    if (step.type === "input") fields.push(fieldRow("Fill value", txt(step.fillValue, "", (v) => patchStep(wf.id, step.id, { fillValue: v }))));
-    if (step.type === "dropdown") {
-      fields.push(fieldRow("Select value", txt(step.selectValue, "", (v) => patchStep(wf.id, step.id, { selectValue: v }))));
-      fields.push(fieldRow("Match by", sel(step.selectMatchBy || "value", ["value", "text"], (v) => patchStep(wf.id, step.id, { selectMatchBy: v }))));
+    // ── loop marker ──
+    if (step.type === "loopStart") {
+      fields.push(fieldRow("Repeat", sel(step.loopMode || "count", ["count", "while"], (v) => P({ loopMode: v }))));
+      if ((step.loopMode || "count") === "while") fields.push(fieldRow("While selector visible", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      else fields.push(fieldRow("Times", num(step.count == null ? 2 : step.count, (v) => P({ count: v }))));
+      return fields;
     }
-    if (step.type === "checkbox" || step.type === "radio") fields.push(fieldRow("Target state", sel(step.targetState || "checked", ["checked", "unchecked", "toggle"], (v) => patchStep(wf.id, step.id, { targetState: v }))));
-    if (isDelay) fields.push(fieldRow("Delay (ms)", num(step.waitMs, (v) => patchStep(wf.id, step.id, { waitMs: v }))));
-    if (isWait || !isDelay) fields.push(fieldRow(isWait ? "Timeout (ms)" : "Element timeout (ms)", num(step.timeoutMs == null ? (isWait ? 15000 : 8000) : step.timeoutMs, (v) => patchStep(wf.id, step.id, { timeoutMs: v }))));
+    // ── conditional ──
+    if (step.type === "if") {
+      fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(fieldRow("Condition", sel(step.condition || "visible", ["visible", "hidden", "textIncludes", "textEquals"], (v) => P({ condition: v }))));
+      if (isText) fields.push(fieldRow("Text", txt(step.value, "", (v) => P({ value: v }))));
+      return fields;
+    }
+    // ── capture into a variable ──
+    if (step.type === "capture") {
+      fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(fieldRow("Variable name", txt(step.varName, "e.g. name", (v) => P({ varName: v }))));
+      fields.push(fieldRow("Read", sel(step.captureSource || "text", ["text", "value"], (v) => P({ captureSource: v }))));
+      return fields;
+    }
+
+    // ── action / wait steps ──
+    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+    if (step.type === "input") fields.push(fieldRow("Fill value", txt(step.fillValue, "text or {{column}}", (v) => P({ fillValue: v }))));
+    if (step.type === "dropdown") {
+      fields.push(fieldRow("Select value", txt(step.selectValue, "text or {{column}}", (v) => P({ selectValue: v }))));
+      fields.push(fieldRow("Match by", sel(step.selectMatchBy || "value", ["value", "text"], (v) => P({ selectMatchBy: v }))));
+    }
+    if (step.type === "checkbox" || step.type === "radio") fields.push(fieldRow("Target state", sel(step.targetState || "checked", ["checked", "unchecked", "toggle"], (v) => P({ targetState: v }))));
+    if (isDelay) fields.push(fieldRow("Delay (ms)", num(step.waitMs, (v) => P({ waitMs: v }))));
+    if (isWait || !isDelay) fields.push(fieldRow(isWait ? "Timeout (ms)" : "Element timeout (ms)", num(step.timeoutMs == null ? (isWait ? 15000 : 8000) : step.timeoutMs, (v) => P({ timeoutMs: v }))));
 
     const optWrap = document.createElement("div"); optWrap.className = "check-row";
     const opt = document.createElement("input"); opt.type = "checkbox"; opt.checked = !!step.optional;
-    opt.addEventListener("change", (e) => patchStep(wf.id, step.id, { optional: e.target.checked }));
+    opt.addEventListener("change", (e) => P({ optional: e.target.checked }));
     const optl = document.createElement("label"); optl.textContent = "Optional (skip if it fails)";
     optWrap.append(opt, optl); fields.push(optWrap);
     return fields;
   }
 
-  function renderStepCard(wf, step, index, total, activeIndex) {
+  function renderStepCard(wf, step, index, total, activeIndex, depth) {
+    const isMarker = MARKER_TYPES.has(step.type);
     const card = document.createElement("div");
-    card.className = "wf-step" + (activeIndex === index ? " wf-step-active" : "");
+    card.className = "wf-step" + (isMarker ? " wf-step-marker" : "") + (activeIndex === index ? " wf-step-active" : "");
+    if (depth > 0) card.style.marginLeft = Math.min(depth, 4) * 14 + "px";
 
     const head = document.createElement("div"); head.className = "wf-step-head";
     const numTag = document.createElement("span"); numTag.className = "wf-step-num"; numTag.textContent = index + 1;
     const badge = document.createElement("span"); badge.className = `type-badge type-badge--${step.type}`; badge.textContent = STEP_LABEL[step.type] || "STEP";
-    const name = document.createElement("input"); name.className = "wf-step-name"; name.value = step.name || step.type;
-    name.addEventListener("change", (e) => patchStep(wf.id, step.id, { name: e.target.value }));
-
     const up = mini("↑", () => moveStep(wf.id, step.id, -1));
     const down = mini("↓", () => moveStep(wf.id, step.id, +1));
-    const canHighlight = step.type !== "wait" && step.type !== "delay";
-    const hi = mini("◎", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
-    hi.title = "Flash this element on the page";
-    hi.disabled = !canHighlight;
     const del = mini("×", () => removeStep(wf.id, step.id), true);
 
+    // Block markers (else / endif / end loop) are a single compact row.
+    if (isMarker) {
+      const lbl = document.createElement("span"); lbl.className = "wf-marker-label"; lbl.textContent = stepSummary(step);
+      head.append(numTag, badge, lbl, up, down, del);
+      card.append(head);
+      return card;
+    }
+
+    const name = document.createElement("input"); name.className = "wf-step-name"; name.value = step.name || step.type;
+    name.addEventListener("change", (e) => patchStep(wf.id, step.id, { name: e.target.value }));
+    const hi = mini("◎", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
+    hi.title = "Flash this element on the page";
+    hi.disabled = NO_HIGHLIGHT.has(step.type);
     head.append(numTag, badge, name, up, down, hi, del);
 
     const summary = document.createElement("div"); summary.className = "wf-step-sum"; summary.textContent = stepSummary(step);
-
     const body = document.createElement("div"); body.className = "wf-step-body";
     stepFields(wf, step).forEach((f) => body.append(f));
 
     card.append(head, summary, body);
     return card;
+  }
+
+  // Per-workflow settings: hotkey, repeat mode, CSV data source.
+  function buildSettings(wf) {
+    const panel = document.createElement("div"); panel.className = "wf-settings";
+    const repeat = wf.repeat || { mode: "off" };
+    const data = wf.data || { columns: [], rows: [] };
+
+    panel.append(fieldRow("Hotkey (e.g. Alt+1)", txt(wf.hotkey, "Ctrl+Shift+K", (v) => patchWorkflow(wf.id, { hotkey: v }))));
+    panel.append(fieldRow("Repeat", sel(repeat.mode || "off", ["off", "count", "whileVisible", "perRow"], (v) => patchRepeat(wf.id, { mode: v }))));
+    if (repeat.mode === "count") panel.append(fieldRow("Times", num(repeat.count == null ? 1 : repeat.count, (v) => patchRepeat(wf.id, { count: v }))));
+    if (repeat.mode === "whileVisible") panel.append(fieldRow("While selector visible", txt(repeat.whileSelector, "CSS selector", (v) => patchRepeat(wf.id, { whileSelector: v }))));
+
+    // Data source (CSV) — feeds {{column}} variables; run "Per data row" to loop rows.
+    const dataInfo = document.createElement("div"); dataInfo.className = "wf-data-info";
+    dataInfo.textContent = data.rows && data.rows.length
+      ? `${data.rows.length} row(s) · columns: ${(data.columns || []).join(", ") || "—"}`
+      : "No data loaded";
+    const dataRow = document.createElement("div"); dataRow.className = "wf-data-row";
+    const impBtn = mini("Import CSV", () => csvInput.click());
+    const clrBtn = mini("Clear", () => patchWorkflow(wf.id, { data: { columns: [], rows: [] } }), true);
+    const csvInput = document.createElement("input"); csvInput.type = "file"; csvInput.accept = ".csv,.txt"; csvInput.style.display = "none";
+    csvInput.addEventListener("change", (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = (ev) => { const parsed = parseCSV(ev.target.result); patchWorkflow(wf.id, { data: parsed }); if (!(wf.repeat && wf.repeat.mode === "perRow")) patchRepeat(wf.id, { mode: "perRow" }); };
+      rd.readAsText(f); csvInput.value = "";
+    });
+    dataRow.append(impBtn, clrBtn, csvInput);
+    const dataLbl = document.createElement("label"); dataLbl.textContent = "Data source (CSV)"; dataLbl.className = "wf-data-lbl";
+    panel.append(dataLbl, dataInfo, dataRow);
+    const hint = document.createElement("div"); hint.className = "wf-data-hint";
+    hint.textContent = "Use {{column}} in Fill/Select values. Set Repeat = Per data row to run once per row.";
+    panel.append(hint);
+    return panel;
   }
 
   function mini(label, fn, danger) {
@@ -593,9 +749,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const paused = running && liveStatus.paused;
     const activeIndex = running ? liveStatus.stepIndex : -1;
 
+    const id = String(wf.id);
+    const collapsed = wfCollapsed.has(id);
     const card = document.createElement("div"); card.className = "wf-card" + (running ? " wf-card-running" : "");
 
     const head = document.createElement("div"); head.className = "wf-head";
+    const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle wf-drag"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
     const name = document.createElement("input"); name.className = "wf-name"; name.value = wf.name || "Workflow";
     name.addEventListener("change", (e) => patchWorkflow(wf.id, { name: e.target.value }));
 
@@ -613,24 +772,40 @@ document.addEventListener("DOMContentLoaded", () => {
     pauseBtn.style.display = running ? "" : "none";
     pauseBtn.onclick = () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" });
 
+    const gear = mini("⚙", () => { wfSettingsOpen.has(id) ? wfSettingsOpen.delete(id) : wfSettingsOpen.add(id); renderWorkflows(); });
+    gear.title = "Workflow settings (hotkey, repeat, data)";
+    const collapseBtn = mini(collapsed ? "Show" : "Hide", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
     const del = mini("Delete", () => deleteWorkflow(wf.id), true);
 
-    head.append(name, runBtn, pauseBtn, del);
+    head.append(dragHandle, name, runBtn, pauseBtn, gear, collapseBtn, del);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";
     const isThis = String(liveStatus.id) === String(wf.id);
-    if (running) status.textContent = `${paused ? "Paused" : "Running"} — step ${Math.min((liveStatus.stepIndex || 0) + 1, liveStatus.total)}/${liveStatus.total || (wf.steps || []).length}`;
+    if (running) {
+      const iterTxt = liveStatus.iterTotal ? ` · run ${liveStatus.iter}/${liveStatus.iterTotal}` : (liveStatus.iter ? ` · run ${liveStatus.iter}` : "");
+      status.textContent = `${paused ? "Paused" : "Running"} — step ${Math.min((liveStatus.stepIndex || 0) + 1, liveStatus.total)}/${liveStatus.total || (wf.steps || []).length}${iterTxt}`;
+    }
     else if (isThis && liveStatus.lastError) { status.textContent = "✖ " + liveStatus.lastError; status.classList.add("wf-status-err"); }
     else if (isThis && liveStatus.done && !liveStatus.stopped) { status.textContent = "✔ finished"; status.classList.add("wf-status-ok"); }
     else if (isThis && liveStatus.stopped) status.textContent = "■ stopped";
-    else status.textContent = `${(wf.steps || []).length} step(s)`;
+    else {
+      const rp = wf.repeat && wf.repeat.mode && wf.repeat.mode !== "off" ? ` · repeat: ${wf.repeat.mode}` : "";
+      const hk = wf.hotkey ? ` · ${wf.hotkey}` : "";
+      status.textContent = `${(wf.steps || []).length} step(s)${rp}${hk}`;
+    }
 
-    // steps
+    // settings panel (collapsible)
+    const settings = wfSettingsOpen.has(String(wf.id)) ? buildSettings(wf) : null;
+
+    // steps (indented by loop/if nesting)
     const stepsWrap = document.createElement("div"); stepsWrap.className = "wf-steps";
     const steps = wf.steps || [];
-    if (!steps.length) { const e = document.createElement("div"); e.className = "wf-empty"; e.textContent = "No steps yet — capture one below."; stepsWrap.appendChild(e); }
-    else steps.forEach((s, i) => stepsWrap.appendChild(renderStepCard(wf, s, i, steps.length, activeIndex)));
+    if (!steps.length) { const e = document.createElement("div"); e.className = "wf-empty"; e.textContent = "No steps yet — add one below."; stepsWrap.appendChild(e); }
+    else {
+      const depths = computeDepths(steps);
+      steps.forEach((s, i) => stepsWrap.appendChild(renderStepCard(wf, s, i, steps.length, activeIndex, depths[i])));
+    }
 
     // add-step toolbar
     const add = document.createElement("div"); add.className = "wf-add-row";
@@ -639,9 +814,31 @@ document.addEventListener("DOMContentLoaded", () => {
       mini("+ Wait for", () => addWaitStep(wf.id, "waitFor")),
       mini("+ Wait gone", () => addWaitStep(wf.id, "waitGone")),
       mini("+ Delay", () => addWaitStep(wf.id, "wait")),
+      mini("+ Capture", () => addCapture(wf.id)),
+      mini("+ If", () => addIf(wf.id)),
+      mini("+ Else", () => addElse(wf.id)),
+      mini("+ Loop", () => addLoop(wf.id)),
     );
 
-    card.append(head, status, stepsWrap, add);
+    card.append(head, status);
+    if (!collapsed) {
+      if (settings) card.append(settings);
+      card.append(stepsWrap, add);
+    }
+
+    // Drag to reorder workflows — only from the ☰ handle (inputs don't hijack it).
+    card.draggable = false;
+    dragHandle.addEventListener("mousedown", () => { card.draggable = true; });
+    dragHandle.addEventListener("mouseup", () => { card.draggable = false; });
+    card.addEventListener("dragstart", (e) => { draggedWfId = id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", id); } catch (_) {} card.classList.add("dragging"); });
+    card.addEventListener("dragend", () => { card.classList.remove("dragging"); card.draggable = false; draggedWfId = null; });
+    card.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; card.classList.add("drag-over"); });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
+    card.addEventListener("drop", (e) => {
+      e.preventDefault(); card.classList.remove("drag-over");
+      const src = draggedWfId || e.dataTransfer.getData("text/plain");
+      if (src && String(src) !== id) reorderWorkflows(src, id);
+    });
     return card;
   }
 

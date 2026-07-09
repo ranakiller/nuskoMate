@@ -506,25 +506,126 @@
     }
   }
 
-  async function runStep(step) {
+  // ── Tier 2: variables, capture, conditions, blocks ───────────────────────
+
+  // Substitute {{var}} placeholders from the run context.
+  function interp(str, ctx) {
+    if (typeof str !== "string" || str.indexOf("{{") < 0) return str || "";
+    return str.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, k) => {
+      const v = ctx.vars[k];
+      return v == null ? "" : String(v);
+    });
+  }
+
+  function readValue(el, source) {
+    if (!el) return "";
+    if (source === "value") return (el.value != null ? el.value : el.getAttribute("value")) || "";
+    return (el.innerText || el.textContent || "").trim();
+  }
+
+  function evalCondition(step, ctx) {
+    const sel = interp(stepSelector(step), ctx);
+    const el = getElement(sel);
+    const cond = step.condition || "visible";
+    if (cond === "visible") return isVisible(el);
+    if (cond === "hidden")  return !isVisible(el);
+    const text = readValue(el, "text").toLowerCase();
+    const want = interp(step.value || "", ctx).toLowerCase();
+    if (cond === "textEquals")   return !!el && text === want;
+    return !!el && text.includes(want); // textIncludes (default for text conds)
+  }
+
+  // Pair up block markers: loopStart↔loopEnd, if↔endif, else→endif.
+  function buildBlocks(steps) {
+    const partner = {}, elseOf = {}, stack = [];
+    steps.forEach((s, i) => {
+      const t = s.type;
+      if (t === "loopStart" || t === "if") stack.push(i);
+      else if (t === "else") { const o = stack[stack.length - 1]; if (o != null && steps[o].type === "if") elseOf[o] = i; }
+      else if (t === "loopEnd" || t === "endif") {
+        const o = stack.pop();
+        if (o != null) { partner[o] = i; partner[i] = o; if (t === "endif" && elseOf[o] != null) partner[elseOf[o]] = i; }
+      }
+    });
+    return { partner, elseOf };
+  }
+
+  async function runStep(step, ctx) {
     const type = step.type || "button";
-    const sel = stepSelector(step);
+    const sel = interp(stepSelector(step), ctx);
 
     if (type === "wait" || type === "delay") { await sleep(Number(step.waitMs) || 0); return; }
     if (type === "waitFor")  { if (!(await waitUntil(sel, true,  step.timeoutMs))) throw new Error(`waitFor timed out: ${sel}`); return; }
     if (type === "waitGone") { if (!(await waitUntil(sel, false, step.timeoutMs))) throw new Error(`waitGone timed out: ${sel}`); return; }
+    if (type === "capture") {
+      const ok = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
+      const el = getElement(sel);
+      if (!ok || !el) throw new Error(`capture: element not found: ${sel}`);
+      const val = readValue(el, step.captureSource || "text");
+      ctx.vars[step.varName || "var"] = val;
+      wlog(`captured ${step.varName || "var"} = "${val}"`);
+      return;
+    }
 
-    // Action step — make sure the element is present/visible first.
+    // Action step — ensure the element is present/visible first.
     const present = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
     const el = getElement(sel);
     if (!present || !el) throw new Error(`element not found: ${sel}`);
     switch (type) {
-      case "input":    fillInput(el, step); break;
-      case "dropdown": selectOption(el, { ...step, requiredElements: [sel] }); break;
+      case "input":    fillInput(el, { ...step, fillValue: interp(step.fillValue, ctx) }); break;
+      case "dropdown": selectOption(el, { ...step, requiredElements: [sel], selectValue: interp(step.selectValue, ctx) }); break;
       case "checkbox": setCheckbox(el, step.targetState || "checked"); break;
       case "radio":    setCheckbox(el, step.targetState || "checked"); break;
       default:         clickElement(el);
     }
+  }
+
+  // Interpret one pass over the steps (a program counter with loop/if blocks).
+  async function runProgram(steps, ctx, base) {
+    const { partner, elseOf } = buildBlocks(steps);
+    const loopCount = {};
+    let pc = 0, guard = 0;
+    while (pc < steps.length) {
+      if (wfState.stop) return { stopped: true };
+      while (wfState.paused && !wfState.stop) await sleep(200);
+      if (wfState.stop) return { stopped: true };
+      if (++guard > 500000) throw new Error("step budget exceeded (infinite loop?)");
+      const step = steps[pc];
+      const type = step.type;
+      writeStatus({ ...base, stepIndex: pc, lastError: "" });
+
+      if (type === "loopStart") {
+        const done = loopCount[pc] || 0;
+        const enter = step.loopMode === "while"
+          ? isVisible(getElement(interp(stepSelector(step), ctx)))
+          : done < (Number(step.count) || 1);
+        if (!enter) { loopCount[pc] = 0; pc = (partner[pc] != null ? partner[pc] : pc) + 1; continue; }
+        pc++; continue;
+      }
+      if (type === "loopEnd") {
+        const start = partner[pc];
+        if (start != null) loopCount[start] = (loopCount[start] || 0) + 1;
+        pc = start != null ? start : pc + 1; continue;
+      }
+      if (type === "if") {
+        if (evalCondition(step, ctx)) { pc++; continue; }
+        const e = elseOf[pc];
+        pc = (e != null ? e + 1 : (partner[pc] != null ? partner[pc] : pc) + 1); continue;
+      }
+      if (type === "else")  { pc = (partner[pc] != null ? partner[pc] : pc) + 1; continue; }
+      if (type === "endif") { pc++; continue; }
+
+      try {
+        await runStep(step, ctx);
+        await sleep(Number(step.afterMs) || 250);
+      } catch (e) {
+        const m = (e && e.message) || String(e);
+        if (step.optional) { wlog(`⚠ step ${pc + 1} skipped: ${m}`); pc++; continue; }
+        throw new Error(`step ${pc + 1}: ${m}`);
+      }
+      pc++;
+    }
+    return { ok: true };
   }
 
   async function runWorkflow(wf) {
@@ -532,30 +633,45 @@
     if (!wf || !Array.isArray(wf.steps) || !wf.steps.length) return;
     wfState.running = true; wfState.paused = false; wfState.stop = false; wfState.id = wf.id;
     const total = wf.steps.length;
-    writeStatus({ id: wf.id, name: wf.name, running: true, paused: false, stepIndex: 0, total, lastError: "", done: false, stopped: false });
+    const base = { id: wf.id, name: wf.name, running: true, paused: false, total };
+    const repeat = wf.repeat || { mode: "off" };
+    const cols = (wf.data && Array.isArray(wf.data.columns)) ? wf.data.columns : [];
+    const rows = (repeat.mode === "perRow" && wf.data && Array.isArray(wf.data.rows)) ? wf.data.rows : null;
     wlog(`▶ ${wf.name} — ${total} step(s)`);
 
-    for (let i = 0; i < total; i++) {
-      if (wfState.stop) break;
-      while (wfState.paused && !wfState.stop) await sleep(200);
-      if (wfState.stop) break;
-      const step = wf.steps[i];
-      writeStatus({ id: wf.id, name: wf.name, running: true, paused: false, stepIndex: i, total, lastError: "" });
-      try {
-        await runStep(step);
-        await sleep(Number(step.afterMs) || 250); // settle gap
-      } catch (e) {
-        const m = (e && e.message) || String(e);
-        if (step.optional) { wlog(`⚠ step ${i + 1} skipped: ${m}`); continue; }
-        wfState.running = false; wfState.id = null;
-        writeStatus({ id: wf.id, name: wf.name, running: false, paused: false, stepIndex: i, total, lastError: `step ${i + 1}: ${m}`, done: true });
-        wlog(`✖ ${wf.name} failed at step ${i + 1}: ${m}`);
-        return;
+    try {
+      if (rows) {
+        for (let r = 0; r < rows.length && !wfState.stop; r++) {
+          const ctx = { vars: {} };
+          cols.forEach((c, ci) => { ctx.vars[c] = rows[r][ci] != null ? rows[r][ci] : ""; });
+          ctx.vars._row = r + 1; ctx.vars._rows = rows.length;
+          wlog(`— row ${r + 1}/${rows.length}`);
+          if ((await runProgram(wf.steps, ctx, { ...base, iter: r + 1, iterTotal: rows.length })).stopped) break;
+        }
+      } else if (repeat.mode === "count") {
+        const n = Math.max(1, Number(repeat.count) || 1);
+        for (let r = 0; r < n && !wfState.stop; r++) {
+          if ((await runProgram(wf.steps, { vars: {} }, { ...base, iter: r + 1, iterTotal: n })).stopped) break;
+        }
+      } else if (repeat.mode === "whileVisible") {
+        let r = 0;
+        while (!wfState.stop && isVisible(getElement(repeat.whileSelector || "")) && ++r <= 10000) {
+          if ((await runProgram(wf.steps, { vars: {} }, { ...base, iter: r })).stopped) break;
+        }
+      } else {
+        await runProgram(wf.steps, { vars: {} }, base);
       }
+    } catch (e) {
+      const m = (e && e.message) || String(e);
+      wfState.running = false; wfState.id = null;
+      writeStatus({ ...base, running: false, done: true, lastError: m });
+      wlog(`✖ ${wf.name} failed: ${m}`);
+      return;
     }
+
     const stopped = wfState.stop;
     wfState.running = false; wfState.id = null;
-    writeStatus({ id: wf.id, name: wf.name, running: false, paused: false, stepIndex: total, total, lastError: "", done: true, stopped });
+    writeStatus({ ...base, running: false, done: true, stopped, lastError: "" });
     wlog(stopped ? `■ ${wf.name} stopped` : `✔ ${wf.name} finished`);
   }
 
@@ -566,6 +682,49 @@
       if (wf) runWorkflow(wf); else wlog("workflow not found");
     });
   }
+
+  // ── Hotkey triggers ───────────────────────────────────────────────────────
+  // A workflow with a `hotkey` (e.g. "Alt+1", "Ctrl+Shift+K") runs on that combo.
+  // Requires Ctrl/Alt/Meta (Shift-only is ignored so normal typing isn't caught).
+  function comboFromEvent(e) {
+    if (["Alt", "Control", "Shift", "Meta"].includes(e.key)) return "";
+    if (!e.ctrlKey && !e.altKey && !e.metaKey) return "";
+    const parts = [];
+    if (e.ctrlKey)  parts.push("Ctrl");
+    if (e.altKey)   parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    if (e.metaKey)  parts.push("Meta");
+    parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
+    return parts.join("+");
+  }
+  function normHotkey(s) {
+    const parts = String(s || "").split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
+    const mods = [];
+    if (parts.includes("ctrl") || parts.includes("control")) mods.push("Ctrl");
+    if (parts.includes("alt")  || parts.includes("option"))  mods.push("Alt");
+    if (parts.includes("shift")) mods.push("Shift");
+    if (parts.includes("meta") || parts.includes("cmd")) mods.push("Meta");
+    const key = parts.filter((p) => !["ctrl", "control", "alt", "option", "shift", "meta", "cmd"].includes(p)).pop() || "";
+    if (!key || !mods.length) return "";
+    return [...mods, key.length === 1 ? key.toUpperCase() : key].join("+");
+  }
+  // Cache combo → workflow so we don't hit storage on every keystroke.
+  let hotkeyMap = {};
+  function refreshHotkeys() {
+    chrome.storage.local.get([WF_KEY], (res) => {
+      hotkeyMap = {};
+      (res[WF_KEY] || []).forEach((w) => { if (w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = w; } });
+    });
+  }
+  refreshHotkeys();
+  chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c[WF_KEY]) refreshHotkeys(); });
+  document.addEventListener("keydown", (e) => {
+    if (!moduleEnabled) return;
+    const combo = comboFromEvent(e);
+    if (!combo) return;
+    const wf = hotkeyMap[combo];
+    if (wf) { e.preventDefault(); e.stopPropagation(); runWorkflow(wf); }
+  }, true);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.action) {

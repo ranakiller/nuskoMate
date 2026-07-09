@@ -1199,9 +1199,12 @@ input:checked + .slider::before {
 /* ===================================================================
    LEFT SIDEBAR LAYOUT  (overrides the original top-tab styles)
    =================================================================== */
-body { width: 500px; }
+/* Fill the popup to the browser's max height (Chrome caps at 600px, and
+   clamps to the window if it's shorter) so the panel always reaches the bottom. */
+html, body { height: 600px; }
+body { width: 500px; display: flex; flex-direction: column; }
 
-.layout { display: flex; align-items: stretch; height: 490px; }
+.layout { display: flex; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 
 /* Sidebar */
 .tabbar {
@@ -1466,3 +1469,44 @@ body { width: 500px; }
 .type-badge--waitFor  { background: var(--reload-bg);   color: var(--reload-fg);   }
 .type-badge--waitGone { background: var(--overlay-bg);  color: var(--overlay-fg);  }
 .type-badge--wait, .type-badge--delay { background: var(--surface2); color: var(--text-muted); }
+
+/* ── Auto Clicker — Tier 2 (variables, blocks, data) ────────────────────── */
+.type-badge--capture   { background: var(--fill-bg);      color: var(--fill-fg);      }
+.type-badge--if        { background: var(--issuedate-bg); color: var(--issuedate-fg); }
+.type-badge--loopStart { background: var(--reload-bg);    color: var(--reload-fg);    }
+.type-badge--else, .type-badge--endif, .type-badge--loopEnd {
+  background: var(--surface); color: var(--text-muted);
+}
+
+.wf-step-marker { background: transparent; border-style: dashed; padding: 5px 8px; }
+.wf-marker-label { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+.wf-settings {
+  margin: 8px 0; padding: 10px; display: grid; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs);
+}
+.wf-data-lbl { font-size: 10px; font-weight: 700; color: var(--text-muted); margin-top: 2px; }
+.wf-data-info { font-size: 11px; color: var(--text); }
+.wf-data-row { display: flex; gap: 6px; }
+.wf-data-hint { font-size: 10px; color: var(--text-sub); line-height: 1.4; }
+
+/* ── Auto Clicker — rule URL groups + workflow drag ─────────────────────── */
+.rule-group-head {
+  display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+  padding: 7px 8px; margin: 8px 0 4px; border-radius: var(--radius-xs); background: var(--surface2);
+}
+.rule-group-head:hover { background: var(--accent-soft); }
+.rule-group-caret { font-size: 10px; color: var(--text-muted); width: 10px; flex-shrink: 0; }
+.rule-group-title {
+  flex: 1; min-width: 0; font-size: 11px; font-weight: 700; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.rule-group-count {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; color: var(--text-muted);
+  background: var(--surface); border-radius: 999px; padding: 1px 7px;
+}
+
+.wf-drag { padding: 3px 7px; font-size: 11px; }
+.wf-card.dragging { opacity: .5; }
+.wf-card.drag-over { border-color: var(--accent); border-style: dashed; }
