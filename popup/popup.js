@@ -79,7 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
-      "toggle-embassy": "embassy", "toggle-autoclicker": "autoclick",
+      "toggle-embassy": "embassy", "toggle-autoclicker": "autoclick", "toggle-workflows": "autoclick",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -104,12 +104,13 @@ document.addEventListener("DOMContentLoaded", () => {
       // The Bulk Parser section needs the "bulk" tool specifically.
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
-      // Auto Clicker tab: upsell unless the "autoclick" tool is licensed.
-      const acUpsell  = document.getElementById("ac-upsell");
-      const acContent = document.getElementById("ac-content");
+      // Auto Clicker + Workflows tabs: upsell unless the "autoclick" tool is licensed.
       const acOk = has(st, "autoclick");
-      if (acUpsell)  acUpsell.style.display  = acOk ? "none" : "block";
-      if (acContent) acContent.style.display = acOk ? ""     : "none";
+      [["ac-upsell", "ac-content"], ["wf-upsell", "wf-content"]].forEach(([up, ct]) => {
+        const u = document.getElementById(up), c = document.getElementById(ct);
+        if (u) u.style.display = acOk ? "none" : "block";
+        if (c) c.style.display = acOk ? ""     : "none";
+      });
     }
 
     function renderStatus(st) {
@@ -184,8 +185,10 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    const acUpsellBtn = document.getElementById("ac-upsell-btn");
-    if (acUpsellBtn) acUpsellBtn.addEventListener("click", jumpToSettings);
+    ["ac-upsell-btn", "wf-upsell-btn"].forEach((idb) => {
+      const b = document.getElementById(idb);
+      if (b) b.addEventListener("click", jumpToSettings);
+    });
 
     // Keep the UI in sync if activation changes elsewhere
     chrome.storage.onChanged.addListener((c, a) => {
@@ -266,6 +269,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 
+  // ── UI mode: popup ↔ side panel ─────────────────────────────
+  // The side panel loads this same page with ?panel=1 so we know the context.
+  const isPanel = new URLSearchParams(location.search).get("panel") === "1";
+  if (isPanel) document.documentElement.classList.add("as-panel");
+  const uiModeBtn = document.getElementById("ui-mode-btn");
+  if (uiModeBtn) {
+    uiModeBtn.title = isPanel ? "Pop out to a popup" : "Dock as a side panel";
+    if (isPanel) uiModeBtn.classList.add("is-panel");
+    uiModeBtn.addEventListener("click", () => {
+      if (isPanel) {
+        // Back to popup mode; background restores the action popup on storage change.
+        chrome.storage.local.set({ uiMode: "popup" });
+        setTimeout(() => window.close(), 60); // close the side panel
+      } else {
+        // Switch to side panel and open it within this click gesture.
+        chrome.storage.local.set({ uiMode: "sidepanel" });
+        try {
+          chrome.windows.getCurrent((w) => {
+            if (chrome.sidePanel && chrome.sidePanel.open) chrome.sidePanel.open({ windowId: w.id }).catch(() => {});
+          });
+        } catch (_) {}
+        setTimeout(() => window.close(), 120); // close the popup
+      }
+    });
+  }
+
+
   // ── Module Toggles ──────────────────────────────────────────
   const toggles = [
     { id: "toggle-reload",     key: "moduleReload"         },
@@ -279,6 +309,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
     { id: "toggle-embassy",   key: "moduleEmbassy"        },
     { id: "toggle-autoclicker", key: "moduleAutoClicker"  },
+    { id: "toggle-workflows",   key: "moduleWorkflows"    },
   ];
 
   // All modules default ON for new installs (key never set = treat as true)

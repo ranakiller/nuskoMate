@@ -15,12 +15,17 @@
           <div class="app-sub">Smart Automation</div>
         </div>
       </div>
-      <div class="master-toggle-wrap master-toggle-end">
-        <span class="master-status" id="master-status">On</span>
-        <label class="toggle-switch master-toggle" title="Enable / disable entire extension">
-          <input type="checkbox" id="toggle-master" checked />
-          <span class="slider"></span>
-        </label>
+      <div class="header-actions">
+        <button id="ui-mode-btn" class="ui-mode-btn" title="Dock as side panel">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
+        <div class="master-toggle-wrap master-toggle-end">
+          <span class="master-status" id="master-status">On</span>
+          <label class="toggle-switch master-toggle" title="Enable / disable entire extension">
+            <input type="checkbox" id="toggle-master" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -40,13 +45,21 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
             <span>Modules</span>
           </button>
+          <button class="tab" data-tab="autofill" title="Autofill">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>Autofill</span>
+          </button>
+          <button class="tab" data-tab="autoclick" title="Auto Clicker">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v2M5 9H3m4-4L5.5 5.5"/><path d="M9 12l9 4-4 2-2 4-3-10z"/></svg>
+            <span>Clicker</span>
+          </button>
+          <button class="tab" data-tab="workflows" title="Workflows">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            <span>Flows</span>
+          </button>
           <button class="tab" data-tab="passport" title="Passport">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
-          </button>
-          <button class="tab" data-tab="clicker" title="Auto Clicker">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v2M5 9H3m4-4L5.5 5.5"/><path d="M9 12l9 4-4 2-2 4-3-10z"/></svg>
-            <span>Clicker</span>
           </button>
           <button class="tab" data-tab="logs" title="Logs">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -75,26 +88,9 @@
     <!-- Panel: Modules -->
     <div class="tab-panel tab-panel-active" id="panel-modules">
 
-    <!-- Group: Autofill — the /add-mutamer form helpers -->
+    <!-- Group: Passport Form — the /add-mutamer form helpers -->
     <div class="section">
-      <div class="section-title">Autofill</div>
-
-      <!-- Mutamer Details Autofill (was "Autofill Constants") -->
-      <div class="module-card">
-        <div class="module-header">
-          <div class="module-icon autofill-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </div>
-          <div class="module-info">
-            <div class="module-name">Mutamer Details Autofill</div>
-            <div class="module-desc">Auto-fill the Passport Entry form</div>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-autofill" />
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
+      <div class="section-title">Passport Form</div>
 
       <!-- Auto Translate -->
       <div class="module-card">
@@ -279,27 +275,68 @@
         </div>
       </div>
 
-      <!-- Auto Clicker -->
+    </div>
+    </div><!-- /panel-modules -->
+
+    <!-- Panel: Autofill (its own module toggle + config) -->
+    <div class="tab-panel" id="panel-autofill">
+
+    <div class="section">
+      <div class="section-title">Autofill</div>
       <div class="module-card">
         <div class="module-header">
-          <div class="module-icon clicker-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 3v2M5 9H3m4-4L5.5 5.5M9 12l9 4-4 2-2 4-3-10z"/></svg>
+          <div class="module-icon autofill-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Clicker</div>
-            <div class="module-desc">Run saved click / fill rules — set up in the Clicker tab</div>
+            <div class="module-name">Mutamer Details Autofill</div>
+            <div class="module-desc">Auto-fill the Passport Entry form</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="toggle-autoclicker" />
+            <input type="checkbox" id="toggle-autofill" />
             <span class="slider"></span>
           </label>
         </div>
       </div>
-
     </div>
-    </div><!-- /panel-modules -->
 
-    <!-- Panel: Settings (emails, autofill fields, OCR key) -->
+    <!-- Section: Email Manager -->
+    <div class="section">
+      <div class="section-title">Email Manager</div>
+      <div class="email-add-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <input type="email" id="email-input" class="email-input" placeholder="Type email, press Enter to save" autocomplete="off" />
+        <button id="email-save" class="email-save-btn">Save</button>
+      </div>
+      <div class="email-list" id="email-list"></div>
+      <div class="email-io-row">
+        <button class="email-io-btn" id="export-emails" title="Export emails as CSV">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <label class="email-io-btn" title="Import emails from CSV">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <input type="file" id="import-emails" accept=".csv" style="display:none;" />
+        </label>
+      </div>
+    </div>
+
+    <!-- Section: Contact field -->
+    <div class="section">
+      <div class="section-title">Contact</div>
+      <div class="fields-grid">
+        <div class="field-group">
+          <label class="field-label" for="field-mobile">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            Mobile
+          </label>
+          <input type="text" id="field-mobile" placeholder="03001234567" class="field-input" />
+        </div>
+      </div>
+    </div>
+
+    </div><!-- /panel-autofill -->
+
+    <!-- Panel: Settings (theme, activation, OCR key) -->
     <div class="tab-panel" id="panel-settings">
 
     <!-- Section: Activation -->
@@ -343,46 +380,6 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           <span>Dark</span>
         </button>
-      </div>
-    </div>
-
-    <!-- Section: Email Manager -->
-    <div class="section">
-      <div class="section-title">Email Manager</div>
-
-      <!-- Add email: type + Enter or Save -->
-      <div class="email-add-bar">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        <input type="email" id="email-input" class="email-input" placeholder="Type email, press Enter to save" autocomplete="off" />
-        <button id="email-save" class="email-save-btn">Save</button>
-      </div>
-
-      <!-- Saved emails list -->
-      <div class="email-list" id="email-list"></div>
-
-      <!-- Export / Import (compact icon buttons) -->
-      <div class="email-io-row">
-        <button class="email-io-btn" id="export-emails" title="Export emails as CSV">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <label class="email-io-btn" title="Import emails from CSV">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <input type="file" id="import-emails" accept=".csv" style="display:none;" />
-        </label>
-      </div>
-    </div>
-
-    <!-- Section: Autofill Settings -->
-    <div class="section">
-      <div class="section-title">Autofill</div>
-      <div class="fields-grid">
-        <div class="field-group">
-          <label class="field-label" for="field-mobile">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-            Mobile
-          </label>
-          <input type="text" id="field-mobile" placeholder="03001234567" class="field-input" />
-        </div>
       </div>
     </div>
 
@@ -541,10 +538,28 @@
     </div>
     </div><!-- /panel-logs -->
 
-    <!-- Panel: Auto Clicker (rules manager) -->
-    <div class="tab-panel" id="panel-clicker">
+    <!-- Panel: Auto Clicker (reactive rules) -->
+    <div class="tab-panel" id="panel-autoclick">
 
-    <!-- Premium upsell (shown when the autoclick tool isn't licensed) -->
+    <div class="section">
+      <div class="section-title">Auto Clicker</div>
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 3v2M5 9H3m4-4L5.5 5.5M9 12l9 4-4 2-2 4-3-10z"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Auto Clicker</div>
+            <div class="module-desc">Reactive rules — fire when their conditions match</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-autoclicker" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <div id="ac-upsell" class="premium-upsell" style="display:none;">
       <div class="premium-upsell-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -555,47 +570,75 @@
     </div>
 
     <div id="ac-content">
-
-    <!-- Workflows: ordered step sequences with run controls -->
-    <div class="section" id="wf-section">
-      <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Workflows</div>
-        <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
-      </div>
-      <div class="ac-toolbar" style="grid-template-columns:1fr;">
-        <button id="wf-add" class="bulk-btn bulk-btn-primary" type="button">+ New workflow</button>
-      </div>
-      <div class="rule-help ac-help">
-        Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press
-        <b>▶ Run</b> to play it on the current Masar page. Use <b>◎</b> to flash a step's element.
-      </div>
-      <div id="wf-list" class="ac-list"></div>
-    </div>
-
-    <!-- Reactive rules: fire automatically whenever their conditions are met -->
     <div class="section">
       <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Reactive Rules</div>
+        <div class="section-title" style="margin-bottom:0;">Rules</div>
+        <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
       </div>
-
       <div class="ac-toolbar">
         <button id="ac-add" class="bulk-btn bulk-btn-primary" type="button">+ Add rule</button>
         <button id="ac-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
         <button id="ac-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
         <input id="ac-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-
       <input type="search" id="ac-search" class="logs-search" placeholder="Search saved rules…" autocomplete="off" />
-
       <div class="rule-help ac-help">
         Click <b>Add rule</b>, then click the button or field on the Masar page to capture it.
-        Expand a saved rule to add forbidden conditions, timing, or fill values.
+        Rules are grouped by page URL. Expand a rule to add conditions, timing, or fill values.
       </div>
-
       <div id="ac-list" class="ac-list"><div class="logs-empty">No rules saved yet</div></div>
     </div>
     </div><!-- /ac-content -->
-    </div><!-- /panel-clicker -->
+    </div><!-- /panel-autoclick -->
+
+    <!-- Panel: Workflows -->
+    <div class="tab-panel" id="panel-workflows">
+
+    <div class="section">
+      <div class="section-title">Workflows</div>
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Workflows</div>
+            <div class="module-desc">Programmable step sequences (loops, data, hotkeys)</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-workflows" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div id="wf-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Workflows is a premium tool</div>
+      <div class="premium-upsell-text">Build ordered automations with waits, loops, conditions and CSV data. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="wf-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="wf-content">
+    <div class="section" id="wf-section">
+      <div class="ac-head">
+        <div class="section-title" style="margin-bottom:0;">Workflows</div>
+        <span class="ac-off-tag" id="wf-off-tag" style="display:none;">module off</span>
+      </div>
+      <div class="ac-toolbar" style="grid-template-columns:1fr;">
+        <button id="wf-add" class="bulk-btn bulk-btn-primary" type="button">+ New workflow</button>
+      </div>
+      <div class="rule-help ac-help">
+        Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press
+        <b>▶ Run</b> to play it. Use <b>◎</b> to flash a step's element, and <b>⚙</b> for hotkey / repeat / CSV data.
+      </div>
+      <div id="wf-list" class="ac-list"></div>
+    </div>
+    </div><!-- /wf-content -->
+    </div><!-- /panel-workflows -->
 
     <!-- Panel: Keys (admin — only shown when the master key is active) -->
     <div class="tab-panel" id="panel-keys">

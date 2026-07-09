@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const searchInput = document.getElementById("ac-search");
   const offTag = document.getElementById("ac-off-tag");
+  const wfOffTag = document.getElementById("wf-off-tag");
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
@@ -20,9 +21,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── "module off" hint ─────────────────────────────────────────────────────
   function refreshOffTag() {
-    if (!offTag) return;
-    chrome.storage.local.get(["moduleAutoClicker"], (res) => {
-      offTag.style.display = res.moduleAutoClicker ? "none" : "";
+    chrome.storage.local.get(["moduleAutoClicker", "moduleWorkflows"], (res) => {
+      if (offTag)   offTag.style.display   = res.moduleAutoClicker ? "none" : "";
+      if (wfOffTag) wfOffTag.style.display = res.moduleWorkflows   ? "none" : "";
     });
   }
 
@@ -865,7 +866,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (a !== "local") return;
     if (c[RULES_KEY] || c.autoButtons) renderRules();
     if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
-    if (c.moduleAutoClicker) refreshOffTag();
+    if (c.moduleAutoClicker || c.moduleWorkflows) refreshOffTag();
   });
 
   refreshOffTag();

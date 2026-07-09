@@ -9,12 +9,38 @@
  * there is a single source of truth (utils/license.js → LICENSE_SERVER).
  */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (!msg || msg.type !== "nkLicense") return; // not for us
+  if (!msg) return;
+  if (msg.type === "nkUi") {                       // UI mode switch (popup ↔ side panel)
+    applyUiMode().finally(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg.type !== "nkLicense") return;            // not for us
   handle(msg)
     .then(sendResponse)
     .catch(() => sendResponse({ ok: false, error: "Cannot reach the license server" }));
   return true; // keep the channel open for the async reply
 });
+
+// ── UI mode: floating popup (default) or docked side panel ──────────────────
+// Toggled from the popup/side-panel header. When "sidepanel", we clear the
+// action popup so clicking the icon opens the side panel instead.
+async function applyUiMode() {
+  let mode = "popup";
+  try { mode = (await chrome.storage.local.get("uiMode")).uiMode || "popup"; } catch (_) {}
+  try {
+    if (mode === "sidepanel") {
+      await chrome.action.setPopup({ popup: "" });
+      if (chrome.sidePanel) await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    } else {
+      if (chrome.sidePanel) await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+      await chrome.action.setPopup({ popup: "popup/popup.html" });
+    }
+  } catch (_) {}
+}
+chrome.runtime.onInstalled.addListener(applyUiMode);
+chrome.runtime.onStartup.addListener(applyUiMode);
+chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c.uiMode) applyUiMode(); });
+applyUiMode();
 
 async function handle(msg) {
   const base = String(msg.base || "").replace(/\/+$/, "");

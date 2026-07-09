@@ -1510,3 +1510,17 @@ body { width: 500px; display: flex; flex-direction: column; }
 .wf-drag { padding: 3px 7px; font-size: 11px; }
 .wf-card.dragging { opacity: .5; }
 .wf-card.drag-over { border-color: var(--accent); border-style: dashed; }
+
+/* ── UI mode: side panel fills its full height/width; header switch button ── */
+html.as-panel, html.as-panel body { height: 100%; }
+html.as-panel body { width: 100%; min-width: 340px; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.ui-mode-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface); color: var(--text-muted);
+}
+.ui-mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ui-mode-btn.is-panel { color: var(--accent); border-color: var(--accent); }

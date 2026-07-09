@@ -4,7 +4,8 @@
   const RULES_KEY = "autoClickRules";
   const LEGACY_KEY = "autoButtons";
 
-  let moduleEnabled = false;
+  let moduleEnabled = false;    // reactive rules (moduleAutoClicker)
+  let workflowsEnabled = false; // workflows run/hotkeys (moduleWorkflows)
   let rules = [];
   let inspectorDefaults = {};
   const executedRules = new Set();
@@ -434,8 +435,10 @@
   const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("autoclick");
 
   function refreshEnabled(after) {
-    chrome.storage.local.get(["moduleAutoClicker", "extensionEnabled"], (res) => {
-      moduleEnabled = res.extensionEnabled !== false && !!res.moduleAutoClicker && premiumOK();
+    chrome.storage.local.get(["moduleAutoClicker", "moduleWorkflows", "extensionEnabled"], (res) => {
+      const on = res.extensionEnabled !== false && premiumOK();
+      moduleEnabled    = on && !!res.moduleAutoClicker;
+      workflowsEnabled = on && !!res.moduleWorkflows;
       if (after) after();
     });
   }
@@ -447,7 +450,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.moduleAutoClicker || changes.extensionEnabled) refreshEnabled(scanRules);
+    if (changes.moduleAutoClicker || changes.moduleWorkflows || changes.extensionEnabled) refreshEnabled(scanRules);
     if (changes[RULES_KEY]) setRules(changes[RULES_KEY].newValue || []);
     else if (changes[LEGACY_KEY]) setRules(changes[LEGACY_KEY].newValue || []);
     else scanRules();
@@ -676,8 +679,8 @@
   }
 
   function startWorkflowById(id) {
-    chrome.storage.local.get([WF_KEY, "extensionEnabled"], (res) => {
-      if (res.extensionEnabled === false || !premiumOK()) { wlog("Auto Clicker is disabled or not licensed"); return; }
+    if (!workflowsEnabled) { wlog("Workflows module is off or not licensed"); return; }
+    chrome.storage.local.get([WF_KEY], (res) => {
       const wf = (res[WF_KEY] || []).find((w) => String(w.id) === String(id));
       if (wf) runWorkflow(wf); else wlog("workflow not found");
     });
@@ -719,7 +722,7 @@
   refreshHotkeys();
   chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c[WF_KEY]) refreshHotkeys(); });
   document.addEventListener("keydown", (e) => {
-    if (!moduleEnabled) return;
+    if (!workflowsEnabled) return;
     const combo = comboFromEvent(e);
     if (!combo) return;
     const wf = hotkeyMap[combo];
