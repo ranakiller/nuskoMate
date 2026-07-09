@@ -4,37 +4,45 @@
 // Modules tab (moduleAutoClicker); this panel only creates/edits rules.
 document.addEventListener("DOMContentLoaded", () => {
   const RULES_KEY = "autoClickRules";
-  const SEARCH_KEY = "autoClickRuleSearch";
   const TYPE_LABELS = { button: "BTN", input: "INP", dropdown: "SEL", checkbox: "CHK", radio: "RAD" };
 
-  const listDiv = document.getElementById("ac-list");
-  if (!listDiv) return;
-
-  const searchInput = document.getElementById("ac-search");
-  const offTag = document.getElementById("ac-off-tag");
+  // Reactive rules split into three category views by element type:
+  //   click  → Auto Clicker (buttons/checkbox/radio)   → moduleAutoClicker
+  //   fill   → Autofill      (input fields)             → moduleAutoFillRules
+  //   select → Auto Select   (dropdowns)                → moduleAutoSelect
+  const CATS = [
+    { cat: "click",  list: "ac-list",   search: "ac-search",   offTag: "ac-off-tag",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules" },
+    { cat: "fill",   list: "fill-list", search: "fill-search", offTag: "fill-off-tag", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules" },
+    { cat: "select", list: "as-list",   search: "as-search",   offTag: "as-off-tag",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules" },
+  ];
   const wfOffTag = document.getElementById("wf-off-tag");
+  if (!document.getElementById("ac-list")) return;
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
-  const collapsedGroups = new Set(); // URL groups collapsed in the rules list
+  const collapsedGroups = new Set(); // "cat|path" groups collapsed in the rules lists
   let draggedId = null; // id of the rule currently being dragged (reliable across drop)
 
-  // ── "module off" hint ─────────────────────────────────────────────────────
+  function categoryOf(rule) {
+    const t = rule.type || "button";
+    return t === "input" ? "fill" : t === "dropdown" ? "select" : "click";
+  }
+
+  // ── "module off" hints ─────────────────────────────────────────────────────
   function refreshOffTag() {
-    chrome.storage.local.get(["moduleAutoClicker", "moduleWorkflows"], (res) => {
-      if (offTag)   offTag.style.display   = res.moduleAutoClicker ? "none" : "";
-      if (wfOffTag) wfOffTag.style.display = res.moduleWorkflows   ? "none" : "";
+    chrome.storage.local.get(["moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect", "moduleWorkflows"], (res) => {
+      CATS.forEach((c) => { const el = document.getElementById(c.offTag); if (el) el.style.display = res[c.module] ? "none" : ""; });
+      if (wfOffTag) wfOffTag.style.display = res.moduleWorkflows ? "none" : "";
     });
   }
 
-  // ── Search ────────────────────────────────────────────────────────────────
-  if (searchInput) {
-    chrome.storage.local.get([SEARCH_KEY], (res) => { searchInput.value = res[SEARCH_KEY] || ""; });
-    searchInput.addEventListener("input", (e) => {
-      chrome.storage.local.set({ [SEARCH_KEY]: e.target.value });
-      renderRules();
-    });
-  }
+  // ── Per-category search ────────────────────────────────────────────────────
+  CATS.forEach((c) => {
+    const s = document.getElementById(c.search);
+    if (!s) return;
+    chrome.storage.local.get([c.searchKey], (res) => { s.value = res[c.searchKey] || ""; });
+    s.addEventListener("input", (e) => { chrome.storage.local.set({ [c.searchKey]: e.target.value }); renderRules(); });
+  });
 
   // ── Normalization ───────────────────────────────────────────────────────
   function normalizeSelectorArray(value) {
@@ -235,21 +243,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   function renderRules() {
-    chrome.storage.local.get([RULES_KEY, "autoButtons", SEARCH_KEY], (res) => {
-      listDiv.textContent = "";
+    chrome.storage.local.get([RULES_KEY, "autoButtons", "acSearch_click", "acSearch_fill", "acSearch_select"], (res) => {
       const rules = (res[RULES_KEY] || res.autoButtons || []).map(normalizeRule);
-      const search = (res[SEARCH_KEY] || "").trim().toLowerCase();
-      if (searchInput) searchInput.value = res[SEARCH_KEY] || "";
-
-      const displayed = search ? rules.filter((r) => matchesSearch(r, search)) : rules;
-
-      if (!displayed.length) {
-        const empty = document.createElement("div");
-        empty.className = "logs-empty";
-        empty.textContent = rules.length ? "No rules match your search." : "No rules saved yet";
-        listDiv.appendChild(empty);
-        return;
-      }
 
       const buildRuleCard = (rule) => {
         const id = String(rule.id);
@@ -353,46 +348,43 @@ document.addEventListener("DOMContentLoaded", () => {
         return card;
       };
 
-      // Group displayed rules by their match URL (pathname), with collapsible headers.
-      const groups = new Map();
-      displayed.forEach((rule) => {
-        const key = (rule.pathname || "").trim() || "__any__";
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(rule);
-      });
-      groups.forEach((grpRules, key) => {
-        const gh = document.createElement("div"); gh.className = "rule-group-head";
-        const gcol = collapsedGroups.has(key);
-        const caret = document.createElement("span"); caret.className = "rule-group-caret"; caret.textContent = gcol ? "▸" : "▾";
-        const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = key === "__any__" ? "Any page" : key;
-        const gc = document.createElement("span"); gc.className = "rule-group-count"; gc.textContent = grpRules.length;
-        gh.append(caret, gt, gc);
-        gh.addEventListener("click", () => { collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key); renderRules(); });
-        listDiv.appendChild(gh);
-        if (gcol) return;
-        grpRules.forEach((rule) => listDiv.appendChild(buildRuleCard(rule)));
-      });
-
-      listDiv.querySelectorAll(".enable-toggle").forEach((cb) => {
-        cb.onchange = (e) => {
-          const rid = e.target.dataset.id;
-          saveRules(rules.map((r) => String(r.id) === rid ? { ...r, enabled: e.target.checked } : r));
-        };
-      });
-      listDiv.querySelectorAll(".collapse-rule").forEach((btn) => {
-        btn.onclick = (e) => {
-          const rid = e.currentTarget.dataset.id;
-          collapsedRuleIds.has(rid) ? collapsedRuleIds.delete(rid) : collapsedRuleIds.add(rid);
-          renderRules();
-        };
-      });
-      listDiv.querySelectorAll(".del-btn").forEach((btn) => {
-        btn.onclick = (e) => {
-          const rid = e.currentTarget.dataset.id;
-          collapsedRuleIds.delete(rid);
-          knownRuleIds.delete(rid);
-          saveRules(rules.filter((r) => String(r.id) !== rid), renderRules);
-        };
+      // Render each category into its own list, grouped by match URL.
+      CATS.forEach((cfg) => {
+        const listEl = document.getElementById(cfg.list);
+        if (!listEl) return;
+        listEl.textContent = "";
+        const catRules = rules.filter((r) => categoryOf(r) === cfg.cat);
+        const search = (res[cfg.searchKey] || "").trim().toLowerCase();
+        const displayed = search ? catRules.filter((r) => matchesSearch(r, search)) : catRules;
+        if (!displayed.length) {
+          const e = document.createElement("div"); e.className = "logs-empty";
+          e.textContent = catRules.length ? "No rules match your search." : cfg.empty;
+          listEl.appendChild(e); return;
+        }
+        const groups = new Map();
+        displayed.forEach((rule) => { const key = (rule.pathname || "").trim() || "__any__"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(rule); });
+        groups.forEach((grpRules, key) => {
+          const gkey = cfg.cat + "|" + key;
+          const gh = document.createElement("div"); gh.className = "rule-group-head";
+          const gcol = collapsedGroups.has(gkey);
+          const caret = document.createElement("span"); caret.className = "rule-group-caret"; caret.textContent = gcol ? "▸" : "▾";
+          const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = key === "__any__" ? "Any page" : key;
+          const gc = document.createElement("span"); gc.className = "rule-group-count"; gc.textContent = grpRules.length;
+          gh.append(caret, gt, gc);
+          gh.addEventListener("click", () => { collapsedGroups.has(gkey) ? collapsedGroups.delete(gkey) : collapsedGroups.add(gkey); renderRules(); });
+          listEl.appendChild(gh);
+          if (gcol) return;
+          grpRules.forEach((rule) => listEl.appendChild(buildRuleCard(rule)));
+        });
+        listEl.querySelectorAll(".enable-toggle").forEach((cb) => {
+          cb.onchange = (e) => { const rid = e.target.dataset.id; saveRules(rules.map((r) => String(r.id) === rid ? { ...r, enabled: e.target.checked } : r)); };
+        });
+        listEl.querySelectorAll(".collapse-rule").forEach((btn) => {
+          btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.has(rid) ? collapsedRuleIds.delete(rid) : collapsedRuleIds.add(rid); renderRules(); };
+        });
+        listEl.querySelectorAll(".del-btn").forEach((btn) => {
+          btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.delete(rid); knownRuleIds.delete(rid); saveRules(rules.filter((r) => String(r.id) !== rid), renderRules); };
+        });
       });
     });
   }
@@ -408,49 +400,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ── Toolbar ─────────────────────────────────────────────────────────────
-  const addBtn = document.getElementById("ac-add");
-  if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
+  // ── Per-category toolbars (Add picks only that type; export/import filter) ──
+  CATS.forEach((cfg) => {
+    const addBtn = document.getElementById(cfg.add);
+    if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
 
-  const exportBtn = document.getElementById("ac-export");
-  if (exportBtn) exportBtn.onclick = () => {
-    chrome.storage.local.get([RULES_KEY], (res) => {
-      const rules = res[RULES_KEY] || [];
-      if (!rules.length) { alert("No rules to export."); return; }
-      const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `auto-click-rules-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-  };
-
-  const importBtn = document.getElementById("ac-import");
-  const importFile = document.getElementById("ac-import-file");
-  if (importBtn && importFile) importBtn.onclick = () => importFile.click();
-  if (importFile) importFile.addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const imported = JSON.parse(ev.target.result);
-        if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
-        chrome.storage.local.get([RULES_KEY], (res) => {
-          const merged = [...(res[RULES_KEY] || []), ...imported];
-          chrome.storage.local.set({ [RULES_KEY]: merged }, () => {
-            alert(`Imported ${imported.length} rule(s). Total: ${merged.length}`);
-            renderRules();
-          });
-        });
-      } catch (err) { alert(`Import failed: ${err.message}`); }
+    const expBtn = document.getElementById(cfg.exp);
+    if (expBtn) expBtn.onclick = () => {
+      chrome.storage.local.get([RULES_KEY], (res) => {
+        const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
+        if (!rules.length) { alert("No rules to export."); return; }
+        const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = `${cfg.file}-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      });
     };
-    reader.readAsText(file);
-    importFile.value = "";
+
+    const impBtn = document.getElementById(cfg.imp);
+    const impFile = document.getElementById(cfg.impFile);
+    if (impBtn && impFile) impBtn.onclick = () => impFile.click();
+    if (impFile) impFile.addEventListener("change", (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const imported = JSON.parse(ev.target.result);
+          if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
+          chrome.storage.local.get([RULES_KEY], (res) => {
+            const merged = [...(res[RULES_KEY] || []), ...imported];
+            chrome.storage.local.set({ [RULES_KEY]: merged }, () => { alert(`Imported ${imported.length} rule(s).`); renderRules(); });
+          });
+        } catch (err) { alert(`Import failed: ${err.message}`); }
+      };
+      reader.readAsText(file); impFile.value = "";
+    });
   });
 
   // ══ Workflows ═════════════════════════════════════════════════════════════
@@ -866,7 +850,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (a !== "local") return;
     if (c[RULES_KEY] || c.autoButtons) renderRules();
     if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
-    if (c.moduleAutoClicker || c.moduleWorkflows) refreshOffTag();
+    if (c.moduleAutoClicker || c.moduleAutoFillRules || c.moduleAutoSelect || c.moduleWorkflows) refreshOffTag();
   });
 
   refreshOffTag();

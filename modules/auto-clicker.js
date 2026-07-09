@@ -5,6 +5,8 @@
   const LEGACY_KEY = "autoButtons";
 
   let moduleEnabled = false;    // reactive rules (moduleAutoClicker)
+  let fillEnabled = false;      // input-fill rules (moduleAutoFillRules)
+  let selectEnabled = false;    // dropdown-select rules (moduleAutoSelect)
   let workflowsEnabled = false; // workflows run/hotkeys (moduleWorkflows)
   let rules = [];
   let inspectorDefaults = {};
@@ -288,9 +290,20 @@
 
   // ── Scan loop ─────────────────────────────────────────────────────────────
 
+  // A rule's element type decides which module gates it:
+  //   input → Autofill (fill),  dropdown → Auto Select,  everything else → Auto Clicker (click).
+  function ruleCategory(rule) {
+    const t = rule.type || "button";
+    return t === "input" ? "fill" : t === "dropdown" ? "select" : "click";
+  }
+  function categoryEnabled(cat) {
+    return cat === "fill" ? fillEnabled : cat === "select" ? selectEnabled : moduleEnabled;
+  }
+
   function scanRules() {
-    if (!moduleEnabled || !rules.length) return;
+    if (!rules.length || (!moduleEnabled && !fillEnabled && !selectEnabled)) return;
     rules.forEach((rule) => {
+      if (!categoryEnabled(ruleCategory(rule))) return;
       const element = conditionsPass(rule);
       if (element) executeRule(rule, element);
     });
@@ -435,9 +448,11 @@
   const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("autoclick");
 
   function refreshEnabled(after) {
-    chrome.storage.local.get(["moduleAutoClicker", "moduleWorkflows", "extensionEnabled"], (res) => {
+    chrome.storage.local.get(["moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect", "moduleWorkflows", "extensionEnabled"], (res) => {
       const on = res.extensionEnabled !== false && premiumOK();
-      moduleEnabled    = on && !!res.moduleAutoClicker;
+      moduleEnabled    = on && !!res.moduleAutoClicker;    // click rules
+      fillEnabled      = on && !!res.moduleAutoFillRules;  // input-fill rules
+      selectEnabled    = on && !!res.moduleAutoSelect;     // dropdown rules
       workflowsEnabled = on && !!res.moduleWorkflows;
       if (after) after();
     });
@@ -450,7 +465,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.moduleAutoClicker || changes.moduleWorkflows || changes.extensionEnabled) refreshEnabled(scanRules);
+    if (changes.moduleAutoClicker || changes.moduleAutoFillRules || changes.moduleAutoSelect || changes.moduleWorkflows || changes.extensionEnabled) refreshEnabled(scanRules);
     if (changes[RULES_KEY]) setRules(changes[RULES_KEY].newValue || []);
     else if (changes[LEGACY_KEY]) setRules(changes[LEGACY_KEY].newValue || []);
     else scanRules();

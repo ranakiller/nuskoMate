@@ -53,6 +53,10 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v2M5 9H3m4-4L5.5 5.5"/><path d="M9 12l9 4-4 2-2 4-3-10z"/></svg>
             <span>Clicker</span>
           </button>
+          <button class="tab" data-tab="autoselect" title="Auto Select">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 10 12 14 16 10"/></svg>
+            <span>Select</span>
+          </button>
           <button class="tab" data-tab="workflows" title="Workflows">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
             <span>Flows</span>
@@ -334,6 +338,42 @@
       </div>
     </div>
 
+    <!-- Fill Rules: reactive rules that fill input fields -->
+    <div class="section">
+      <div class="section-title">Fill Rules</div>
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon autofill-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Auto Fill Rules</div>
+            <div class="module-desc">Reactive rules that fill input fields</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-autofill-rules" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="ac-head">
+        <div class="section-title" style="margin-bottom:0;">Rules</div>
+        <span class="ac-off-tag" id="fill-off-tag" style="display:none;">module off</span>
+      </div>
+      <div class="ac-toolbar">
+        <button id="fill-add" class="bulk-btn bulk-btn-primary" type="button">+ Add fill rule</button>
+        <button id="fill-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
+        <button id="fill-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
+        <input id="fill-import-file" type="file" accept=".json" style="display:none;" />
+      </div>
+      <input type="search" id="fill-search" class="logs-search" placeholder="Search fill rules…" autocomplete="off" />
+      <div class="rule-help ac-help">Click <b>Add fill rule</b>, then click an <b>input field</b> on the Masar page to capture it. Rules are grouped by page URL.</div>
+      <div id="fill-list" class="ac-list"><div class="logs-empty">No fill rules yet</div></div>
+    </div>
+
     </div><!-- /panel-autofill -->
 
     <!-- Panel: Settings (theme, activation, OCR key) -->
@@ -550,7 +590,7 @@
           </div>
           <div class="module-info">
             <div class="module-name">Auto Clicker</div>
-            <div class="module-desc">Reactive rules — fire when their conditions match</div>
+            <div class="module-desc">Reactive rules that click buttons</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-autoclicker" />
@@ -576,20 +616,70 @@
         <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
       </div>
       <div class="ac-toolbar">
-        <button id="ac-add" class="bulk-btn bulk-btn-primary" type="button">+ Add rule</button>
+        <button id="ac-add" class="bulk-btn bulk-btn-primary" type="button">+ Add click rule</button>
         <button id="ac-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
         <button id="ac-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
         <input id="ac-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-      <input type="search" id="ac-search" class="logs-search" placeholder="Search saved rules…" autocomplete="off" />
+      <input type="search" id="ac-search" class="logs-search" placeholder="Search click rules…" autocomplete="off" />
       <div class="rule-help ac-help">
-        Click <b>Add rule</b>, then click the button or field on the Masar page to capture it.
-        Rules are grouped by page URL. Expand a rule to add conditions, timing, or fill values.
+        Click <b>Add click rule</b>, then click a <b>button</b> on the Masar page to capture it.
+        Rules are grouped by page URL. Expand a rule to add conditions or timing.
       </div>
-      <div id="ac-list" class="ac-list"><div class="logs-empty">No rules saved yet</div></div>
+      <div id="ac-list" class="ac-list"><div class="logs-empty">No click rules yet</div></div>
     </div>
     </div><!-- /ac-content -->
     </div><!-- /panel-autoclick -->
+
+    <!-- Panel: Auto Select (dropdown rules) -->
+    <div class="tab-panel" id="panel-autoselect">
+
+    <div class="section">
+      <div class="section-title">Auto Select</div>
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon fill-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 10 12 14 16 10"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Auto Select</div>
+            <div class="module-desc">Reactive rules that pick dropdown values</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-autoselect" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div id="as-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Auto Select is a premium tool</div>
+      <div class="premium-upsell-text">Auto-pick values in dropdowns on chosen pages. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="as-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="as-content">
+    <div class="section">
+      <div class="ac-head">
+        <div class="section-title" style="margin-bottom:0;">Rules</div>
+        <span class="ac-off-tag" id="as-off-tag" style="display:none;">module off</span>
+      </div>
+      <div class="ac-toolbar">
+        <button id="as-add" class="bulk-btn bulk-btn-primary" type="button">+ Add select rule</button>
+        <button id="as-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
+        <button id="as-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
+        <input id="as-import-file" type="file" accept=".json" style="display:none;" />
+      </div>
+      <input type="search" id="as-search" class="logs-search" placeholder="Search select rules…" autocomplete="off" />
+      <div class="rule-help ac-help">Click <b>Add select rule</b>, then click a <b>dropdown</b> on the Masar page to capture it, and set the value to pick.</div>
+      <div id="as-list" class="ac-list"><div class="logs-empty">No select rules yet</div></div>
+    </div>
+    </div><!-- /as-content -->
+    </div><!-- /panel-autoselect -->
 
     <!-- Panel: Workflows -->
     <div class="tab-panel" id="panel-workflows">

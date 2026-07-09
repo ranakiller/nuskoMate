@@ -80,6 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
       "toggle-embassy": "embassy", "toggle-autoclicker": "autoclick", "toggle-workflows": "autoclick",
+      "toggle-autofill-rules": "autoclick", "toggle-autoselect": "autoclick",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -106,7 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Auto Clicker + Workflows tabs: upsell unless the "autoclick" tool is licensed.
       const acOk = has(st, "autoclick");
-      [["ac-upsell", "ac-content"], ["wf-upsell", "wf-content"]].forEach(([up, ct]) => {
+      [["ac-upsell", "ac-content"], ["wf-upsell", "wf-content"], ["as-upsell", "as-content"]].forEach(([up, ct]) => {
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = acOk ? "none" : "block";
         if (c) c.style.display = acOk ? ""     : "none";
@@ -185,7 +186,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ac-upsell-btn", "wf-upsell-btn"].forEach((idb) => {
+    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -309,6 +310,8 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
     { id: "toggle-embassy",   key: "moduleEmbassy"        },
     { id: "toggle-autoclicker", key: "moduleAutoClicker"  },
+    { id: "toggle-autofill-rules", key: "moduleAutoFillRules" },
+    { id: "toggle-autoselect",  key: "moduleAutoSelect"   },
     { id: "toggle-workflows",   key: "moduleWorkflows"    },
   ];
 

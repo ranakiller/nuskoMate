@@ -326,6 +326,7 @@ body {
 .ocr-icon       { background: var(--ocr-bg);        color: var(--ocr-fg);        }
 .batch-icon     { background: var(--batch-bg);      color: var(--batch-fg);      }
 .clicker-icon   { background: var(--clicker-bg);    color: var(--clicker-fg);    }
+.fill-icon      { background: var(--translate-bg);  color: var(--translate-fg);  }
 
 .embassy-note {
   margin-top: 7px;
