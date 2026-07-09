@@ -1401,3 +1401,68 @@ body { width: 500px; }
 .field-divider {
   grid-column: 1 / -1; border: none; border-top: 1px dashed var(--border); margin: 6px 0 2px;
 }
+
+/* ── Auto Clicker — Workflows ───────────────────────────────────────────── */
+.wf-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px; margin-bottom: 10px;
+}
+.wf-card-running { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+
+.wf-head { display: flex; align-items: center; gap: 6px; }
+.wf-name {
+  flex: 1; min-width: 0; font-weight: 700; font-size: 12px; color: var(--text);
+  padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent;
+}
+.wf-name:hover { border-color: var(--border); }
+.wf-name:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
+
+.wf-run {
+  flex-shrink: 0; border: none; border-radius: var(--radius-xs); cursor: pointer;
+  font-size: 11px; font-weight: 700; padding: 6px 12px; color: #fff; background: var(--accent2);
+}
+.wf-run-stop { background: var(--overlay-fg); }
+
+.wf-status { margin: 8px 2px 4px; font-size: 11px; color: var(--text-muted); }
+.wf-status-err { color: var(--overlay-fg); font-weight: 600; }
+.wf-status-ok  { color: var(--fill-fg); font-weight: 600; }
+
+.wf-steps { display: grid; gap: 6px; margin-top: 4px; }
+.wf-empty { font-size: 11px; color: var(--text-sub); padding: 6px 2px; }
+
+.wf-step {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-xs); padding: 8px;
+}
+.wf-step-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.wf-step-head { display: flex; align-items: center; gap: 6px; }
+.wf-step-num {
+  flex-shrink: 0; width: 18px; height: 18px; line-height: 18px; text-align: center;
+  font-size: 10px; font-weight: 700; border-radius: 50%; background: var(--surface); color: var(--text-muted);
+}
+.wf-step-name {
+  flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text);
+  padding: 4px 6px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent;
+}
+.wf-step-name:hover { border-color: var(--border); }
+.wf-step-name:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+.wf-step-sum {
+  margin: 5px 0 0 24px; font-size: 10px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wf-step-body { display: grid; gap: 6px; margin-top: 8px; }
+
+.wf-mini {
+  flex-shrink: 0; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: var(--radius-xs); cursor: pointer; font-size: 11px; font-weight: 700;
+  padding: 4px 8px; min-width: 26px;
+}
+.wf-mini:hover { border-color: var(--accent); }
+.wf-mini:disabled { opacity: .4; cursor: default; }
+.wf-mini-danger { color: var(--overlay-fg); }
+
+.wf-add-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.type-badge--waitFor  { background: var(--reload-bg);   color: var(--reload-fg);   }
+.type-badge--waitGone { background: var(--overlay-bg);  color: var(--overlay-fg);  }
+.type-badge--wait, .type-badge--delay { background: var(--surface2); color: var(--text-muted); }

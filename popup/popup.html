@@ -555,10 +555,27 @@
     </div>
 
     <div id="ac-content">
+
+    <!-- Workflows: ordered step sequences with run controls -->
+    <div class="section" id="wf-section">
+      <div class="ac-head">
+        <div class="section-title" style="margin-bottom:0;">Workflows</div>
+        <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
+      </div>
+      <div class="ac-toolbar" style="grid-template-columns:1fr;">
+        <button id="wf-add" class="bulk-btn bulk-btn-primary" type="button">+ New workflow</button>
+      </div>
+      <div class="rule-help ac-help">
+        Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press
+        <b>▶ Run</b> to play it on the current Masar page. Use <b>◎</b> to flash a step's element.
+      </div>
+      <div id="wf-list" class="ac-list"></div>
+    </div>
+
+    <!-- Reactive rules: fire automatically whenever their conditions are met -->
     <div class="section">
       <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Auto Click Rules</div>
-        <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
+        <div class="section-title" style="margin-bottom:0;">Reactive Rules</div>
       </div>
 
       <div class="ac-toolbar">

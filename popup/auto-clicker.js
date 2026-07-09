@@ -431,13 +431,247 @@ document.addEventListener("DOMContentLoaded", () => {
     importFile.value = "";
   });
 
-  // Keep in sync if rules / toggle change elsewhere.
+  // ══ Workflows ═════════════════════════════════════════════════════════════
+  const WF_KEY = "autoWorkflows";
+  const STATUS_KEY = "acRunStatus";
+  const wfListEl = document.getElementById("wf-list");
+  const wfKnown = new Set();
+  let liveStatus = {};
+
+  const STEP_LABEL = {
+    button: "CLICK", click: "CLICK", input: "FILL", dropdown: "SELECT",
+    checkbox: "CHECK", radio: "RADIO", waitFor: "WAIT+", waitGone: "WAIT-", wait: "DELAY", delay: "DELAY",
+  };
+
+  function saveWorkflows(wfs, cb) { chrome.storage.local.set({ [WF_KEY]: wfs }, cb); }
+  function withWorkflows(fn) { chrome.storage.local.get([WF_KEY], (res) => fn(res[WF_KEY] || [])); }
+
+  function sendToPage(payload, cb) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0] || !tabs[0].id) { if (cb) cb(false); return; }
+      chrome.tabs.sendMessage(tabs[0].id, payload, () => {
+        if (chrome.runtime.lastError) { alert("Open a Masar page and refresh it before running / highlighting."); if (cb) cb(false); }
+        else if (cb) cb(true);
+      });
+    });
+  }
+
+  const uid = () => Date.now() + Math.floor(Math.random() * 1000);
+
+  function patchWorkflow(wfId, patch) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, ...patch } : w), renderWorkflows));
+  }
+  function patchStep(wfId, stepId, patch) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) !== String(wfId) ? w
+      : { ...w, steps: (w.steps || []).map((s) => String(s.id) === String(stepId) ? { ...s, ...patch } : s) }), renderWorkflows));
+  }
+  function removeStep(wfId, stepId) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) !== String(wfId) ? w
+      : { ...w, steps: (w.steps || []).filter((s) => String(s.id) !== String(stepId)) }), renderWorkflows));
+  }
+  function moveStep(wfId, stepId, dir) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => {
+      if (String(w.id) !== String(wfId)) return w;
+      const steps = [...(w.steps || [])];
+      const i = steps.findIndex((s) => String(s.id) === String(stepId));
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= steps.length) return w;
+      [steps[i], steps[j]] = [steps[j], steps[i]];
+      return { ...w, steps };
+    }), renderWorkflows));
+  }
+  function addWaitStep(wfId, type) {
+    const step = type === "wait"
+      ? { id: uid(), type: "wait", name: "Delay", waitMs: 1000 }
+      : { id: uid(), type, name: type === "waitFor" ? "Wait for element" : "Wait until gone", requiredElements: [""], selector: "", timeoutMs: 15000 };
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), step] } : w), renderWorkflows));
+  }
+  function deleteWorkflow(wfId) {
+    if (!confirm("Delete this workflow?")) return;
+    withWorkflows((wfs) => saveWorkflows(wfs.filter((w) => String(w.id) !== String(wfId)), renderWorkflows));
+  }
+  function addWorkflow() {
+    withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
+  }
+
+  function stepSummary(step) {
+    const sel = (step.requiredElements && step.requiredElements[0]) || step.selector || "—";
+    switch (step.type) {
+      case "wait": case "delay": return `delay ${Number(step.waitMs) || 0} ms`;
+      case "waitFor":  return `wait for ${sel}`;
+      case "waitGone": return `wait until gone ${sel}`;
+      case "input":    return `fill "${step.fillValue || ""}"`;
+      case "dropdown": return `select "${step.selectValue || ""}"`;
+      case "checkbox": case "radio": return `${step.targetState || "checked"}`;
+      default:         return `click`;
+    }
+  }
+
+  function fieldRow(labelText, control) {
+    const w = document.createElement("div"); w.className = "rule-field full";
+    const l = document.createElement("label"); l.textContent = labelText;
+    w.append(l, control); return w;
+  }
+  function txt(value, ph, onchange) {
+    const i = document.createElement("input"); i.type = "text"; i.value = value || ""; if (ph) i.placeholder = ph;
+    i.addEventListener("change", (e) => onchange(e.target.value.trim())); return i;
+  }
+  function num(value, onchange) {
+    const i = document.createElement("input"); i.type = "number"; i.min = "0"; i.step = "50"; i.value = value == null ? "" : value;
+    i.addEventListener("change", (e) => onchange(Number(e.target.value) || 0)); return i;
+  }
+  function sel(value, opts, onchange) {
+    const s = document.createElement("select");
+    opts.forEach((o) => { const op = document.createElement("option"); op.value = o; op.textContent = o; s.appendChild(op); });
+    s.value = value; s.addEventListener("change", (e) => onchange(e.target.value)); return s;
+  }
+
+  function stepFields(wf, step) {
+    const selVal = (step.requiredElements && step.requiredElements[0]) || step.selector || "";
+    const isDelay = step.type === "wait" || step.type === "delay";
+    const isWait = step.type === "waitFor" || step.type === "waitGone";
+    const fields = [];
+
+    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => patchStep(wf.id, step.id, { requiredElements: [v], selector: v }))));
+    if (step.type === "input") fields.push(fieldRow("Fill value", txt(step.fillValue, "", (v) => patchStep(wf.id, step.id, { fillValue: v }))));
+    if (step.type === "dropdown") {
+      fields.push(fieldRow("Select value", txt(step.selectValue, "", (v) => patchStep(wf.id, step.id, { selectValue: v }))));
+      fields.push(fieldRow("Match by", sel(step.selectMatchBy || "value", ["value", "text"], (v) => patchStep(wf.id, step.id, { selectMatchBy: v }))));
+    }
+    if (step.type === "checkbox" || step.type === "radio") fields.push(fieldRow("Target state", sel(step.targetState || "checked", ["checked", "unchecked", "toggle"], (v) => patchStep(wf.id, step.id, { targetState: v }))));
+    if (isDelay) fields.push(fieldRow("Delay (ms)", num(step.waitMs, (v) => patchStep(wf.id, step.id, { waitMs: v }))));
+    if (isWait || !isDelay) fields.push(fieldRow(isWait ? "Timeout (ms)" : "Element timeout (ms)", num(step.timeoutMs == null ? (isWait ? 15000 : 8000) : step.timeoutMs, (v) => patchStep(wf.id, step.id, { timeoutMs: v }))));
+
+    const optWrap = document.createElement("div"); optWrap.className = "check-row";
+    const opt = document.createElement("input"); opt.type = "checkbox"; opt.checked = !!step.optional;
+    opt.addEventListener("change", (e) => patchStep(wf.id, step.id, { optional: e.target.checked }));
+    const optl = document.createElement("label"); optl.textContent = "Optional (skip if it fails)";
+    optWrap.append(opt, optl); fields.push(optWrap);
+    return fields;
+  }
+
+  function renderStepCard(wf, step, index, total, activeIndex) {
+    const card = document.createElement("div");
+    card.className = "wf-step" + (activeIndex === index ? " wf-step-active" : "");
+
+    const head = document.createElement("div"); head.className = "wf-step-head";
+    const numTag = document.createElement("span"); numTag.className = "wf-step-num"; numTag.textContent = index + 1;
+    const badge = document.createElement("span"); badge.className = `type-badge type-badge--${step.type}`; badge.textContent = STEP_LABEL[step.type] || "STEP";
+    const name = document.createElement("input"); name.className = "wf-step-name"; name.value = step.name || step.type;
+    name.addEventListener("change", (e) => patchStep(wf.id, step.id, { name: e.target.value }));
+
+    const up = mini("↑", () => moveStep(wf.id, step.id, -1));
+    const down = mini("↓", () => moveStep(wf.id, step.id, +1));
+    const canHighlight = step.type !== "wait" && step.type !== "delay";
+    const hi = mini("◎", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
+    hi.title = "Flash this element on the page";
+    hi.disabled = !canHighlight;
+    const del = mini("×", () => removeStep(wf.id, step.id), true);
+
+    head.append(numTag, badge, name, up, down, hi, del);
+
+    const summary = document.createElement("div"); summary.className = "wf-step-sum"; summary.textContent = stepSummary(step);
+
+    const body = document.createElement("div"); body.className = "wf-step-body";
+    stepFields(wf, step).forEach((f) => body.append(f));
+
+    card.append(head, summary, body);
+    return card;
+  }
+
+  function mini(label, fn, danger) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "wf-mini" + (danger ? " wf-mini-danger" : "");
+    b.textContent = label;
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function renderWorkflowCard(wf) {
+    const running = liveStatus.running && String(liveStatus.id) === String(wf.id);
+    const paused = running && liveStatus.paused;
+    const activeIndex = running ? liveStatus.stepIndex : -1;
+
+    const card = document.createElement("div"); card.className = "wf-card" + (running ? " wf-card-running" : "");
+
+    const head = document.createElement("div"); head.className = "wf-head";
+    const name = document.createElement("input"); name.className = "wf-name"; name.value = wf.name || "Workflow";
+    name.addEventListener("change", (e) => patchWorkflow(wf.id, { name: e.target.value }));
+
+    const runBtn = document.createElement("button");
+    runBtn.type = "button";
+    runBtn.className = "wf-run" + (running ? " wf-run-stop" : "");
+    runBtn.textContent = running ? "■ Stop" : "▶ Run";
+    runBtn.onclick = () => running ? sendToPage({ action: "STOP_WORKFLOW" }) : sendToPage({ action: "RUN_WORKFLOW", workflowId: wf.id });
+
+    const pauseBtn = document.createElement("button");
+    pauseBtn.type = "button";
+    pauseBtn.className = "wf-mini";
+    pauseBtn.textContent = paused ? "▶" : "❚❚";
+    pauseBtn.title = paused ? "Resume" : "Pause";
+    pauseBtn.style.display = running ? "" : "none";
+    pauseBtn.onclick = () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" });
+
+    const del = mini("Delete", () => deleteWorkflow(wf.id), true);
+
+    head.append(name, runBtn, pauseBtn, del);
+
+    // status line
+    const status = document.createElement("div"); status.className = "wf-status";
+    const isThis = String(liveStatus.id) === String(wf.id);
+    if (running) status.textContent = `${paused ? "Paused" : "Running"} — step ${Math.min((liveStatus.stepIndex || 0) + 1, liveStatus.total)}/${liveStatus.total || (wf.steps || []).length}`;
+    else if (isThis && liveStatus.lastError) { status.textContent = "✖ " + liveStatus.lastError; status.classList.add("wf-status-err"); }
+    else if (isThis && liveStatus.done && !liveStatus.stopped) { status.textContent = "✔ finished"; status.classList.add("wf-status-ok"); }
+    else if (isThis && liveStatus.stopped) status.textContent = "■ stopped";
+    else status.textContent = `${(wf.steps || []).length} step(s)`;
+
+    // steps
+    const stepsWrap = document.createElement("div"); stepsWrap.className = "wf-steps";
+    const steps = wf.steps || [];
+    if (!steps.length) { const e = document.createElement("div"); e.className = "wf-empty"; e.textContent = "No steps yet — capture one below."; stepsWrap.appendChild(e); }
+    else steps.forEach((s, i) => stepsWrap.appendChild(renderStepCard(wf, s, i, steps.length, activeIndex)));
+
+    // add-step toolbar
+    const add = document.createElement("div"); add.className = "wf-add-row";
+    add.append(
+      mini("+ Pick element", () => startPicker({ forWorkflow: true, workflowId: wf.id })),
+      mini("+ Wait for", () => addWaitStep(wf.id, "waitFor")),
+      mini("+ Wait gone", () => addWaitStep(wf.id, "waitGone")),
+      mini("+ Delay", () => addWaitStep(wf.id, "wait")),
+    );
+
+    card.append(head, status, stepsWrap, add);
+    return card;
+  }
+
+  function renderWorkflows() {
+    if (!wfListEl) return;
+    chrome.storage.local.get([WF_KEY, STATUS_KEY], (res) => {
+      const wfs = res[WF_KEY] || [];
+      liveStatus = res[STATUS_KEY] || {};
+      wfListEl.textContent = "";
+      if (!wfs.length) {
+        const e = document.createElement("div"); e.className = "logs-empty";
+        e.textContent = "No workflows yet — create one to build a step sequence.";
+        wfListEl.appendChild(e); return;
+      }
+      wfs.forEach((wf) => wfListEl.appendChild(renderWorkflowCard(wf)));
+    });
+  }
+
+  const wfAddBtn = document.getElementById("wf-add");
+  if (wfAddBtn) wfAddBtn.onclick = addWorkflow;
+
+  // Keep in sync if rules / workflows / status / toggle change elsewhere.
   chrome.storage.onChanged.addListener((c, a) => {
     if (a !== "local") return;
     if (c[RULES_KEY] || c.autoButtons) renderRules();
+    if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
     if (c.moduleAutoClicker) refreshOffTag();
   });
 
   refreshOffTag();
   renderRules();
+  renderWorkflows();
 });

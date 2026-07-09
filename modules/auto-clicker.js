@@ -366,6 +366,36 @@
     });
   }
 
+  // ── Workflow step capture ─────────────────────────────────────────────────
+
+  function buildStepFromSelection(selection) {
+    const { selector, text, elementType = "button", meta = {} } = selection;
+    const step = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      type: elementType,
+      name: text || selector,
+      requiredElements: [selector],
+      selector,
+      timeoutMs: 8000,
+      afterMs: 250,
+      optional: false,
+    };
+    if (elementType === "input") step.fillValue = meta.currentValue || "";
+    else if (elementType === "dropdown") { step.selectValue = meta.currentValue || ""; step.selectMatchBy = "value"; }
+    else if (elementType === "checkbox") step.targetState = meta.currentState ? "unchecked" : "checked";
+    else if (elementType === "radio") step.targetState = "checked";
+    return step;
+  }
+
+  function saveCapturedStep(selection, workflowId) {
+    const step = buildStepFromSelection(selection);
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) =>
+        String(w.id) === String(workflowId) ? { ...w, steps: [...(w.steps || []), step] } : w);
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Step added: ${step.name}  (${step.type})`));
+    });
+  }
+
   // ── Inspector ─────────────────────────────────────────────────────────────
 
   function startInspector(sendResponse, options = {}) {
@@ -376,6 +406,7 @@
 
     const inspector = new window.ElementInspector();
     inspector.start((selection) => {
+      if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId); return; }
       if (options.ruleId) {
         const key = options.mode === "forbidden" ? "forbiddenElements" : "requiredElements";
         updateSelectorInRule(options.ruleId, selection, key);
@@ -425,10 +456,130 @@
   // React to license activation/deactivation while the page is open.
   window.NkLicense && window.NkLicense.onPremiumChange(() => refreshEnabled(scanRules));
 
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.action === "START_PICKER") {
-      inspectorDefaults = msg.defaults || {};
-      startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId });
+  // ── Highlight (verify a selector from the popup) ──────────────────────────
+
+  function flashElement(el) {
+    if (!el) return false;
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+    const prevOutline = el.style.outline;
+    const prevShadow = el.style.boxShadow;
+    const prevTrans = el.style.transition;
+    el.style.transition = "box-shadow .15s ease";
+    el.style.outline = "3px solid #4f6ef7";
+    el.style.boxShadow = "0 0 0 6px rgba(79,110,247,.30)";
+    setTimeout(() => {
+      el.style.outline = prevOutline;
+      el.style.boxShadow = prevShadow;
+      el.style.transition = prevTrans;
+    }, 1500);
+    return true;
+  }
+
+  // ── Workflow engine (ordered sequences + waits + run controls) ────────────
+
+  const WF_KEY = "autoWorkflows";
+  const STATUS_KEY = "acRunStatus";
+  const wfState = { running: false, paused: false, stop: false, id: null };
+
+  const wlog = (m) => { try { (window.nkLog || console.log)("[Nuskomate Clicker] " + m); } catch (_) { console.log(m); } };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms | 0)));
+
+  function writeStatus(patch) {
+    chrome.storage.local.get([STATUS_KEY], (res) => {
+      chrome.storage.local.set({ [STATUS_KEY]: { ...(res[STATUS_KEY] || {}), ...patch, at: Date.now() } });
+    });
+  }
+
+  function stepSelector(step) {
+    return (Array.isArray(step.requiredElements) ? step.requiredElements[0] : "") || step.selector || "";
+  }
+
+  // Poll until the selector is visible (or gone), up to timeoutMs.
+  async function waitUntil(sel, wantVisible, timeoutMs) {
+    const deadline = Date.now() + (Number(timeoutMs) || 15000);
+    for (;;) {
+      if (wfState.stop) return false;
+      const el = getElement(sel);
+      if ((wantVisible ? isVisible(el) : !isVisible(el))) return true;
+      if (Date.now() > deadline) return false;
+      await sleep(250);
     }
+  }
+
+  async function runStep(step) {
+    const type = step.type || "button";
+    const sel = stepSelector(step);
+
+    if (type === "wait" || type === "delay") { await sleep(Number(step.waitMs) || 0); return; }
+    if (type === "waitFor")  { if (!(await waitUntil(sel, true,  step.timeoutMs))) throw new Error(`waitFor timed out: ${sel}`); return; }
+    if (type === "waitGone") { if (!(await waitUntil(sel, false, step.timeoutMs))) throw new Error(`waitGone timed out: ${sel}`); return; }
+
+    // Action step — make sure the element is present/visible first.
+    const present = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
+    const el = getElement(sel);
+    if (!present || !el) throw new Error(`element not found: ${sel}`);
+    switch (type) {
+      case "input":    fillInput(el, step); break;
+      case "dropdown": selectOption(el, { ...step, requiredElements: [sel] }); break;
+      case "checkbox": setCheckbox(el, step.targetState || "checked"); break;
+      case "radio":    setCheckbox(el, step.targetState || "checked"); break;
+      default:         clickElement(el);
+    }
+  }
+
+  async function runWorkflow(wf) {
+    if (wfState.running) { wlog("a workflow is already running"); return; }
+    if (!wf || !Array.isArray(wf.steps) || !wf.steps.length) return;
+    wfState.running = true; wfState.paused = false; wfState.stop = false; wfState.id = wf.id;
+    const total = wf.steps.length;
+    writeStatus({ id: wf.id, name: wf.name, running: true, paused: false, stepIndex: 0, total, lastError: "", done: false, stopped: false });
+    wlog(`▶ ${wf.name} — ${total} step(s)`);
+
+    for (let i = 0; i < total; i++) {
+      if (wfState.stop) break;
+      while (wfState.paused && !wfState.stop) await sleep(200);
+      if (wfState.stop) break;
+      const step = wf.steps[i];
+      writeStatus({ id: wf.id, name: wf.name, running: true, paused: false, stepIndex: i, total, lastError: "" });
+      try {
+        await runStep(step);
+        await sleep(Number(step.afterMs) || 250); // settle gap
+      } catch (e) {
+        const m = (e && e.message) || String(e);
+        if (step.optional) { wlog(`⚠ step ${i + 1} skipped: ${m}`); continue; }
+        wfState.running = false; wfState.id = null;
+        writeStatus({ id: wf.id, name: wf.name, running: false, paused: false, stepIndex: i, total, lastError: `step ${i + 1}: ${m}`, done: true });
+        wlog(`✖ ${wf.name} failed at step ${i + 1}: ${m}`);
+        return;
+      }
+    }
+    const stopped = wfState.stop;
+    wfState.running = false; wfState.id = null;
+    writeStatus({ id: wf.id, name: wf.name, running: false, paused: false, stepIndex: total, total, lastError: "", done: true, stopped });
+    wlog(stopped ? `■ ${wf.name} stopped` : `✔ ${wf.name} finished`);
+  }
+
+  function startWorkflowById(id) {
+    chrome.storage.local.get([WF_KEY, "extensionEnabled"], (res) => {
+      if (res.extensionEnabled === false || !premiumOK()) { wlog("Auto Clicker is disabled or not licensed"); return; }
+      const wf = (res[WF_KEY] || []).find((w) => String(w.id) === String(id));
+      if (wf) runWorkflow(wf); else wlog("workflow not found");
+    });
+  }
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    switch (msg.action) {
+      case "START_PICKER":
+        inspectorDefaults = msg.defaults || {};
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, workflowId: msg.workflowId });
+        break;
+      case "RUN_WORKFLOW":   startWorkflowById(msg.workflowId); sendResponse({ ok: true }); break;
+      case "STOP_WORKFLOW":  wfState.stop = true; wfState.paused = false; sendResponse({ ok: true }); break;
+      case "PAUSE_WORKFLOW": wfState.paused = true;  writeStatus({ paused: true });  sendResponse({ ok: true }); break;
+      case "RESUME_WORKFLOW":wfState.paused = false; writeStatus({ paused: false }); sendResponse({ ok: true }); break;
+      case "HIGHLIGHT_ELEMENT": sendResponse({ ok: flashElement(getElement(msg.selector)) }); break;
+      default: sendResponse({ ok: false });
+    }
+    return true; // keep the channel open for async sendResponse
   });
 })();
