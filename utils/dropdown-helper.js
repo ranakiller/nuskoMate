@@ -11,17 +11,29 @@
   // queue and run after it finishes. Each dropdown therefore behaves exactly
   // the same, reliably.
 
-  const queuedKeys = new Set(); // selector::text currently waiting or in-flight
-  const queue = [];             // [{ selector, wantedText, key }]
+  const queuedKeys = new Set(); // key currently waiting or in-flight
+  const queue = [];             // [{ root|selector, wantedText, key }]
   let active = false;
 
-  function labelOf(selector) {
-    const el = document.querySelector(selector);
-    return el ? el.querySelector(".p-dropdown-label") : null;
+  // Resolve the clickable ".p-dropdown-label" from either a container element,
+  // the label itself, or a CSS selector. Callers pass different things:
+  //   • autofill passes  p-dropdown[formcontrolname="…"]  (a container)
+  //   • the Auto Select rule captures the label <span> directly (it IS the label)
+  //   • either may pass the wrapping .p-dropdown div
+  // so we accept all three shapes here.
+  function labelFromRoot(root) {
+    if (!root || !root.classList) return null;
+    if (root.classList.contains("p-dropdown-label")) return root;      // root IS the label
+    return root.querySelector ? root.querySelector(".p-dropdown-label") : null;
+  }
+  function resolveRoot(job) {
+    return job.root || (job.selector ? document.querySelector(job.selector) : null);
+  }
+  function labelOf(job) {
+    return labelFromRoot(resolveRoot(job));
   }
 
-  function isSelected(selector, wantedText) {
-    const label = labelOf(selector);
+  function isSelectedLabel(label, wantedText) {
     return !!(label && label.textContent.trim().toLowerCase().includes(wantedText));
   }
 
@@ -54,7 +66,7 @@
       setTimeout(processNext, 150);
     };
 
-    const label = labelOf(job.selector);
+    const label = labelOf(job);
     if (!label) { finish(); return; }                                   // dropdown not in DOM
     if (label.textContent.trim().toLowerCase().includes(job.wantedText)) { finish(); return; } // already set
 
@@ -79,14 +91,32 @@
     }, 2500);
   }
 
+  function enqueue(job) {
+    if (queuedKeys.has(job.key)) return;                      // already queued / in-flight
+    queuedKeys.add(job.key);
+    queue.push(job);
+    processNext();
+  }
+
+  // Selector-based (used by autofill, which passes a p-dropdown container).
   window.sharedDropdownHandler = function (dropdownSelector, matchText) {
     if (!dropdownSelector || !matchText) return;
     const wantedText = matchText.toLowerCase();
-    if (isSelected(dropdownSelector, wantedText)) return;     // nothing to do
-    const key = `${dropdownSelector}::${wantedText}`;
-    if (queuedKeys.has(key)) return;                          // already queued / in-flight
-    queuedKeys.add(key);
-    queue.push({ selector: dropdownSelector, wantedText, key });
-    processNext();
+    const label = labelFromRoot(document.querySelector(dropdownSelector));
+    if (isSelectedLabel(label, wantedText)) return;           // nothing to do
+    enqueue({ selector: dropdownSelector, wantedText, key: `${dropdownSelector}::${wantedText}` });
+  };
+
+  // Element-based (used by the Auto Select rule / workflow steps, where we
+  // already have the matched element — which may be the label span itself).
+  let elSeq = 0;
+  window.sharedDropdownHandlerEl = function (rootEl, matchText) {
+    if (!rootEl || !matchText) return;
+    const wantedText = matchText.toLowerCase();
+    const label = labelFromRoot(rootEl);
+    if (isSelectedLabel(label, wantedText)) return;           // nothing to do
+    // The element has no stable string key, so tag it once for dedupe.
+    if (!rootEl.__nkDdId) rootEl.__nkDdId = "el" + (++elSeq);
+    enqueue({ root: rootEl, wantedText, key: `${rootEl.__nkDdId}::${wantedText}` });
   };
 })();

@@ -1508,6 +1508,15 @@ body { width: 500px; display: flex; flex-direction: column; }
   background: var(--surface); border-radius: 999px; padding: 1px 7px;
 }
 
+/* Expand-all / collapse-all bar above the URL groups */
+.rule-group-controls { display: flex; gap: 6px; justify-content: flex-end; margin: 2px 0 2px; }
+.group-ctrl-btn {
+  font-size: 10px; font-weight: 600; cursor: pointer;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+}
+.group-ctrl-btn:hover { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+
 .wf-drag { padding: 3px 7px; font-size: 11px; }
 .wf-card.dragging { opacity: .5; }
 .wf-card.drag-over { border-color: var(--accent); border-style: dashed; }

@@ -161,10 +161,16 @@
       return;
     }
 
-    // Custom dropdown (PrimeNG p-dropdown, etc.) via sharedDropdownHandler
-    if (typeof window.sharedDropdownHandler === "function") {
-      const selector = (rule.requiredElements && rule.requiredElements[0]) || "";
-      window.sharedDropdownHandler(selector, rule.selectValue || "");
+    // Custom dropdown (PrimeNG p-dropdown, etc.). The matched element may be the
+    // container, the .p-dropdown wrapper, or the label span itself — the
+    // element-based handler resolves the label from any of them (and the
+    // captured selector's .p-placeholder class disappears once a value is set,
+    // so we work off the live element rather than re-querying the selector).
+    const value = rule.selectValue || "";
+    if (typeof window.sharedDropdownHandlerEl === "function") {
+      window.sharedDropdownHandlerEl(element, value);
+    } else if (typeof window.sharedDropdownHandler === "function") {
+      window.sharedDropdownHandler((rule.requiredElements && rule.requiredElements[0]) || "", value);
     } else {
       clickElement(element);
     }
@@ -410,6 +416,14 @@
     });
   }
 
+  function saveTriggerSelector(selection, workflowId) {
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) =>
+        String(w.id) === String(workflowId) ? { ...w, triggerSelector: selection.selector } : w);
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Trigger element set: ${selection.selector}`));
+    });
+  }
+
   // ── Inspector ─────────────────────────────────────────────────────────────
 
   function startInspector(sendResponse, options = {}) {
@@ -420,6 +434,7 @@
 
     const inspector = new window.ElementInspector();
     inspector.start((selection) => {
+      if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
       if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId); return; }
       if (options.ruleId) {
         const key = options.mode === "forbidden" ? "forbiddenElements" : "requiredElements";
@@ -433,14 +448,16 @@
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-  const observer = new MutationObserver(() => scanRules());
+  const observer = new MutationObserver(() => { scanRules(); scanWorkflows(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  setInterval(scanRules, 1000);
+  setInterval(() => { scanRules(); scanWorkflows(); }, 1000);
 
   window.addEventListener("nusuk-route-change", () => {
     executedRules.clear();
     pendingRules.clear();
+    wfArmed.clear();          // re-arm auto-run workflows on a fresh page
     scanRules();
+    scanWorkflows();
   });
 
   // Premium — its own per-key tool. Enabled only when the master extension
@@ -455,6 +472,7 @@
       selectEnabled    = on && !!res.moduleAutoSelect;     // dropdown rules
       workflowsEnabled = on && !!res.moduleWorkflows;
       if (after) after();
+      scanWorkflows();
     });
   }
 
@@ -701,6 +719,46 @@
     });
   }
 
+  // ── Auto-run triggers (run a workflow when an element appears) ─────────────
+  // A workflow with `trigger === "auto"` fires like a reactive rule: when its
+  // trigger element becomes visible it runs automatically (no Run button).
+  // Edge-triggered — it re-arms only after the trigger element disappears, so a
+  // steadily-visible element runs it once, not on every scan. Default trigger
+  // selector is the workflow's first actionable step. `trigger === "manual"`
+  // (or unset) means Run-button / hotkey only.
+  let autoWfs = [];            // workflows with trigger === "auto"
+  const wfArmed = new Map();   // workflow id → armed to fire (re-armed when trigger gone)
+
+  // The selector whose appearance fires the workflow.
+  function wfTriggerSelector(wf) {
+    if (wf.triggerSelector && wf.triggerSelector.trim()) return wf.triggerSelector.trim();
+    const first = (wf.steps || []).find((s) => stepSelector(s));
+    return first ? stepSelector(first) : "";
+  }
+
+  function refreshAutoWorkflows() {
+    chrome.storage.local.get([WF_KEY], (res) => {
+      autoWfs = (res[WF_KEY] || []).filter((w) => w.trigger === "auto" && wfTriggerSelector(w));
+    });
+  }
+  refreshAutoWorkflows();
+
+  function scanWorkflows() {
+    if (!workflowsEnabled || !autoWfs.length || wfState.running) return;
+    for (const wf of autoWfs) {
+      const sel = wfTriggerSelector(wf);
+      const visible = isVisible(getElement(sel));
+      const armed = wfArmed.get(wf.id) !== false;   // default armed
+      if (visible && armed) {
+        wfArmed.set(wf.id, false);                   // disarm until the trigger disappears
+        wlog(`▶ auto-run "${wf.name}" (trigger appeared: ${sel})`);
+        runWorkflow(wf);
+        return;                                      // one workflow at a time
+      }
+      if (!visible && !armed) wfArmed.set(wf.id, true); // re-arm once the trigger is gone
+    }
+  }
+
   // ── Hotkey triggers ───────────────────────────────────────────────────────
   // A workflow with a `hotkey` (e.g. "Alt+1", "Ctrl+Shift+K") runs on that combo.
   // Requires Ctrl/Alt/Meta (Shift-only is ignored so normal typing isn't caught).
@@ -735,7 +793,12 @@
     });
   }
   refreshHotkeys();
-  chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c[WF_KEY]) refreshHotkeys(); });
+  chrome.storage.onChanged.addListener((c, a) => {
+    if (a !== "local" || !c[WF_KEY]) return;
+    refreshHotkeys();
+    refreshAutoWorkflows();
+    wfArmed.clear();          // workflows edited → re-evaluate triggers cleanly
+  });
   document.addEventListener("keydown", (e) => {
     if (!workflowsEnabled) return;
     const combo = comboFromEvent(e);
@@ -748,7 +811,7 @@
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, workflowId: msg.workflowId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, workflowId: msg.workflowId });
         break;
       case "RUN_WORKFLOW":   startWorkflowById(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_WORKFLOW":  wfState.stop = true; wfState.paused = false; sendResponse({ ok: true }); break;

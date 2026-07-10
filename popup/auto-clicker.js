@@ -11,9 +11,9 @@ document.addEventListener("DOMContentLoaded", () => {
   //   fill   → Autofill      (input fields)             → moduleAutoFillRules
   //   select → Auto Select   (dropdowns)                → moduleAutoSelect
   const CATS = [
-    { cat: "click",  list: "ac-list",   search: "ac-search",   offTag: "ac-off-tag",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules" },
-    { cat: "fill",   list: "fill-list", search: "fill-search", offTag: "fill-off-tag", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules" },
-    { cat: "select", list: "as-list",   search: "as-search",   offTag: "as-off-tag",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules" },
+    { cat: "click",  list: "ac-list",   search: "ac-search",   offTag: "ac-off-tag",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules" },
+    { cat: "fill",   list: "fill-list", search: "fill-search", offTag: "fill-off-tag", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules" },
+    { cat: "select", list: "as-list",   search: "as-search",   offTag: "as-off-tag",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules" },
   ];
   const wfOffTag = document.getElementById("wf-off-tag");
   if (!document.getElementById("ac-list")) return;
@@ -100,6 +100,37 @@ document.addEventListener("DOMContentLoaded", () => {
       rule.name, rule.type, rule.pathname, rule.pathMatch, rule.fillValue, rule.selectValue,
       ...rule.requiredElements, ...rule.forbiddenElements,
     ].filter(Boolean).join(" ").toLowerCase().includes(search);
+  }
+
+  // ── Share by link ──────────────────────────────────────────────────────────
+  // Rules are packed into a self-contained link (URL-safe base64 in the hash).
+  // Nothing is uploaded — the whole rule set travels inside the link, so the
+  // recipient imports it via "Import link" (it is not opened in a browser).
+  const SHARE_BASE = "https://nuskomate.app/rules#r=";
+  function encodeRulesLink(rules) {
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(rules))))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return SHARE_BASE + b64;
+  }
+  function decodeRulesLink(text) {
+    let s = String(text || "").trim();
+    if (!s) throw new Error("Nothing pasted.");
+    const at = s.search(/[#?&]r=/);           // pull the code out of a full link
+    if (at >= 0) s = s.slice(at + 3);
+    s = s.split(/[#?&\s]/)[0];                 // drop anything trailing
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    let parsed;
+    try { parsed = JSON.parse(decodeURIComponent(escape(atob(s)))); }
+    catch (_) { throw new Error("This is not a valid Nuskomate rules link."); }
+    if (!Array.isArray(parsed)) throw new Error("This link does not contain a rules list.");
+    return parsed;
+  }
+  function copyText(text, okMsg) {
+    const fallback = () => window.prompt("Copy this link:", text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => alert(okMsg), fallback);
+    } else fallback();
   }
 
   // ── Persistence ─────────────────────────────────────────────────────────
@@ -363,6 +394,20 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const groups = new Map();
         displayed.forEach((rule) => { const key = (rule.pathname || "").trim() || "__any__"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(rule); });
+
+        // Expand-all / collapse-all for this category's URL groups (only useful
+        // when there is more than one group).
+        if (groups.size > 1) {
+          const gkeys = [...groups.keys()].map((k) => cfg.cat + "|" + k);
+          const ctrl = document.createElement("div"); ctrl.className = "rule-group-controls";
+          const expBtn = document.createElement("button"); expBtn.type = "button"; expBtn.className = "group-ctrl-btn"; expBtn.textContent = "Expand all";
+          expBtn.onclick = () => { gkeys.forEach((k) => collapsedGroups.delete(k)); renderRules(); };
+          const colBtn = document.createElement("button"); colBtn.type = "button"; colBtn.className = "group-ctrl-btn"; colBtn.textContent = "Collapse all";
+          colBtn.onclick = () => { gkeys.forEach((k) => collapsedGroups.add(k)); renderRules(); };
+          ctrl.append(expBtn, colBtn);
+          listEl.appendChild(ctrl);
+        }
+
         groups.forEach((grpRules, key) => {
           const gkey = cfg.cat + "|" + key;
           const gh = document.createElement("div"); gh.className = "rule-group-head";
@@ -404,6 +449,30 @@ document.addEventListener("DOMContentLoaded", () => {
   CATS.forEach((cfg) => {
     const addBtn = document.getElementById(cfg.add);
     if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
+
+    // Share this category's rules as a copyable link.
+    const shareBtn = document.getElementById(cfg.share);
+    if (shareBtn) shareBtn.onclick = () => {
+      chrome.storage.local.get([RULES_KEY], (res) => {
+        const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
+        if (!rules.length) { alert("No rules to share."); return; }
+        copyText(encodeRulesLink(rules), `Link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+      });
+    };
+
+    // Import rules from a pasted share link (or bare code).
+    const impLinkBtn = document.getElementById(cfg.impLink);
+    if (impLinkBtn) impLinkBtn.onclick = () => {
+      const text = window.prompt("Paste a Nuskomate rules link:");
+      if (text == null) return;
+      let imported;
+      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+      if (!imported.length) { alert("That link has no rules."); return; }
+      chrome.storage.local.get([RULES_KEY], (res) => {
+        const merged = [...(res[RULES_KEY] || []), ...imported];
+        chrome.storage.local.set({ [RULES_KEY]: merged }, () => { alert(`Imported ${imported.length} rule(s) from link.`); renderRules(); });
+      });
+    };
 
     const expBtn = document.getElementById(cfg.exp);
     if (expBtn) expBtn.onclick = () => {
@@ -691,7 +760,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const repeat = wf.repeat || { mode: "off" };
     const data = wf.data || { columns: [], rows: [] };
 
-    panel.append(fieldRow("Hotkey (e.g. Alt+1)", txt(wf.hotkey, "Ctrl+Shift+K", (v) => patchWorkflow(wf.id, { hotkey: v }))));
+    // Run mode: manual (Run button / hotkey) or auto (fires when an element
+    // appears, like a reactive rule).
+    panel.append(fieldRow("Run", sel(wf.trigger === "auto" ? "auto" : "manual", ["manual", "auto"], (v) => patchWorkflow(wf.id, { trigger: v }))));
+    if (wf.trigger === "auto") {
+      const trig = txt(wf.triggerSelector, "CSS selector (blank = first step)", (v) => patchWorkflow(wf.id, { triggerSelector: v }));
+      const trigRow = fieldRow("Trigger element (runs when it appears)", trig);
+      const trigBtns = document.createElement("div"); trigBtns.className = "wf-data-row";
+      trigBtns.append(
+        mini("Pick", () => startPicker({ forWorkflowTrigger: true, workflowId: wf.id })),
+        mini("◎ Highlight", () => { const s = (wf.triggerSelector || "").trim(); if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); else alert("Set a trigger selector first (or it uses the first step)."); }),
+      );
+      trigRow.append(trigBtns);
+      panel.append(trigRow);
+      const th = document.createElement("div"); th.className = "wf-data-hint";
+      th.textContent = "Auto-run fires once when the element appears; it re-arms after the element disappears. Leave the selector blank to use the first step's element.";
+      panel.append(th);
+    }
     panel.append(fieldRow("Repeat", sel(repeat.mode || "off", ["off", "count", "whileVisible", "perRow"], (v) => patchRepeat(wf.id, { mode: v }))));
     if (repeat.mode === "count") panel.append(fieldRow("Times", num(repeat.count == null ? 1 : repeat.count, (v) => patchRepeat(wf.id, { count: v }))));
     if (repeat.mode === "whileVisible") panel.append(fieldRow("While selector visible", txt(repeat.whileSelector, "CSS selector", (v) => patchRepeat(wf.id, { whileSelector: v }))));
@@ -777,7 +862,8 @@ document.addEventListener("DOMContentLoaded", () => {
     else {
       const rp = wf.repeat && wf.repeat.mode && wf.repeat.mode !== "off" ? ` · repeat: ${wf.repeat.mode}` : "";
       const hk = wf.hotkey ? ` · ${wf.hotkey}` : "";
-      status.textContent = `${(wf.steps || []).length} step(s)${rp}${hk}`;
+      const au = wf.trigger === "auto" ? " · ⚡ auto-run" : "";
+      status.textContent = `${(wf.steps || []).length} step(s)${rp}${hk}${au}`;
     }
 
     // settings panel (collapsible)
