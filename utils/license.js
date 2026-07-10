@@ -188,6 +188,29 @@
   const adminRevoke = (key)         => admin("/admin/revoke", { key });
   const adminDelete = (key)         => admin("/admin/delete", { key });
 
+  // ── Rule sharing (short links) ─────────────────────────────────────────────
+  // Upload a rule set → { ok, code, url }. Requires an active license.
+  async function shareRules(rules) {
+    if (!enforced()) return { ok: false, error: "Licensing not configured" };
+    const key = await getKey();
+    if (!key) return { ok: false, error: "Not activated" };
+    const device = await getDevice();
+    const r = await send({ type: "nkLicense", action: "sharePut", base, key, device, rules });
+    if (r && r.data) {
+      const d = r.data;
+      if (d.ok && d.code) d.url = base + "/share/" + d.code;
+      return d;
+    }
+    return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
+  }
+  // Fetch a shared rule set by code → { ok, rules }.
+  async function fetchSharedRules(code) {
+    if (!enforced()) return { ok: false, error: "Licensing not configured" };
+    const r = await send({ type: "nkLicense", action: "shareGet", base, code });
+    if (r && r.data) return r.data;
+    return (r && r.error) ? r : { ok: false, error: "Cannot reach the license server" };
+  }
+
   // Send an image to the server, which validates the key, runs OCR + parsing,
   // and returns { ok, result, raw }. result is the full parsed passport object.
   async function scan(file, feature) {
@@ -225,5 +248,6 @@
     enforced, getStatus, getKey, activate, deactivate, scan,
     isActivated, premiumOK, featureOK, onPremiumChange, FEATURES,
     adminList, adminPut, adminRevoke, adminDelete,
+    shareRules, fetchSharedRules,
   };
 })();

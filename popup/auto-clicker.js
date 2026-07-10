@@ -85,6 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
       action: normalizeAction(rule.action),
       repeat,
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
+      jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
       fillValue: rule.fillValue || "",
       clearFirst: rule.clearFirst !== false,
       triggerAngularEvents: rule.triggerAngularEvents !== false,
@@ -103,9 +104,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ── Share by link ──────────────────────────────────────────────────────────
-  // Rules are packed into a self-contained link (URL-safe base64 in the hash).
-  // Nothing is uploaded — the whole rule set travels inside the link, so the
-  // recipient imports it via "Import link" (it is not opened in a browser).
+  // Preferred: SHORT server-backed links — the rule set is stored on the
+  // license server (KV, 180-day expiry) and the link is just an unguessable
+  // code, e.g.  https://…workers.dev/share/aB3xk9QmT2
+  // Fallback / legacy: self-contained links carrying the whole rule set as
+  // URL-safe base64 after "r=" — still importable, and used for sharing when
+  // the server can't be reached.
   const SHARE_BASE = "https://nuskomate.app/rules#r=";
   function encodeRulesLink(rules) {
     const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(rules))))
@@ -126,6 +130,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Array.isArray(parsed)) throw new Error("This link does not contain a rules list.");
     return parsed;
   }
+  // Extract the short-share code from a pasted link (or bare code), else "".
+  function shareCodeFrom(text) {
+    const s = String(text || "").trim();
+    const m = /\/share\/([A-Za-z0-9]{6,24})\b/.exec(s) || /^([A-Za-z0-9]{6,24})$/.exec(s);
+    return m ? m[1] : "";
+  }
   function copyText(text, okMsg) {
     const fallback = () => window.prompt("Copy this link:", text);
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -133,8 +143,64 @@ document.addEventListener("DOMContentLoaded", () => {
     } else fallback();
   }
 
+  // ── Undo / redo (Tier 3) ───────────────────────────────────────────────────
+  // Every rule/workflow mutation snapshots BOTH stores first, so Ctrl+Z walks
+  // back edits, deletes, imports, reorders and profile loads. Per popup session.
+  const HISTORY_MAX = 60;
+  const history = { undo: [], redo: [] };
+  let restoringHistory = false;
+
+  function historySnapshot(cb) {
+    chrome.storage.local.get([RULES_KEY, "autoWorkflows"], (res) =>
+      cb({ rules: res[RULES_KEY] || [], wfs: res.autoWorkflows || [] }));
+  }
+  function pushUndo(then) {
+    if (restoringHistory) { then(); return; }
+    historySnapshot((snap) => {
+      history.undo.push(snap);
+      if (history.undo.length > HISTORY_MAX) history.undo.shift();
+      history.redo.length = 0;
+      updateHistoryButtons();
+      then();
+    });
+  }
+  function applyHistorySnapshot(snap) {
+    restoringHistory = true;
+    chrome.storage.local.set({ [RULES_KEY]: snap.rules, autoWorkflows: snap.wfs }, () => {
+      restoringHistory = false;
+      renderRules(); renderWorkflows(); updateHistoryButtons();
+    });
+  }
+  function doUndo() {
+    if (!history.undo.length) return;
+    historySnapshot((cur) => { history.redo.push(cur); applyHistorySnapshot(history.undo.pop()); });
+  }
+  function doRedo() {
+    if (!history.redo.length) return;
+    historySnapshot((cur) => { history.undo.push(cur); applyHistorySnapshot(history.redo.pop()); });
+  }
+  function updateHistoryButtons() {
+    const u = document.getElementById("hist-undo"), r = document.getElementById("hist-redo");
+    if (u) { u.disabled = !history.undo.length; u.title = `Undo rule/workflow change (Ctrl+Z) — ${history.undo.length} available`; }
+    if (r) { r.disabled = !history.redo.length; r.title = `Redo (Ctrl+Y) — ${history.redo.length} available`; }
+  }
+  const histUndoBtn = document.getElementById("hist-undo");
+  const histRedoBtn = document.getElementById("hist-redo");
+  if (histUndoBtn) histUndoBtn.addEventListener("click", doUndo);
+  if (histRedoBtn) histRedoBtn.addEventListener("click", doRedo);
+  updateHistoryButtons();
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    // Let text fields keep their native text undo while typing.
+    const t = e.target && e.target.tagName;
+    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+    const k = (e.key || "").toLowerCase();
+    if (k === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
+    else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); doRedo(); }
+  });
+
   // ── Persistence ─────────────────────────────────────────────────────────
-  function saveRules(rules, callback) { chrome.storage.local.set({ [RULES_KEY]: rules }, callback); }
+  function saveRules(rules, callback) { pushUndo(() => chrome.storage.local.set({ [RULES_KEY]: rules }, callback)); }
 
   function reorderRules(sourceId, targetId, rules) {
     const from = rules.findIndex((r) => String(r.id) === String(sourceId));
@@ -151,15 +217,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (key === "actionType") return rule.action.type;
     if (key === "actionDelaySeconds") return rule.action.delayMs / 1000;
     if (key === "repeatIntervalSeconds") return rule.repeatIntervalMs / 1000;
+    if (key === "jitterSeconds") return (rule.jitterMs || 0) / 1000;
     return rule[key] !== undefined ? rule[key] : "";
   }
-  function isSecondsField(key) { return key === "actionDelaySeconds" || key === "repeatIntervalSeconds"; }
+  function isSecondsField(key) { return key === "actionDelaySeconds" || key === "repeatIntervalSeconds" || key === "jitterSeconds"; }
   function normalizeActionType(type) { return ["run", "stop", "delay"].includes(type) ? type : "run"; }
 
   function setRuleValue(rule, key, value) {
     if (key === "actionType") return { ...rule, action: { ...rule.action, type: normalizeActionType(value) } };
     if (key === "actionDelaySeconds") return { ...rule, action: { ...rule.action, delayMs: Math.max(Number(value) || 0, 0) * 1000 } };
     if (key === "repeatIntervalSeconds") return { ...rule, repeatIntervalMs: Math.max(Number(value) || 0, 0) * 1000 };
+    if (key === "jitterSeconds") return { ...rule, jitterMs: Math.max(Number(value) || 0, 0) * 1000 };
     return { ...rule, [key]: value };
   }
 
@@ -336,6 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
           createField(rule, "actionType", "Action", "select", rules, ["run", "stop", "delay"]),
         );
         if (rule.action.type === "delay") body.append(createField(rule, "actionDelaySeconds", "Delay sec", "input", rules));
+        body.append(createField(rule, "jitterSeconds", "Jitter max sec (human-like)", "input", rules));
         body.append(createCheckboxField(rule, "repeat", "Repeat", rules, renderRules));
         if (rule.repeat) body.append(createField(rule, "repeatIntervalSeconds", "Repeat interval sec", "input", rules));
 
@@ -450,27 +519,47 @@ document.addEventListener("DOMContentLoaded", () => {
     const addBtn = document.getElementById(cfg.add);
     if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
 
-    // Share this category's rules as a copyable link.
+    // Share this category's rules — short server link, long link as fallback.
     const shareBtn = document.getElementById(cfg.share);
     if (shareBtn) shareBtn.onclick = () => {
-      chrome.storage.local.get([RULES_KEY], (res) => {
+      chrome.storage.local.get([RULES_KEY], async (res) => {
         const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
         if (!rules.length) { alert("No rules to share."); return; }
-        copyText(encodeRulesLink(rules), `Link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+        shareBtn.disabled = true; shareBtn.textContent = "Sharing…";
+        const done = () => { shareBtn.disabled = false; shareBtn.textContent = "Share link"; };
+        if (window.NkLicense && window.NkLicense.shareRules) {
+          const r = await window.NkLicense.shareRules(rules);
+          done();
+          if (r && r.ok && r.url) {
+            copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
+            return;
+          }
+          // Server refused / unreachable → offer the offline self-contained link.
+          if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
+        } else done();
+        copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
       });
     };
 
-    // Import rules from a pasted share link (or bare code).
+    // Import rules from a pasted link — short server link, long link, or bare code.
     const impLinkBtn = document.getElementById(cfg.impLink);
-    if (impLinkBtn) impLinkBtn.onclick = () => {
+    if (impLinkBtn) impLinkBtn.onclick = async () => {
       const text = window.prompt("Paste a Nuskomate rules link:");
-      if (text == null) return;
-      let imported;
-      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+      if (text == null || !text.trim()) return;
+      let imported = null;
+      const code = shareCodeFrom(text);
+      if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
+        const r = await window.NkLicense.fetchSharedRules(code);
+        if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
+        else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+      }
+      if (!imported) {
+        try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+      }
       if (!imported.length) { alert("That link has no rules."); return; }
       chrome.storage.local.get([RULES_KEY], (res) => {
         const merged = [...(res[RULES_KEY] || []), ...imported];
-        chrome.storage.local.set({ [RULES_KEY]: merged }, () => { alert(`Imported ${imported.length} rule(s) from link.`); renderRules(); });
+        saveRules(merged, () => { alert(`Imported ${imported.length} rule(s) from link.`); renderRules(); });
       });
     };
 
@@ -498,13 +587,96 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
           chrome.storage.local.get([RULES_KEY], (res) => {
             const merged = [...(res[RULES_KEY] || []), ...imported];
-            chrome.storage.local.set({ [RULES_KEY]: merged }, () => { alert(`Imported ${imported.length} rule(s).`); renderRules(); });
+            saveRules(merged, () => { alert(`Imported ${imported.length} rule(s).`); renderRules(); });
           });
         } catch (err) { alert(`Import failed: ${err.message}`); }
       };
       reader.readAsText(file); impFile.value = "";
     });
   });
+
+  // ══ Named profiles (Tier 3) ═══════════════════════════════════════════════
+  // A profile = a named snapshot of ALL rules + workflows. Loading one replaces
+  // the current set (undo-able via the shared history).
+  const PROF_KEY = "acProfiles";
+  const profSelect = document.getElementById("prof-select");
+  const profInfo = document.getElementById("prof-info");
+
+  function withProfiles(fn) { chrome.storage.local.get([PROF_KEY], (res) => fn(res[PROF_KEY] || [])); }
+
+  function renderProfiles() {
+    if (!profSelect) return;
+    withProfiles((profs) => {
+      const cur = profSelect.value;
+      profSelect.textContent = "";
+      if (!profs.length) {
+        const o = document.createElement("option"); o.value = ""; o.textContent = "— no profiles saved —";
+        profSelect.appendChild(o);
+      } else {
+        profs.forEach((p) => {
+          const o = document.createElement("option"); o.value = String(p.id);
+          o.textContent = `${p.name} (${(p.rules || []).length} rules · ${(p.wfs || []).length} workflows)`;
+          profSelect.appendChild(o);
+        });
+        if ([...profSelect.options].some((o) => o.value === cur)) profSelect.value = cur;
+      }
+      if (profInfo) {
+        const p = profs.find((x) => String(x.id) === profSelect.value);
+        profInfo.textContent = p ? `Saved ${new Date(p.savedAt).toLocaleString()}` : "";
+      }
+    });
+  }
+
+  function currentSnapshot(cb) {
+    chrome.storage.local.get([RULES_KEY, "autoWorkflows"], (res) =>
+      cb({ rules: res[RULES_KEY] || [], wfs: res.autoWorkflows || [] }));
+  }
+  function selectedProfile(profs) { return profs.find((p) => String(p.id) === (profSelect ? profSelect.value : "")); }
+
+  if (profSelect) {
+    profSelect.addEventListener("change", renderProfiles);
+
+    document.getElementById("prof-save").addEventListener("click", () => {
+      const name = window.prompt("Profile name:");
+      if (name == null || !name.trim()) return;
+      currentSnapshot((snap) => withProfiles((profs) => {
+        const prof = { id: Date.now(), name: name.trim(), rules: snap.rules, wfs: snap.wfs, savedAt: Date.now() };
+        chrome.storage.local.set({ [PROF_KEY]: [...profs, prof] }, () => {
+          renderProfiles();
+          setTimeout(() => { profSelect.value = String(prof.id); renderProfiles(); }, 50);
+        });
+      }));
+    });
+
+    document.getElementById("prof-load").addEventListener("click", () => withProfiles((profs) => {
+      const p = selectedProfile(profs);
+      if (!p) { alert("Select a profile first."); return; }
+      if (!confirm(`Load "${p.name}"? Current rules + workflows will be replaced (Ctrl+Z undoes it).`)) return;
+      pushUndo(() => chrome.storage.local.set({ [RULES_KEY]: p.rules || [], autoWorkflows: p.wfs || [] }, () => {
+        renderRules(); renderWorkflows();
+        alert(`Loaded profile "${p.name}".`);
+      }));
+    }));
+
+    document.getElementById("prof-update").addEventListener("click", () => withProfiles((profs) => {
+      const p = selectedProfile(profs);
+      if (!p) { alert("Select a profile first."); return; }
+      if (!confirm(`Overwrite "${p.name}" with the CURRENT rules + workflows?`)) return;
+      currentSnapshot((snap) => {
+        const next = profs.map((x) => x.id === p.id ? { ...x, rules: snap.rules, wfs: snap.wfs, savedAt: Date.now() } : x);
+        chrome.storage.local.set({ [PROF_KEY]: next }, renderProfiles);
+      });
+    }));
+
+    document.getElementById("prof-delete").addEventListener("click", () => withProfiles((profs) => {
+      const p = selectedProfile(profs);
+      if (!p) { alert("Select a profile first."); return; }
+      if (!confirm(`Delete profile "${p.name}"? (The active rules/workflows are not affected.)`)) return;
+      chrome.storage.local.set({ [PROF_KEY]: profs.filter((x) => x.id !== p.id) }, renderProfiles);
+    }));
+
+    renderProfiles();
+  }
 
   // ══ Workflows ═════════════════════════════════════════════════════════════
   const WF_KEY = "autoWorkflows";
@@ -524,7 +696,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const MARKER_TYPES = new Set(["else", "endif", "loopEnd"]);       // no fields, minimal row
   const NO_HIGHLIGHT = new Set(["wait", "delay", "else", "endif", "loopEnd", "loopStart"]);
 
-  function saveWorkflows(wfs, cb) { chrome.storage.local.set({ [WF_KEY]: wfs }, cb); }
+  function saveWorkflows(wfs, cb) { pushUndo(() => chrome.storage.local.set({ [WF_KEY]: wfs }, cb)); }
   function withWorkflows(fn) { chrome.storage.local.get([WF_KEY], (res) => fn(res[WF_KEY] || [])); }
 
   function sendToPage(payload, cb) {
@@ -680,27 +852,27 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── loop marker ──
     if (step.type === "loopStart") {
       fields.push(fieldRow("Repeat", sel(step.loopMode || "count", ["count", "while"], (v) => P({ loopMode: v }))));
-      if ((step.loopMode || "count") === "while") fields.push(fieldRow("While selector visible", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      if ((step.loopMode || "count") === "while") fields.push(fieldRow("While selector visible", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
       else fields.push(fieldRow("Times", num(step.count == null ? 2 : step.count, (v) => P({ count: v }))));
       return fields;
     }
     // ── conditional ──
     if (step.type === "if") {
-      fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
       fields.push(fieldRow("Condition", sel(step.condition || "visible", ["visible", "hidden", "textIncludes", "textEquals"], (v) => P({ condition: v }))));
       if (isText) fields.push(fieldRow("Text", txt(step.value, "", (v) => P({ value: v }))));
       return fields;
     }
     // ── capture into a variable ──
     if (step.type === "capture") {
-      fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
       fields.push(fieldRow("Variable name", txt(step.varName, "e.g. name", (v) => P({ varName: v }))));
       fields.push(fieldRow("Read", sel(step.captureSource || "text", ["text", "value"], (v) => P({ captureSource: v }))));
       return fields;
     }
 
     // ── action / wait steps ──
-    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS selector", (v) => P({ requiredElements: [v], selector: v }))));
+    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
     if (step.type === "input") fields.push(fieldRow("Fill value", txt(step.fillValue, "text or {{column}}", (v) => P({ fillValue: v }))));
     if (step.type === "dropdown") {
       fields.push(fieldRow("Select value", txt(step.selectValue, "text or {{column}}", (v) => P({ selectValue: v }))));
@@ -777,9 +949,18 @@ document.addEventListener("DOMContentLoaded", () => {
       th.textContent = "Auto-run fires once when the element appears; it re-arms after the element disappears. Leave the selector blank to use the first step's element.";
       panel.append(th);
     }
+    panel.append(fieldRow("Hotkey (e.g. Alt+1)", txt(wf.hotkey, "Ctrl+Shift+K", (v) => patchWorkflow(wf.id, { hotkey: v }))));
+
+    // Human-like: random reaction pause before actions + varied step gaps.
+    const humWrap = document.createElement("div"); humWrap.className = "check-row";
+    const hum = document.createElement("input"); hum.type = "checkbox"; hum.checked = !!wf.humanize;
+    hum.addEventListener("change", (e) => patchWorkflow(wf.id, { humanize: e.target.checked }));
+    const humLbl = document.createElement("label"); humLbl.textContent = "Human-like delays (randomized timing)";
+    humWrap.append(hum, humLbl); panel.append(humWrap);
+
     panel.append(fieldRow("Repeat", sel(repeat.mode || "off", ["off", "count", "whileVisible", "perRow"], (v) => patchRepeat(wf.id, { mode: v }))));
     if (repeat.mode === "count") panel.append(fieldRow("Times", num(repeat.count == null ? 1 : repeat.count, (v) => patchRepeat(wf.id, { count: v }))));
-    if (repeat.mode === "whileVisible") panel.append(fieldRow("While selector visible", txt(repeat.whileSelector, "CSS selector", (v) => patchRepeat(wf.id, { whileSelector: v }))));
+    if (repeat.mode === "whileVisible") panel.append(fieldRow("While selector visible", txt(repeat.whileSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchRepeat(wf.id, { whileSelector: v }))));
 
     // Data source (CSV) — feeds {{column}} variables; run "Per data row" to loop rows.
     const dataInfo = document.createElement("div"); dataInfo.className = "wf-data-info";
@@ -842,12 +1023,18 @@ document.addEventListener("DOMContentLoaded", () => {
     pauseBtn.style.display = running ? "" : "none";
     pauseBtn.onclick = () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" });
 
+    const recBtn = mini("● Rec", () => {
+      sendToPage({ action: "START_RECORD", workflowId: wf.id }, (ok) => { if (ok) window.close(); });
+    });
+    recBtn.title = "Record on the page — your clicks, typing and dropdown picks become steps";
+    recBtn.classList.add("wf-rec");
+
     const gear = mini("⚙", () => { wfSettingsOpen.has(id) ? wfSettingsOpen.delete(id) : wfSettingsOpen.add(id); renderWorkflows(); });
     gear.title = "Workflow settings (hotkey, repeat, data)";
     const collapseBtn = mini(collapsed ? "Show" : "Hide", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
     const del = mini("Delete", () => deleteWorkflow(wf.id), true);
 
-    head.append(dragHandle, name, runBtn, pauseBtn, gear, collapseBtn, del);
+    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, collapseBtn, del);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";

@@ -29,14 +29,61 @@
     );
   }
 
-  function getElement(selector) {
-    if (!selector) return null;
+  // ── Advanced selectors (Tier 3) ───────────────────────────────────────────
+  // Every selector everywhere (rules, workflow steps, triggers, highlight)
+  // understands, besides plain CSS:
+  //   xpath=//button[@id='x']   or a raw XPath starting with "/" or "("
+  //   text=Submit               element whose visible text EQUALS (case-insens.)
+  //   text*=Subm                element whose visible text CONTAINS
+  //   a || b || c               fallback chain — first one that matches wins
+  function findByXPath(xp) {
     try {
-      return document.querySelector(selector);
+      const r = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+      const n = r.singleNodeValue;
+      return n && n.nodeType === 1 ? n : null;
+    } catch (_) { return null; }
+  }
+
+  const TEXT_SCAN = "button, a, [role='button'], input[type='button'], input[type='submit'], label, li, span, td, th, p-dropdown, div";
+  function findByText(txt, exact) {
+    const want = String(txt || "").trim().toLowerCase();
+    if (!want) return null;
+    let best = null, bestLen = Infinity;
+    for (const el of document.querySelectorAll(TEXT_SCAN)) {
+      const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+      if (!t || t.length > want.length + 120) continue;   // skip big containers early
+      if (exact ? t !== want : !t.includes(want)) continue;
+      if (!isVisible(el)) continue;
+      // Tightest (shortest-text) match wins → the actual button, not its wrapper.
+      if (t.length < bestLen) { best = el; bestLen = t.length; }
+    }
+    return best;
+  }
+
+  function resolveOne(sel) {
+    sel = String(sel || "").trim();
+    if (!sel) return null;
+    if (/^xpath=/i.test(sel)) return findByXPath(sel.slice(6));
+    if (sel[0] === "/" || sel[0] === "(") return findByXPath(sel);
+    if (/^text\*=/i.test(sel)) return findByText(sel.slice(6), false);
+    if (/^text=/i.test(sel))   return findByText(sel.slice(5), true);
+    try {
+      return document.querySelector(sel);
     } catch (err) {
-      console.warn("Invalid selector skipped:", selector, err);
+      console.warn("Invalid selector skipped:", sel, err);
       return null;
     }
+  }
+
+  function getElement(selector) {
+    if (!selector) return null;
+    // Fallback chain: try each "||"-separated alternative in order.
+    const parts = String(selector).split("||");
+    for (const p of parts) {
+      const el = resolveOne(p);
+      if (el) return el;
+    }
+    return null;
   }
 
   // ── Path / condition matching ─────────────────────────────────────────────
@@ -210,7 +257,10 @@
     }
 
     pendingRules.add(id);
-    const delayMs = action.type === "delay" ? Math.max(Number(action.delayMs) || 0, 0) : 0;
+    // Human-like jitter: up to jitterMs of random extra wait before acting.
+    const jitter = Math.max(Number(rule.jitterMs) || 0, 0);
+    const delayMs = (action.type === "delay" ? Math.max(Number(action.delayMs) || 0, 0) : 0)
+                  + (jitter ? Math.floor(Math.random() * jitter) : 0);
 
     setTimeout(() => {
       pendingRules.delete(id);
@@ -285,6 +335,7 @@
       action: normalizeAction(rule),
       repeat: normalizeRepeat(rule),
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
+      jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
       fillValue: rule.fillValue || "",
       clearFirst: rule.clearFirst !== false,
       triggerAngularEvents: rule.triggerAngularEvents !== false,
@@ -444,6 +495,154 @@
       saveCapturedRule(selection);
     });
     sendResponse({ status: "Inspector Active" });
+  }
+
+  // ── Record mode (Tier 3) ──────────────────────────────────────────────────
+  // Records a whole interaction sequence into workflow steps: clicks become
+  // click steps, typed fields become fill steps (captured on blur/change),
+  // PrimeNG dropdown picks become select steps, checkboxes/radios their step.
+  // Passive — the page behaves normally while recording. Stop saves the steps.
+
+  let recState = null; // { workflowId, steps, bar, count, lastDropdown }
+
+  function recSelector(el) {
+    return (window.ElementInspector && window.ElementInspector.getUniqueSelector)
+      ? window.ElementInspector.getUniqueSelector(el) : "";
+  }
+
+  function recBarUpdate() {
+    if (recState && recState.count) recState.count.textContent = `● Recording — ${recState.steps.length} step(s)`;
+  }
+
+  function recPush(step) {
+    if (!recState) return;
+    // Re-editing the same field: replace the previous fill instead of stacking.
+    const last = recState.steps[recState.steps.length - 1];
+    if (step.type === "input" && last && last.type === "input" && last.selector === step.selector) {
+      recState.steps[recState.steps.length - 1] = step;
+    } else {
+      recState.steps.push(step);
+    }
+    recBarUpdate();
+  }
+
+  function recStepFor(el, type, extra) {
+    const selector = recSelector(el);
+    const base = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      type,
+      name: (extra && extra.name) || (el.innerText || el.textContent || "").trim().slice(0, 40) || selector,
+      requiredElements: [selector],
+      selector,
+      timeoutMs: 8000,
+      afterMs: 250,
+      optional: false,
+      ...extra,
+    };
+    return base;
+  }
+
+  function recOnClick(e) {
+    if (!recState) return;
+    const t = e.target;
+    if (!t || (recState.bar && recState.bar.contains(t))) return;
+
+    // A PrimeNG dropdown option being picked → one "select" step on the dropdown.
+    const li = t.closest && t.closest('ul[role="listbox"] li');
+    if (li) {
+      const root = recState.lastDropdown;
+      if (root) {
+        const val = (li.innerText || li.textContent || "").trim();
+        recPush(recStepFor(root, "dropdown", { name: "Select " + val, selectValue: val, selectMatchBy: "text" }));
+      }
+      recState.lastDropdown = null;
+      return;
+    }
+    // Opening a custom dropdown — remember it; the option click makes the step.
+    const dd = t.closest && t.closest("p-dropdown, .p-dropdown");
+    if (dd) { recState.lastDropdown = dd; return; }
+
+    // Walk up to the real actionable element.
+    const el = (t.closest && t.closest('button, a, [role="button"], input, label')) || t;
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const itype = (el.type || "").toLowerCase();
+
+    if (tag === "input" && (itype === "checkbox" || itype === "radio")) {
+      // .checked already reflects the NEW state during the click event.
+      recPush(recStepFor(el, itype === "radio" ? "radio" : "checkbox", { targetState: el.checked ? "checked" : "unchecked", name: itype }));
+      return;
+    }
+    // Clicking into a text field is just focus — the change event records it.
+    if (tag === "textarea" || (tag === "input" && !["button", "submit", "reset"].includes(itype))) return;
+    if (tag === "select") return; // its change event records the pick
+
+    recPush(recStepFor(el, "button", { name: "Click " + ((el.innerText || el.textContent || "").trim().slice(0, 30) || tag) }));
+  }
+
+  function recOnChange(e) {
+    if (!recState) return;
+    const el = e.target;
+    if (!el || (recState.bar && recState.bar.contains(el))) return;
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    const itype = (el.type || "").toLowerCase();
+    if (itype === "checkbox" || itype === "radio") return; // click handled these
+    if (tag === "select") {
+      recPush(recStepFor(el, "dropdown", { name: "Select " + el.value, selectValue: el.value, selectMatchBy: "value" }));
+      return;
+    }
+    if (tag === "input" || tag === "textarea") {
+      recPush(recStepFor(el, "input", { name: "Fill " + (el.placeholder || el.name || "field").slice(0, 30), fillValue: el.value, clearFirst: true, triggerAngularEvents: true }));
+    }
+  }
+
+  function recBuildBar() {
+    const bar = document.createElement("div");
+    bar.setAttribute("style",
+      "position:fixed;top:12px;right:12px;z-index:2147483647;display:flex;align-items:center;gap:10px;" +
+      "background:#1c1e26;color:#fff;padding:9px 12px;border-radius:10px;font:600 12px system-ui;" +
+      "box-shadow:0 4px 18px rgba(0,0,0,.35);border:1px solid #e5484d;");
+    const count = document.createElement("span");
+    count.textContent = "● Recording — 0 step(s)";
+    count.style.color = "#ff6369";
+    const mkBtn = (label, bg) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.setAttribute("style", `border:none;border-radius:7px;padding:5px 12px;cursor:pointer;font:600 12px system-ui;color:#fff;background:${bg};`);
+      return b;
+    };
+    const stopBtn = mkBtn("Stop & save", "#2f9e44");
+    const cancelBtn = mkBtn("Cancel", "#495057");
+    stopBtn.addEventListener("click", () => stopRecording(true));
+    cancelBtn.addEventListener("click", () => stopRecording(false));
+    bar.append(count, stopBtn, cancelBtn);
+    document.body.appendChild(bar);
+    return { bar, count };
+  }
+
+  function startRecording(workflowId) {
+    if (recState) stopRecording(false);
+    const ui = recBuildBar();
+    recState = { workflowId, steps: [], bar: ui.bar, count: ui.count, lastDropdown: null };
+    document.addEventListener("click", recOnClick, true);
+    document.addEventListener("change", recOnChange, true);
+    wlog("recording started");
+  }
+
+  function stopRecording(save) {
+    if (!recState) return;
+    const { workflowId, steps, bar } = recState;
+    document.removeEventListener("click", recOnClick, true);
+    document.removeEventListener("change", recOnChange, true);
+    if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    recState = null;
+    if (!save) { wlog("recording cancelled"); return; }
+    if (!steps.length) { alert("Nothing recorded — no steps were captured."); return; }
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) =>
+        String(w.id) === String(workflowId) ? { ...w, steps: [...(w.steps || []), ...steps] } : w);
+      chrome.storage.local.set({ autoWorkflows: wfs }, () =>
+        alert(`Recording saved — ${steps.length} step(s) added to the workflow.`));
+    });
   }
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
@@ -607,6 +806,8 @@
     const present = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
     const el = getElement(sel);
     if (!present || !el) throw new Error(`element not found: ${sel}`);
+    // Human-like: a short random "reaction time" before each action.
+    if (ctx.humanize) await sleep(150 + Math.random() * 450);
     switch (type) {
       case "input":    fillInput(el, { ...step, fillValue: interp(step.fillValue, ctx) }); break;
       case "dropdown": selectOption(el, { ...step, requiredElements: [sel], selectValue: interp(step.selectValue, ctx) }); break;
@@ -653,7 +854,9 @@
 
       try {
         await runStep(step, ctx);
-        await sleep(Number(step.afterMs) || 250);
+        // Human-like: vary the between-step gap ±40% instead of a fixed beat.
+        const gap = Number(step.afterMs) || 250;
+        await sleep(ctx.humanize ? gap * (0.6 + Math.random() * 0.8) : gap);
       } catch (e) {
         const m = (e && e.message) || String(e);
         if (step.optional) { wlog(`⚠ step ${pc + 1} skipped: ${m}`); pc++; continue; }
@@ -673,12 +876,13 @@
     const repeat = wf.repeat || { mode: "off" };
     const cols = (wf.data && Array.isArray(wf.data.columns)) ? wf.data.columns : [];
     const rows = (repeat.mode === "perRow" && wf.data && Array.isArray(wf.data.rows)) ? wf.data.rows : null;
-    wlog(`▶ ${wf.name} — ${total} step(s)`);
+    const newCtx = () => ({ vars: {}, humanize: !!wf.humanize });
+    wlog(`▶ ${wf.name} — ${total} step(s)${wf.humanize ? " (humanized)" : ""}`);
 
     try {
       if (rows) {
         for (let r = 0; r < rows.length && !wfState.stop; r++) {
-          const ctx = { vars: {} };
+          const ctx = newCtx();
           cols.forEach((c, ci) => { ctx.vars[c] = rows[r][ci] != null ? rows[r][ci] : ""; });
           ctx.vars._row = r + 1; ctx.vars._rows = rows.length;
           wlog(`— row ${r + 1}/${rows.length}`);
@@ -687,15 +891,15 @@
       } else if (repeat.mode === "count") {
         const n = Math.max(1, Number(repeat.count) || 1);
         for (let r = 0; r < n && !wfState.stop; r++) {
-          if ((await runProgram(wf.steps, { vars: {} }, { ...base, iter: r + 1, iterTotal: n })).stopped) break;
+          if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r + 1, iterTotal: n })).stopped) break;
         }
       } else if (repeat.mode === "whileVisible") {
         let r = 0;
         while (!wfState.stop && isVisible(getElement(repeat.whileSelector || "")) && ++r <= 10000) {
-          if ((await runProgram(wf.steps, { vars: {} }, { ...base, iter: r })).stopped) break;
+          if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r })).stopped) break;
         }
       } else {
-        await runProgram(wf.steps, { vars: {} }, base);
+        await runProgram(wf.steps, newCtx(), base);
       }
     } catch (e) {
       const m = (e && e.message) || String(e);
@@ -813,6 +1017,8 @@
         inspectorDefaults = msg.defaults || {};
         startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, workflowId: msg.workflowId });
         break;
+      case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
+      case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;
       case "RUN_WORKFLOW":   startWorkflowById(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_WORKFLOW":  wfState.stop = true; wfState.paused = false; sendResponse({ ok: true }); break;
       case "PAUSE_WORKFLOW": wfState.paused = true;  writeStatus({ paused: true });  sendResponse({ ok: true }); break;

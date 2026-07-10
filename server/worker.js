@@ -11,6 +11,8 @@
  * Endpoints:
  *   POST /activate   { key }                       → { ok, name? }
  *   POST /scan       multipart "file" + X-License   → { ok, result, raw }
+ *   POST /share      { rules } + X-License          → { ok, code }   (short share link)
+ *   GET  /share/CODE                                → { ok, rules }  (fetch a share)
  *
  * Bindings (see wrangler.toml / README):
  *   LICENSES   KV namespace   key → customer name ("revoked" disables it)
@@ -20,7 +22,7 @@ import NkPassport from "../utils/passport-parser.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-License, X-Device, X-Feature, X-Admin",
 };
 
@@ -92,6 +94,36 @@ function admitDevice(rec, device) {
   return { ok: false, error: `Device limit reached (${rec.seats}). Contact support to reset.` };
 }
 
+// ── Rule sharing (short links) ───────────────────────────────────────────────
+// Shared rule sets live in the SAME KV under a "share:" prefix (kept out of the
+// admin key list). Creating a share requires a valid license; fetching one only
+// needs the unguessable code. Shares expire after 180 days.
+const SHARE_PREFIX = "share:";
+const SHARE_TTL_SECONDS = 180 * 24 * 3600;
+const SHARE_MAX_BYTES = 200000; // ~200 KB of rules is plenty
+
+function newShareCode() {
+  // 10 chars, no confusable characters (0/O, 1/l/I).
+  const alphabet = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ";
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  let code = "";
+  for (const b of bytes) code += alphabet[b % alphabet.length];
+  return code;
+}
+
+// Friendly page shown if someone opens a share link in a browser.
+function sharePage(code) {
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><title>Nuskomate rules</title>
+<body style="font-family:system-ui;max-width:480px;margin:60px auto;text-align:center;color:#222">
+<h2>Nuskomate shared rules</h2>
+<p>This link contains a shared rule set for the Nuskomate extension.</p>
+<p>To import it: open the extension → the matching rules tab → <b>Import link</b> → paste this link.</p>
+<p style="font-size:13px;color:#777">Code: <code>${code}</code></p></body>`,
+    { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
+}
+
 async function ocrSpace(env, file) {
   const fd = new FormData();
   fd.append("file", file, file.name || "scan.jpg");
@@ -117,6 +149,43 @@ export default {
     }
 
     try {
+      // ── Fetch a shared rule set (no license needed — the code is the secret) ─
+      const shareMatch = /^\/share\/([A-Za-z0-9]{6,24})$/.exec(url.pathname);
+      if (shareMatch && request.method === "GET") {
+        const raw = await env.LICENSES.get(SHARE_PREFIX + shareMatch[1]);
+        if (raw == null) {
+          // Browsers get the friendly page either way; the extension gets JSON.
+          if ((request.headers.get("Accept") || "").includes("text/html")) return sharePage(shareMatch[1]);
+          return json({ ok: false, error: "Share link not found or expired" }, 404);
+        }
+        if ((request.headers.get("Accept") || "").includes("text/html")) return sharePage(shareMatch[1]);
+        let rules;
+        try { rules = JSON.parse(raw); } catch (_) { return json({ ok: false, error: "Corrupt share" }, 500); }
+        return json({ ok: true, rules });
+      }
+
+      // ── Create a share (requires a valid, licensed device) ────────────────
+      if (url.pathname === "/share" && request.method === "POST") {
+        const key = request.headers.get("X-License") || "";
+        const device = request.headers.get("X-Device") || "";
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
+        const adm = admitDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+        if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
+
+        const body = await request.json().catch(() => null);
+        const rules = body && body.rules;
+        if (!Array.isArray(rules) || !rules.length) return json({ ok: false, error: "No rules to share" }, 400);
+        const payload = JSON.stringify(rules);
+        if (payload.length > SHARE_MAX_BYTES) return json({ ok: false, error: "Rule set too large to share" }, 400);
+
+        const code = newShareCode();
+        await env.LICENSES.put(SHARE_PREFIX + code, payload, { expirationTtl: SHARE_TTL_SECONDS });
+        return json({ ok: true, code });
+      }
+
       if (url.pathname === "/activate" && request.method === "POST") {
         const { key, device } = await request.json();
         const rec = await getRecord(env, key);
@@ -141,6 +210,7 @@ export default {
           const list = await env.LICENSES.list();
           const keys = [];
           for (const k of list.keys) {
+            if (k.name.startsWith(SHARE_PREFIX)) continue; // rule shares aren't license keys
             const raw = await env.LICENSES.get(k.name);
             const revoked = String(raw || "").trim().toLowerCase() === "revoked";
             let rec = null;

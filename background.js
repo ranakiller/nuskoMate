@@ -80,5 +80,25 @@ async function handle(msg) {
     return { status: res.status, data };
   }
 
+  if (msg.action === "sharePut") {
+    // Upload a rule set → short share code (license required by the server).
+    const res = await fetch(base + "/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-License": msg.key || "", "X-Device": msg.device || "" },
+      body: JSON.stringify({ rules: msg.rules || [] }),
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
+    return { status: res.status, data };
+  }
+
+  if (msg.action === "shareGet") {
+    // Download a shared rule set by its code.
+    const res = await fetch(base + "/share/" + encodeURIComponent(msg.code || ""), {
+      headers: { "Accept": "application/json" },
+    });
+    const data = await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
+    return { status: res.status, data };
+  }
+
   return { ok: false, error: "Unknown action" };
 }

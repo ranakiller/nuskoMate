@@ -16,6 +16,12 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="hist-undo" class="ui-mode-btn" title="Undo rule/workflow change (Ctrl+Z)" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+        </button>
+        <button id="hist-redo" class="ui-mode-btn" title="Redo (Ctrl+Y)" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        </button>
         <button id="ui-mode-btn" class="ui-mode-btn" title="Dock as side panel">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
         </button>
@@ -613,6 +619,19 @@
 
     <div id="ac-content">
     <div class="section">
+      <div class="section-title">Profiles</div>
+      <div class="rule-help ac-help">A profile is a saved set of <b>all rules + workflows</b>. Save the current setup under a name, then switch sets any time (loading replaces the current set — Ctrl+Z undoes it).</div>
+      <select id="prof-select" class="prof-select"><option value="">— no profiles saved —</option></select>
+      <div class="ac-toolbar prof-toolbar">
+        <button id="prof-save" class="bulk-btn bulk-btn-primary" type="button">+ Save current as…</button>
+        <button id="prof-load" class="bulk-btn bulk-btn-soft" type="button">Load</button>
+        <button id="prof-update" class="bulk-btn bulk-btn-soft" type="button">Update</button>
+        <button id="prof-delete" class="bulk-btn bulk-btn-soft" type="button">Delete</button>
+      </div>
+      <div id="prof-info" class="wf-data-info"></div>
+    </div>
+
+    <div class="section">
       <div class="ac-head">
         <div class="section-title" style="margin-bottom:0;">Rules</div>
         <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
@@ -629,6 +648,7 @@
       <div class="rule-help ac-help">
         Click <b>Add click rule</b>, then click a <b>button</b> on the Masar page to capture it.
         Rules are grouped by page URL. Expand a rule to add conditions or timing.
+        Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.
       </div>
       <div id="ac-list" class="ac-list"><div class="logs-empty">No click rules yet</div></div>
     </div>
@@ -729,7 +749,9 @@
       </div>
       <div class="rule-help ac-help">
         Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press
-        <b>▶ Run</b> to play it. Use <b>◎</b> to flash a step's element, and <b>⚙</b> for hotkey / repeat / CSV data.
+        <b>▶ Run</b> to play it — or press <b>● Rec</b> and just do the actions on the page:
+        your clicks, typing and dropdown picks are captured as steps automatically.
+        Use <b>◎</b> to flash a step's element, and <b>⚙</b> for run mode / hotkey / repeat / CSV data.
       </div>
       <div id="wf-list" class="ac-list"></div>
     </div>

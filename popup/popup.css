@@ -1508,6 +1508,14 @@ body { width: 500px; display: flex; flex-direction: column; }
   background: var(--surface); border-radius: 999px; padding: 1px 7px;
 }
 
+/* Profiles (named rule + workflow sets) */
+.prof-select {
+  width: 100%; margin-bottom: 8px; padding: 7px 8px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface); color: var(--text);
+}
+.prof-toolbar { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
+
 /* Expand-all / collapse-all bar above the URL groups */
 .rule-group-controls { display: flex; gap: 6px; justify-content: flex-end; margin: 2px 0 2px; }
 .group-ctrl-btn {
@@ -1516,6 +1524,9 @@ body { width: 500px; display: flex; flex-direction: column; }
   border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
 }
 .group-ctrl-btn:hover { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+
+.wf-rec { color: #e5484d; border-color: #e5484d55; }
+.wf-rec:hover { background: #e5484d1a; }
 
 .wf-drag { padding: 3px 7px; font-size: 11px; }
 .wf-card.dragging { opacity: .5; }
@@ -1526,6 +1537,7 @@ html.as-panel, html.as-panel body { height: 100%; }
 html.as-panel body { width: 100%; min-width: 340px; }
 
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.ui-mode-btn:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .ui-mode-btn {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0; cursor: pointer;
