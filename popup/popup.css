@@ -33,8 +33,6 @@
   --issuedate-fg:   #8e24aa;
   --vaccine-bg:     #e0f7fa;
   --vaccine-fg:     #00897b;
-  --embassy-bg:     #fce4ec;
-  --embassy-fg:     #c2185b;
   --ocr-bg:         #e8f4fd;
   --ocr-fg:         #0277bd;
   --batch-bg:       #ede7f6;
@@ -68,8 +66,6 @@
   --issuedate-fg:   #c07de0;
   --vaccine-bg:     #062020;
   --vaccine-fg:     #26c6b2;
-  --embassy-bg:     #2a0a16;
-  --embassy-fg:     #e85c8a;
   --ocr-bg:         #02182a;
   --ocr-fg:         #4fc3f7;
   --batch-bg:       #1a1033;
@@ -322,21 +318,12 @@ body {
 .translate-icon { background: var(--translate-bg);  color: var(--translate-fg);  }
 .issuedate-icon { background: var(--issuedate-bg);  color: var(--issuedate-fg);  }
 .vaccine-icon   { background: var(--vaccine-bg);    color: var(--vaccine-fg);    }
-.embassy-icon   { background: var(--embassy-bg);    color: var(--embassy-fg);    }
 .ocr-icon       { background: var(--ocr-bg);        color: var(--ocr-fg);        }
 .batch-icon     { background: var(--batch-bg);      color: var(--batch-fg);      }
 .clicker-icon   { background: var(--clicker-bg);    color: var(--clicker-fg);    }
 .fill-icon      { background: var(--translate-bg);  color: var(--translate-fg);  }
 
-.embassy-note {
-  margin-top: 7px;
-  font-size: 10.5px;
-  color: var(--text-sub);
-  font-style: italic;
-  padding-left: 2px;
-}
-
-/* Disabled toggle for embassy */
+/* Disabled toggle (premium-locked modules) */
 .toggle-switch input:disabled + .slider {
   opacity: .45;
   cursor: not-allowed;
@@ -407,6 +394,40 @@ input:checked + .slider::before {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* Indented config block under a module card (Mutamer Details email/phone) */
+.module-sub {
+  margin: -4px 0 10px 26px;
+  padding: 9px 10px;
+  border-left: 2px solid var(--border);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  background: var(--surface2);
+}
+.af-summary { display: flex; align-items: center; gap: 8px; }
+.af-sum-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.af-sum-row { display: flex; align-items: center; gap: 7px; color: var(--text-muted); }
+.af-sum-val {
+  font-size: 11.5px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.af-sum-val.af-sum-empty { color: var(--text-sub); font-weight: 500; font-style: italic; }
+.af-sum-tag {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+  color: var(--fill-fg); background: var(--fill-bg); border-radius: 999px; padding: 1px 7px;
+}
+.af-edit-btn {
+  flex-shrink: 0; display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  padding: 5px 10px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+}
+.af-edit-btn:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.af-edit-btn.af-edit-open { border-color: var(--accent); color: var(--accent); }
+.af-editor { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.af-editor-title {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-sub); margin-bottom: 7px;
 }
 
 .delay-row {

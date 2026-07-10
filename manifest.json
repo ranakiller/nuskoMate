@@ -50,7 +50,6 @@
         "modules/translation.js",
         "modules/issue-date-calc.js",
         "modules/vaccine-upload.js",
-        "modules/embassy-selector.js",
         "modules/disable-loading-overlay.js",
         "modules/ocr.js",
         "modules/batch-passport.js",

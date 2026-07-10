@@ -14,7 +14,6 @@ document.addEventListener("DOMContentLoaded", () => {
     issuedate: "Issue Date Calc",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
-    embassy: "Embassy Selector",
     autoclick: "Auto Clicker",
     autofill: "Autofill (form fill)",
   };

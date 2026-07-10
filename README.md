@@ -14,7 +14,6 @@
 | **Auto Translate Names** | Transliterates English names into Arabic script in the Arabic name fields |
 | **Issue Date Calc** | Calculates the passport issue date from the expiry date and copies it to your clipboard |
 | **Vaccine Image Upload** | Auto-uploads the bundled vaccine placeholder image to the vaccine file input |
-| **Embassy Selector** | Auto-selects the Islamabad consulate on the group creation page (runs with Autofill) |
 
 ---
 
@@ -68,9 +67,6 @@ When the passport expiry date is entered on the form, a prompt will appear askin
 
 The calculated issue date is **copied to your clipboard** automatically.
 
-### Embassy Selector
-Runs automatically alongside Autofill on the group creation page (`/add-group/create-group`). Selects **Islamabad** from the consulate dropdown and returns focus to the Group Name field.
-
 ---
 
 ## File Structure
@@ -91,8 +87,7 @@ masar-extension/
 │   ├── disable-loading-overlay.js # Spinner removal
 │   ├── translation.js             # Name transliteration
 │   ├── issue-date-calc.js         # Passport issue date calculator
-│   ├── vaccine-upload.js          # Vaccine image auto-upload
-│   └── embassy-selector.js        # Consulate dropdown selector
+│   └── vaccine-upload.js          # Vaccine image auto-upload
 └── utils/
     ├── route-watcher.js           # SPA route change detection
     ├── angular-simulator.js       # Angular-compatible input events
@@ -106,7 +101,6 @@ masar-extension/
 
 - **Settings persist** — all toggles and field values are saved in Chrome local storage and survive browser restarts.
 - **Autofill only runs on** `/umrah/mutamer/add-mutamer` — it won't interfere with other pages.
-- **Embassy Selector only runs on** `/umrah/mutamer-group/add-group/create-group`.
 - **Vaccine upload targets** the 5th file input on the mutamer form (index 4).
 - **Auto Reload skips active tabs** — you won't be interrupted while working; it only reloads when the tab is hidden.
 - **Issue Date Calc uses `prompt()`** — the browser's built-in dialog, so it will appear on top of the page when triggered.

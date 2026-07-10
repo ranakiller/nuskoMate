@@ -80,7 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
-      "toggle-embassy": "embassy", "toggle-autoclicker": "autoclick", "toggle-workflows": "autoclick",
+      "toggle-autoclicker": "autoclick", "toggle-workflows": "autoclick",
       "toggle-autofill-rules": "autoclick", "toggle-autoselect": "autoclick",
     };
 
@@ -309,7 +309,6 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-ocr",       key: "moduleOcr"            },
     { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
-    { id: "toggle-embassy",   key: "moduleEmbassy"        },
     { id: "toggle-autoclicker", key: "moduleAutoClicker"  },
     { id: "toggle-autofill-rules", key: "moduleAutoFillRules" },
     { id: "toggle-autoselect",  key: "moduleAutoSelect"   },
@@ -321,7 +320,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const defaultOnKeys = new Set([
     "moduleReload", "moduleDisableOverlay", "moduleAutofill",
     "moduleTranslate", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
-    "moduleEmbassy",
   ]);
 
   toggles.forEach(({ id, key }) => {
@@ -515,18 +513,82 @@ document.addEventListener("DOMContentLoaded", () => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   }
 
+  // ── Compact summary under the Mutamer Details module card ──
+  // Shows just the selected email + saved phone; the full editor (email list,
+  // add bar, CSV, mobile input) stays hidden behind the ⚙ Edit button.
+  function renderAfSummary() {
+    const emailSum = document.getElementById("af-email-sum");
+    const emailTag = document.getElementById("af-email-tag");
+    const phoneSum = document.getElementById("af-phone-sum");
+    const phoneTag = document.getElementById("af-phone-tag");
+    if (!emailSum) return;
+    const active = emailList.find(e => e.id === activeEmailId);
+    emailSum.textContent = active ? active.email : "No email saved";
+    emailSum.classList.toggle("af-sum-empty", !active);
+    if (emailTag) emailTag.style.display = active ? "" : "none";
+    chrome.storage.local.get(["mobile"], (res) => {
+      const mob = (res.mobile || "").trim();
+      phoneSum.textContent = mob || "No phone saved";
+      phoneSum.classList.toggle("af-sum-empty", !mob);
+      if (phoneTag) phoneTag.style.display = mob ? "" : "none";
+    });
+  }
+
+  const afEditBtn = document.getElementById("af-edit");
+  const afEditor = document.getElementById("af-editor");
+  if (afEditBtn && afEditor) {
+    afEditBtn.addEventListener("click", () => {
+      const open = afEditor.style.display !== "none";
+      afEditor.style.display = open ? "none" : "";
+      const lbl = document.getElementById("af-edit-label");
+      if (lbl) lbl.textContent = open ? "Edit" : "Done";
+      afEditBtn.classList.toggle("af-edit-open", !open);
+      if (open) renderAfSummary(); // closing → reflect any edits in the summary
+    });
+  }
+  const mobileField = document.getElementById("field-mobile");
+  if (mobileField) mobileField.addEventListener("input", () => renderAfSummary());
+
+  // The bar has two modes:
+  //   search (default) — typing live-filters the list below
+  //   add              — typing an email + Enter/Save adds it to the list
+  let emailMode = "search";
+  let emailFilter = "";
+
+  function setEmailMode(mode) {
+    emailMode = mode;
+    emailFilter = "";
+    emailInput.value = "";
+    emailInput.classList.remove("email-input-error");
+    if (mode === "add") {
+      emailInput.type = "email";
+      emailInput.placeholder = "Type email, Enter to save (Esc = cancel)";
+      emailSave.textContent = "Save";
+      emailInput.focus();
+    } else {
+      emailInput.type = "search";
+      emailInput.placeholder = "Search emails…";
+      emailSave.textContent = "+ Add new";
+    }
+    renderList();
+  }
+
   function renderList() {
+    renderAfSummary();
     emailListEl.innerHTML = "";
 
-    if (!emailList.length) {
+    const q = emailFilter.trim().toLowerCase();
+    const shown = q ? emailList.filter(e => e.email.toLowerCase().includes(q)) : emailList;
+
+    if (!shown.length) {
       const empty = document.createElement("div");
       empty.className = "email-empty";
-      empty.textContent = "No saved emails yet";
+      empty.textContent = emailList.length ? "No emails match your search" : "No saved emails yet";
       emailListEl.appendChild(empty);
       return;
     }
 
-    emailList.forEach(entry => {
+    shown.forEach(entry => {
       const isActive = entry.id === activeEmailId;
       const row = document.createElement("div");
       row.className = "email-item" + (isActive ? " active" : "");
@@ -580,13 +642,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     emailInput.classList.remove("email-input-error");
 
-    // Already saved → just make it active
+    // Duplicate (case-insensitive) → never added twice; just make it active
     const existing = emailList.find(e => e.email.toLowerCase() === val.toLowerCase());
     if (existing) {
       activeEmailId = existing.id;
       saveEmails();
-      renderList();
-      emailInput.value = "";
+      setEmailMode("search");
       showToast("✓ Already saved — set as active");
       return;
     }
@@ -595,16 +656,23 @@ document.addEventListener("DOMContentLoaded", () => {
     emailList.push({ id, email: val });
     activeEmailId = id; // newest becomes active
     saveEmails();
-    renderList();
-    emailInput.value = "";
+    setEmailMode("search");
     showToast("✓ Email saved & set as active");
   }
 
-  emailSave.addEventListener("click", addEmail);
-  emailInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); addEmail(); }
+  // Button: search mode → switch to add; add mode → save the typed email.
+  emailSave.addEventListener("click", () => {
+    if (emailMode === "search") setEmailMode("add");
+    else addEmail();
   });
-  emailInput.addEventListener("input", () => emailInput.classList.remove("email-input-error"));
+  emailInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && emailMode === "add") { e.preventDefault(); addEmail(); }
+    if (e.key === "Escape" && emailMode === "add") { e.preventDefault(); setEmailMode("search"); }
+  });
+  emailInput.addEventListener("input", () => {
+    emailInput.classList.remove("email-input-error");
+    if (emailMode === "search") { emailFilter = emailInput.value; renderList(); }
+  });
 
   // ── Export CSV ──────────────────────────────────────────────
   document.getElementById("export-emails").addEventListener("click", () => {
