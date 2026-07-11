@@ -112,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now.
-      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"]].forEach(([up, ct, feat]) => {
+      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"], ["fill-upsell", "fill-content", "fillrules"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -192,7 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn"].forEach((idb) => {
+    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn", "us-upsell-btn", "fill-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -323,12 +323,11 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-urlshift",    key: "moduleUrlShift", offLabel: true     },
   ];
 
-  // All modules default ON for new installs (key never set = treat as true)
-  // — except Issue Date Calc, which defaults OFF.
-  const defaultOnKeys = new Set([
-    "moduleReload", "moduleDisableOverlay", "moduleAutofill",
-    "moduleTranslate", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
-  ]);
+  // ALL modules default ON for new installs (key never set = treat as true).
+  // Actual availability still depends on activation + that specific tool
+  // being included in the key's features — this only controls what the
+  // toggle looks like the very first time, before the user's ever touched it.
+  const defaultOnKeys = new Set(toggles.map((t) => t.key));
 
   // Appends/removes " (Module off)" on the module-card's own name — as a
   // separate <span> so it can be styled distinctly from the base name —

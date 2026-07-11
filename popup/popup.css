@@ -1142,7 +1142,8 @@ input:checked + .slider::before {
 .k-item-main { flex: 1; min-width: 0; }
 .k-item-key { font-family: Consolas, monospace; font-weight: 700; font-size: 12.5px; color: var(--text); }
 .k-item-name { font-size: 12px; color: var(--text); }
-.k-item-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+.k-item-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 3px; }
+.k-item-meta div { line-height: 1.5; }
 .k-item-btns { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
 .k-mini {
   border: 1px solid var(--border); background: var(--surface2);
@@ -1151,6 +1152,11 @@ input:checked + .slider::before {
 }
 .k-mini:hover { border-color: var(--accent); color: var(--accent); }
 .k-mini-danger:hover { border-color: var(--overlay-fg); color: var(--overlay-fg); }
+.k-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+}
+.k-icon-btn svg { display: block; }
 .k-master-tag {
   font-size: 9px; font-weight: 800; letter-spacing: .4px;
   color: #fff; background: var(--accent); padding: 2px 6px; border-radius: 99px;

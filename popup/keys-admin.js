@@ -30,6 +30,26 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Utilities",            tools: ["reload", "overlay"] },
   ];
 
+  // Icon-only row buttons (Edit/Reset/Revoke/Del) — same visual language as
+  // the automation tabs' icon toolbars, with a title tooltip standing in for
+  // the label text that used to be printed on the button.
+  const K_ICON = {
+    edit:   '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+    reset:  '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+    revoke: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
+    trash:  '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  };
+  function kIconBtn(iconName, title, fn, danger) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "k-mini k-icon-btn" + (danger ? " k-mini-danger" : "");
+    b.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">${K_ICON[iconName] || ""}</svg>`;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", fn);
+    return b;
+  }
+
   const $ = (id) => document.getElementById(id);
   const nameEl = $("k-name"), keyEl = $("k-key"), seatsEl = $("k-seats");
   const allEl = $("k-all"), toolsEl = $("k-tools");
@@ -113,6 +133,21 @@ document.addEventListener("DOMContentLoaded", () => {
     return { y: Math.max(0, y), m: Math.max(0, m), d: Math.max(0, d) };
   }
 
+  // "2027-01-11" → "1 year 6 months left" (shows the two most significant
+  // non-zero units, same calendar math as the create/edit form's duration boxes).
+  function timeLeftText(expiresStr) {
+    const target = parseLocal(expiresStr);
+    if (!target) return "";
+    const t0 = today0();
+    if (target < t0) return "Expired";
+    if (target.getTime() === t0.getTime()) return "Expires today";
+    const { y, m, d } = diffYMD(t0, target);
+    const unit = (n, s) => `${n} ${s}${n === 1 ? "" : "s"}`;
+    if (y > 0) return (m > 0 ? `${unit(y, "year")} ${unit(m, "month")}` : unit(y, "year")) + " left";
+    if (m > 0) return (d > 0 ? `${unit(m, "month")} ${unit(d, "day")}` : unit(m, "month")) + " left";
+    return unit(d, "day") + " left";
+  }
+
   // duration boxes changed → recompute the exact date (programmatic .value
   // assignment does NOT fire events, so there's no feedback loop)
   function durationToDate() {
@@ -158,17 +193,25 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ── render the key list ────────────────────────────────────
-  function toolText(k) {
-    if (k.master) return "MASTER (all)";
-    if (k.features === null) return "all tools";
-    return k.features.length ? k.features.join(", ") : "none";
-  }
-  function addBtn(parent, label, fn, danger) {
-    const b = document.createElement("button");
-    b.className = "k-mini" + (danger ? " k-mini-danger" : "");
-    b.textContent = label;
-    b.addEventListener("click", fn);
-    parent.appendChild(b);
+  // Summarize by GROUP instead of listing every individual tool id — e.g.
+  // "Mutamer Details Fill" / "Automation (partial)" as separate lines
+  // instead of a wall of 11 comma-separated tool names. A group name alone
+  // means every tool in it is included; "(partial)" means only some are.
+  function toolLines(k) {
+    if (k.master) return ["MASTER (all)"];
+    if (k.features === null) return ["All tools"];
+    const feats = k.features || [];
+    if (!feats.length) return ["none"];
+    const featSet = new Set(feats);
+    const parts = TOOL_GROUPS.map((grp) => {
+      const have = grp.tools.filter((t) => featSet.has(t)).length;
+      if (!have) return null;
+      return have === grp.tools.length ? grp.name : `${grp.name} (partial)`;
+    }).filter(Boolean);
+    // Any tool id that isn't in a known group (future-proofing) still shows up by name.
+    const knownTools = new Set(TOOL_GROUPS.flatMap((g) => g.tools));
+    feats.filter((f) => !knownTools.has(f)).forEach((f) => parts.push(TOOL_LABELS[f] || f));
+    return parts.length ? parts : ["none"];
   }
   function render(keys) {
     countEl.textContent = keys.length;
@@ -179,22 +222,34 @@ document.addEventListener("DOMContentLoaded", () => {
       row.className = "k-item" + (k.revoked ? " k-item-revoked" : "");
       const seats = k.seats == null ? "?" : k.seats;
       const used = Array.isArray(k.devices) ? k.devices.length : 0;
-      const exp = k.expires ? `· exp ${esc(k.expires)}` : "· no expiry";
+      const left = k.expires ? timeLeftText(k.expires) : "";
+      const exp = k.expires ? `Exp: ${esc(k.expires)}${left ? ` (${esc(left)})` : ""}` : "No expiry";
+      // Devices / each tool group / expiry each get their own line instead
+      // of being crammed into a single run-on line.
+      const metaLines = k.revoked
+        ? ["REVOKED"]
+        : [`${used}/${seats} devices`, ...toolLines(k).map(esc), exp];
       row.innerHTML =
         `<div class="k-item-main">` +
           `<div class="k-item-key">${esc(k.key)}</div>` +
           `<div class="k-item-name">${esc(k.name)}</div>` +
-          `<div class="k-item-meta">${k.revoked ? "REVOKED" : `${used}/${seats} devices · ${esc(toolText(k))} ${exp}`}</div>` +
+          `<div class="k-item-meta">${metaLines.map((l) => `<div>${l}</div>`).join("")}</div>` +
         `</div><div class="k-item-btns"></div>`;
       const btns = row.querySelector(".k-item-btns");
       if (k.master) {
         const tag = document.createElement("span"); tag.className = "k-master-tag"; tag.textContent = "master";
         btns.appendChild(tag);
       } else {
-        addBtn(btns, "Edit", () => loadForEdit(k));
-        addBtn(btns, "Reset", () => resetDevices(k));
-        if (!k.revoked) addBtn(btns, "Revoke", () => revokeKey(k), true);
-        addBtn(btns, "Del", () => deleteKey(k), true);
+        btns.append(
+          kIconBtn("edit", "Edit this key", () => loadForEdit(k)),
+          // This IS "clean all (old) devices" — it frees every device seat
+          // on the key, so a customer who's hit their device limit (or
+          // shows more devices used than seats, e.g. after you lowered
+          // seats) gets a clean slate.
+          kIconBtn("reset", "Clear all devices — frees every seat on this key", () => resetDevices(k)),
+        );
+        if (!k.revoked) btns.append(kIconBtn("revoke", "Revoke this key — stops working immediately", () => revokeKey(k), true));
+        btns.append(kIconBtn("trash", "Delete this key permanently", () => deleteKey(k), true));
       }
       listEl.appendChild(row);
     });

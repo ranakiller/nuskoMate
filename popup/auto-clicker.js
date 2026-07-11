@@ -755,6 +755,33 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Stop is special: if a workflow step (or the page itself) navigated since
+  // the run started, the content script that was tracking it is GONE — a new
+  // one loaded on the new page with fresh, idle state. It has nothing to
+  // stop, so a plain STOP_WORKFLOW message either reaches nobody or reaches
+  // a script that was never running anything, and the stored "running" /
+  // "paused" status is left frozen forever with a Stop button that visibly
+  // does nothing. So Stop always ALSO clears the stored status directly from
+  // here — best-effort message to the live page (silently, no alert; it's a
+  // stop, not something the user needs to be told to open a page for) plus a
+  // guaranteed local reset so the UI never gets stuck.
+  function forceStopWorkflow(wf) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].id) {
+        try { chrome.tabs.sendMessage(tabs[0].id, { action: "STOP_WORKFLOW" }, () => void chrome.runtime.lastError); } catch (_) {}
+      }
+    });
+    chrome.storage.local.get([STATUS_KEY], (res) => {
+      const cur = res[STATUS_KEY] || {};
+      // Only force-clear if THIS workflow is the one the stale status points
+      // at — never stomp on a status belonging to a different, still-live run.
+      if (String(cur.id) !== String(wf.id)) return;
+      chrome.storage.local.set({
+        [STATUS_KEY]: { ...cur, running: false, paused: false, done: true, stopped: true, lastError: "", at: Date.now() },
+      });
+    });
+  }
+
   const uid = () => Date.now() + Math.floor(Math.random() * 1000);
 
   function patchWorkflow(wfId, patch) {
@@ -939,6 +966,24 @@ document.addEventListener("DOMContentLoaded", () => {
     s.value = value; s.addEventListener("change", (e) => onchange(e.target.value)); return s;
   }
 
+  // Selector field + a "Pick" button that re-opens the on-page inspector for
+  // THIS step (updates its selector in place — unlike the inserter's own
+  // "+ Pick element", which adds a brand new step).
+  function selectorFieldRow(labelText, selVal, wf, step) {
+    const w = document.createElement("div"); w.className = "rule-field full";
+    const l = document.createElement("label"); l.textContent = labelText;
+    const row = document.createElement("div"); row.className = "us-url-row";
+    const input = txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchStep(wf.id, step.id, { requiredElements: [v], selector: v }));
+    const pickBtn = document.createElement("button");
+    pickBtn.type = "button"; pickBtn.className = "us-use-btn";
+    pickBtn.textContent = "Pick";
+    pickBtn.title = "Click, then click the element on the page";
+    pickBtn.addEventListener("click", () => startPicker({ forWorkflowStep: true, workflowId: wf.id, stepId: step.id }));
+    row.append(input, pickBtn);
+    w.append(l, row);
+    return w;
+  }
+
   function stepFields(wf, step) {
     const P = (patch) => patchStep(wf.id, step.id, patch);
     const selVal = (step.requiredElements && step.requiredElements[0]) || step.selector || "";
@@ -950,27 +995,27 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── loop marker ──
     if (step.type === "loopStart") {
       fields.push(fieldRow("Repeat", sel(step.loopMode || "count", ["count", "while"], (v) => P({ loopMode: v }))));
-      if ((step.loopMode || "count") === "while") fields.push(fieldRow("While selector visible", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
+      if ((step.loopMode || "count") === "while") fields.push(selectorFieldRow("While selector visible", selVal, wf, step));
       else fields.push(fieldRow("Times", num(step.count == null ? 2 : step.count, (v) => P({ count: v }))));
       return fields;
     }
     // ── conditional ──
     if (step.type === "if") {
-      fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(selectorFieldRow("Selector", selVal, wf, step));
       fields.push(fieldRow("Condition", sel(step.condition || "visible", ["visible", "hidden", "textIncludes", "textEquals"], (v) => P({ condition: v }))));
       if (isText) fields.push(fieldRow("Text", txt(step.value, "", (v) => P({ value: v }))));
       return fields;
     }
     // ── capture into a variable ──
     if (step.type === "capture") {
-      fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
+      fields.push(selectorFieldRow("Selector", selVal, wf, step));
       fields.push(fieldRow("Variable name", txt(step.varName, "e.g. name", (v) => P({ varName: v }))));
       fields.push(fieldRow("Read", sel(step.captureSource || "text", ["text", "value"], (v) => P({ captureSource: v }))));
       return fields;
     }
 
     // ── action / wait steps ──
-    if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
+    if (!isDelay) fields.push(selectorFieldRow("Selector", selVal, wf, step));
     if (step.type === "input") {
       fields.push(fieldRow("Fill value", txt(step.fillValue, "text or {{column}}", (v) => P({ fillValue: v }))));
       fields.push(fieldRow("Prefix", txt(step.prefix, "text or {{column}} (optional)", (v) => P({ prefix: v }))));
@@ -1223,7 +1268,7 @@ document.addEventListener("DOMContentLoaded", () => {
     runBtn.innerHTML = svgIcon(running ? "stop" : "play", 13);
     runBtn.title = running ? "Stop this workflow" : "Run this workflow";
     runBtn.setAttribute("aria-label", runBtn.title);
-    runBtn.onclick = () => running ? sendToPage({ action: "STOP_WORKFLOW" }) : sendToPage({ action: "RUN_WORKFLOW", workflowId: wf.id });
+    runBtn.onclick = () => running ? forceStopWorkflow(wf) : sendToPage({ action: "RUN_WORKFLOW", workflowId: wf.id });
 
     const pauseBtn = iconMini(paused ? "play" : "pause", paused ? "Resume" : "Pause", () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" }));
     pauseBtn.style.display = running ? "" : "none";

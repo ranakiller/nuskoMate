@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite", "sidePanel"],
   "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*", "https://*.workers.dev/*", "https://api.github.com/*"],

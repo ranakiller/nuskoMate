@@ -9,7 +9,8 @@
  *     control — revoke a key and that customer is cut off within seconds.
  *
  * Endpoints:
- *   POST /activate   { key }                       → { ok, name? }
+ *   POST /activate   { key, device }                → { ok, name? }
+ *   POST /status     { key, device }                → { ok, features, ... }  (heartbeat re-check)
  *   POST /scan       multipart "file" + X-License   → { ok, result, raw }
  *   POST /share      { rules } + X-License          → { ok, code }   (short share link)
  *   GET  /share/CODE                                → { ok, rules }  (fetch a share)
@@ -82,6 +83,8 @@ async function isAdmin(env, request) {
 
 // Decide whether this device may use the key, registering it if there's room.
 // Mutates rec.devices when a new device is admitted (caller persists it).
+// Only /activate should call this — it's the one place a device is meant to
+// be newly admitted (the user explicitly entered their key).
 function admitDevice(rec, device) {
   if (rec.master) return { ok: true, changed: false }; // master key = unlimited, no tracking
   device = (device || "").trim();
@@ -92,6 +95,25 @@ function admitDevice(rec, device) {
     return { ok: true, changed: true };
   }
   return { ok: false, error: `Device limit reached (${rec.seats}). Contact support to reset.` };
+}
+
+// Stricter check for everything that ISN'T /activate (currently /scan and
+// /share): the device must ALREADY be registered — this never adds one.
+// Without this, an admin's "Reset devices" is pointless: a customer's
+// extension keeps a cached, still-valid key locally and never re-checks
+// activation on its own, so its very next scan/share would just walk
+// straight back through admitDevice and silently re-claim a freed seat,
+// undoing the reset. Rejecting here instead forces the extension to notice
+// (via the existing "invalid key" 403 handling) and prompt the user to
+// re-enter their key through /activate.
+function requireActiveDevice(rec, device) {
+  if (rec.master) return { ok: true };
+  device = (device || "").trim();
+  if (!device) return { ok: false, error: "Missing device id" };
+  if (!rec.devices.includes(device)) {
+    return { ok: false, error: "Invalid device — please re-activate this key" };
+  }
+  return { ok: true };
 }
 
 // ── Rule sharing (short links) ───────────────────────────────────────────────
@@ -171,9 +193,8 @@ export default {
         const rec = await getRecord(env, key);
         if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
         if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
-        const adm = admitDevice(rec, device);
+        const adm = requireActiveDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
-        if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
 
         const body = await request.json().catch(() => null);
         const rules = body && body.rules;
@@ -199,6 +220,29 @@ export default {
           features: rec.master ? null : rec.features, // null = all tools
           expires: rec.expires || null,
           master: rec.master, // unlocks the in-extension Keys admin tab
+        });
+      }
+
+      // ── Periodic re-validation ("heartbeat") ─────────────────────────────
+      // Loaded content-script-side (utils/license.js runs on the Masar page
+      // itself, not just the popup), polled every few minutes, so a key that
+      // gets revoked / edited / deleted while a customer is mid-session gets
+      // caught without them ever touching the popup or scanning anything.
+      // Deliberately uses the STRICT device check (requireActiveDevice, not
+      // admitDevice) — this must NEVER re-admit a device an admin just reset,
+      // or "Reset devices" would get silently undone by the next heartbeat tick.
+      if (url.pathname === "/status" && request.method === "POST") {
+        const { key, device } = await request.json();
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
+        const adm = requireActiveDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+        return json({
+          ok: true, name: rec.name, seats: rec.seats, used: rec.devices.length,
+          features: rec.master ? null : rec.features,
+          expires: rec.expires || null,
+          master: rec.master,
         });
       }
 
@@ -266,10 +310,9 @@ export default {
         const rec = await getRecord(env, key);
         if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
         if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
-        const adm = admitDevice(rec, device);
+        const adm = requireActiveDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
         if (!featureAllowed(rec, feature)) return json({ ok: false, error: "This key does not include this feature" }, 403);
-        if (adm.changed) await env.LICENSES.put(key.trim(), JSON.stringify(rec));
 
         const form = await request.formData();
         const file = form.get("file");

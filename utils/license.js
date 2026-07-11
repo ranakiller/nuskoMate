@@ -172,6 +172,49 @@
     await refreshEntitlements();
   }
 
+  // ── Periodic re-validation ("heartbeat") ───────────────────────────────────
+  // This file is loaded as a CONTENT SCRIPT on the Masar page itself, not
+  // just in the popup — so this runs while the user is actively working, not
+  // only when they happen to reopen the popup. Same idea as the popup's
+  // GitHub-release update check, applied to license state: if you revoke a
+  // key, edit its features, delete it outright, or reset its devices, this
+  // catches it within a few minutes and every premium module unlocks/locks
+  // immediately via the existing onPremiumChange subscribers — no action
+  // needed from the user, and it works mid-session.
+  async function checkStatus() {
+    if (!enforced()) return;
+    const x = await read(["licenseKey", "licenseValid"]);
+    if (!x.licenseKey || !x.licenseValid) return; // nothing activated to re-check
+    const device = await getDevice();
+    const data = await send({ type: "nkLicense", action: "status", base, key: x.licenseKey, device });
+    if (data && data.ok) {
+      // Refresh cached features/expiry/name too — this is also how a
+      // features EDIT (not just revoke) propagates: a tool an admin just
+      // removed disappears from licenseFeatures, and every module re-checks
+      // featureOK() the moment refreshEntitlements() notices the change.
+      await store({
+        licenseName: data.name || "",
+        licenseFeatures: JSON.stringify(data.features ?? null),
+        licenseExpiry: data.expires || "",
+        licenseMaster: !!data.master,
+        licenseCheckedAt: Date.now(),
+      });
+      await refreshEntitlements();
+      return;
+    }
+    // Same rule as scan()/shareRules(): only lock out when the key/device is
+    // genuinely dead (revoked, expired, invalid — including a device an
+    // admin reset). An unreachable server falls back to a generic "cannot
+    // reach"/"bad response" message, which never matches this, so a
+    // connectivity blip can't lock out an otherwise-valid customer.
+    const err = (data && data.error) || "";
+    if (/invalid|revoked|expired/i.test(err)) await store({ licenseValid: false });
+  }
+  // Shortly after load (catches a stale cache fast) and then periodically for
+  // as long as this page/popup stays open.
+  setTimeout(checkStatus, 4000);
+  setInterval(checkStatus, 5 * 60 * 1000);
+
   // ── Admin (master key only) — manage the whole key list ───────────────────
   // The active key (stored licenseKey) is sent as the master credential; the
   // server only allows these when that key has master:true.
@@ -197,6 +240,13 @@
     const device = await getDevice();
     const r = await send({ type: "nkLicense", action: "sharePut", base, key, device, rules });
     if (r && r.data) {
+      // Same rule as scan(): only clear the cached key when the KEY/DEVICE
+      // itself is dead (revoked/expired/invalid — including a device an
+      // admin's "Reset devices" just dropped), never for something recoverable.
+      if (r.status === 403) {
+        const err = (r.data && r.data.error) || "";
+        if (/invalid|revoked|expired/i.test(err)) await store({ licenseValid: false });
+      }
       const d = r.data;
       if (d.ok && d.code) d.url = base + "/share/" + d.code;
       return d;
@@ -248,6 +298,6 @@
     enforced, getStatus, getKey, activate, deactivate, scan,
     isActivated, premiumOK, featureOK, onPremiumChange, FEATURES,
     adminList, adminPut, adminRevoke, adminDelete,
-    shareRules, fetchSharedRules,
+    shareRules, fetchSharedRules, checkStatus,
   };
 })();

@@ -55,6 +55,17 @@ async function handle(msg) {
     return await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
   }
 
+  if (msg.action === "status") {
+    // Periodic re-validation heartbeat — same shape as activate, but never
+    // admits a new device (see /status on the server for why).
+    const res = await fetch(base + "/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: msg.key, device: msg.device }),
+    });
+    return await res.json().catch(() => ({ ok: false, error: "Bad server response" }));
+  }
+
   if (msg.action === "scan") {
     const bytes = Uint8Array.from(atob(msg.fileB64 || ""), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: msg.fileType || "image/jpeg" });

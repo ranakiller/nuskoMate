@@ -509,6 +509,25 @@
     });
   }
 
+  // Re-pick the selector for an EXISTING step (unlike saveCapturedStep, which
+  // adds a whole new step). A step has exactly one target, so this REPLACES
+  // requiredElements/selector rather than appending like rules' multi-selector
+  // "Pick Required/Forbidden" does.
+  function updateWorkflowStepSelector(selection, workflowId, stepId) {
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) => {
+        if (String(w.id) !== String(workflowId)) return w;
+        return {
+          ...w,
+          steps: (w.steps || []).map((s) => String(s.id) === String(stepId)
+            ? { ...s, requiredElements: [selection.selector], selector: selection.selector }
+            : s),
+        };
+      });
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Selector saved: ${selection.selector}`));
+    });
+  }
+
   // ── Inspector ─────────────────────────────────────────────────────────────
 
   function startInspector(sendResponse, options = {}) {
@@ -520,6 +539,7 @@
     const inspector = new window.ElementInspector();
     inspector.start((selection) => {
       if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
+      if (options.forWorkflowStep) { updateWorkflowStepSelector(selection, options.workflowId, options.stepId); return; }
       if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId, options.afterStepId); return; }
       if (options.ruleId) {
         const key = options.mode === "forbidden" ? "forbiddenElements" : "requiredElements";
@@ -1050,7 +1070,7 @@
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, workflowId: msg.workflowId, afterStepId: msg.afterStepId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
         break;
       case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;
