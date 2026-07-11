@@ -6,6 +6,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const RULES_KEY = "autoClickRules";
   const TYPE_LABELS = { button: "BTN", input: "INP", dropdown: "SEL", checkbox: "CHK", radio: "RAD" };
 
+  // Preset date/time formats offered for a fill rule's "date" value mode.
+  // Tokens: YYYY YY MMM MM DD HH mm ss (see formatDate in modules/auto-clicker.js).
+  const DATE_FORMAT_PRESETS = [
+    "YYYY-MM-DD", "DD/MM/YYYY", "MM/DD/YYYY", "DD-MM-YYYY",
+    "DD MMM YYYY", "HH:mm", "YYYY-MM-DD HH:mm",
+    { value: "custom", label: "Custom…" },
+  ];
+
   // Reactive rules split into three category views by element type:
   //   click  → Auto Clicker (buttons/checkbox/radio)   → moduleAutoClicker
   //   fill   → Autofill      (input fields)             → moduleAutoFillRules
@@ -91,6 +99,11 @@ document.addEventListener("DOMContentLoaded", () => {
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
       jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
       fillValue: rule.fillValue || "",
+      valueMode: rule.valueMode === "date" ? "date" : "text",
+      dateFormat: rule.dateFormat || "YYYY-MM-DD",
+      dateFormatCustom: rule.dateFormatCustom || "",
+      prefix: rule.prefix || "",
+      suffix: rule.suffix || "",
       clearFirst: rule.clearFirst !== false,
       triggerAngularEvents: rule.triggerAngularEvents !== false,
       selectValue: rule.selectValue || "",
@@ -312,9 +325,14 @@ document.addEventListener("DOMContentLoaded", () => {
     label.textContent = labelText;
     const control = controlType === "select" ? document.createElement("select") : document.createElement("input");
     if (controlType === "select") {
-      (options || []).forEach((val) => {
+      // Options are either plain strings (value === displayed label, most
+      // fields) or { value, label } objects when the raw value would be
+      // unclear on its own (e.g. "date" → "Today's date (formatted)").
+      (options || []).forEach((o) => {
+        const val = typeof o === "object" ? o.value : o;
+        const lbl = typeof o === "object" ? o.label : o;
         const opt = document.createElement("option");
-        opt.value = val; opt.textContent = val; control.appendChild(opt);
+        opt.value = val; opt.textContent = lbl; control.appendChild(opt);
       });
     } else {
       control.type = isSecondsField(key) ? "number" : "text";
@@ -323,7 +341,11 @@ document.addEventListener("DOMContentLoaded", () => {
     control.value = getRuleValue(rule, key);
     control.addEventListener("change", (e) => {
       const nextRules = rules.map((r) => String(r.id) === String(rule.id) ? setRuleValue(r, key, e.target.value) : r);
-      saveRules(nextRules, key === "actionType" ? renderRules : undefined);
+      // These fields change which OTHER fields should be visible (e.g.
+      // switching Value to "date" reveals the date-format field), so they
+      // need a full re-render, not just a silent save.
+      const needsRerender = key === "actionType" || key === "valueMode" || key === "dateFormat";
+      saveRules(nextRules, needsRerender ? renderRules : undefined);
     });
     wrapper.append(label, control);
     return wrapper;
@@ -395,12 +417,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function getTypeSpecificFields(rule, rules) {
     switch (rule.type) {
-      case "input":
-        return [
-          createField(rule, "fillValue", "Fill value", "input", rules, null, "full"),
+      case "input": {
+        const fields = [createField(rule, "valueMode", "Value", "select", rules, [
+          { value: "text", label: "Static text (Fill value below)" },
+          { value: "date", label: "Today's date/time (formatted)" },
+        ])];
+        if (rule.valueMode === "date") {
+          fields.push(createField(rule, "dateFormat", "Date format", "select", rules, DATE_FORMAT_PRESETS));
+          if (rule.dateFormat === "custom") {
+            fields.push(createField(rule, "dateFormatCustom", "Custom format (YYYY MM DD HH mm ss)", "input", rules, null, "full"));
+          }
+        } else {
+          fields.push(createField(rule, "fillValue", "Fill value", "input", rules, null, "full"));
+        }
+        fields.push(
+          createField(rule, "prefix", "Prefix", "input", rules),
+          createField(rule, "suffix", "Suffix", "input", rules),
           createCheckboxField(rule, "clearFirst", "Clear first", rules),
           createCheckboxField(rule, "triggerAngularEvents", "Angular events", rules),
-        ];
+        );
+        return fields;
+      }
       case "dropdown":
         return [
           createField(rule, "selectValue", "Select value", "input", rules, null, "full"),
@@ -934,7 +971,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ── action / wait steps ──
     if (!isDelay) fields.push(fieldRow("Selector", txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => P({ requiredElements: [v], selector: v }))));
-    if (step.type === "input") fields.push(fieldRow("Fill value", txt(step.fillValue, "text or {{column}}", (v) => P({ fillValue: v }))));
+    if (step.type === "input") {
+      fields.push(fieldRow("Fill value", txt(step.fillValue, "text or {{column}}", (v) => P({ fillValue: v }))));
+      fields.push(fieldRow("Prefix", txt(step.prefix, "text or {{column}} (optional)", (v) => P({ prefix: v }))));
+      fields.push(fieldRow("Suffix", txt(step.suffix, "text or {{column}} (optional)", (v) => P({ suffix: v }))));
+    }
     if (step.type === "dropdown") {
       fields.push(fieldRow("Select value", txt(step.selectValue, "text or {{column}}", (v) => P({ selectValue: v }))));
       fields.push(fieldRow("Match by", sel(step.selectMatchBy || "value", ["value", "text"], (v) => P({ selectMatchBy: v }))));
@@ -1370,16 +1411,280 @@ document.addEventListener("DOMContentLoaded", () => {
     if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
   });
 
+  // ══ URL Shifter (redirect rules) ═══════════════════════════════════════════
+  const US_KEY = "autoUrlShiftRules";
+  const US_SEARCH_KEY = "acSearch_urlshift";
+  const usListEl = document.getElementById("us-list");
+  const usSearchEl = document.getElementById("us-search");
+  const usCollapsed = new Set(); // collapsed (hidden body) redirect-rule ids — persisted like the other Hide/Show states
+  function persistUsCollapse() { chrome.storage.local.set({ acUsCollapsed: [...usCollapsed] }); }
+
+  // Fetches the ACTIVE TAB's URL (not this popup's own URL) so "Use current"
+  // can drop it straight into a match/redirect field.
+  function getActiveTabUrl(cb) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      cb(tab && tab.url ? tab.url : null);
+    });
+  }
+  // A text field + a small "Use current" button that fills it from the
+  // active tab's URL — kind "path" inserts just the pathname, "href" the
+  // full URL. Bypasses the normal txt() so the button can update the input
+  // AND save in one action instead of requiring a manual paste.
+  function usUrlField(labelText, value, placeholder, kind, onSave) {
+    const w = document.createElement("div"); w.className = "rule-field full";
+    const l = document.createElement("label"); l.textContent = labelText;
+    const row = document.createElement("div"); row.className = "us-url-row";
+    const input = document.createElement("input");
+    input.type = "text"; input.value = value || ""; if (placeholder) input.placeholder = placeholder;
+    input.addEventListener("change", (e) => onSave(e.target.value.trim()));
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "us-use-btn";
+    btn.textContent = "Use current";
+    btn.title = kind === "path" ? "Insert the active tab's current page path" : "Insert the active tab's current full URL";
+    btn.addEventListener("click", () => {
+      getActiveTabUrl((url) => {
+        if (!url) { alert("Could not read the active tab's URL — open a Masar page first."); return; }
+        let val = url;
+        try { val = kind === "path" ? new URL(url).pathname : url; } catch (_) {}
+        input.value = val;
+        onSave(val);
+      });
+    });
+    row.append(input, btn);
+    w.append(l, row);
+    return w;
+  }
+
+  function usNormalizeRule(rule) {
+    return {
+      id: rule.id || uid(),
+      name: rule.name || "Redirect",
+      nameCustom: !!rule.nameCustom, // true once the user types their own name — stops auto-rename
+      enabled: rule.enabled !== false,
+      matchMode: rule.matchMode || "contains",
+      matchValue: rule.matchValue || "",
+      targetUrl: rule.targetUrl || "",
+    };
+  }
+  function withUsRules(fn) { chrome.storage.local.get([US_KEY], (res) => fn((res[US_KEY] || []).map(usNormalizeRule))); }
+
+  // "https://masar.nusuk.sa/umrah/mutamer-group/add-group" → "→ umrah/mutamer-group/add-group".
+  // Falls back to the raw string for anything that doesn't parse as a URL
+  // (e.g. mid-typing, or a bare path already — new URL() needs an origin for
+  // those, which the popup doesn't have access to).
+  function usDeriveName(targetUrl) {
+    const v = (targetUrl || "").trim();
+    if (!v) return "";
+    let path = v;
+    if (/^https?:\/\//i.test(v)) {
+      try { path = new URL(v).pathname; } catch (_) { /* leave as raw string */ }
+    }
+    path = path.replace(/^\/+|\/+$/g, "");
+    return "→ " + (path || v);
+  }
+  function saveUsRules(rules, cb) { pushUndo(() => chrome.storage.local.set({ [US_KEY]: rules }, cb)); }
+
+  function addUsRule() {
+    withUsRules((rules) => saveUsRules([...rules, usNormalizeRule({ id: uid(), name: `Redirect ${rules.length + 1}` })], renderUsRules));
+  }
+  function duplicateUsRule(id) {
+    withUsRules((rules) => {
+      const idx = rules.findIndex((r) => String(r.id) === String(id));
+      if (idx < 0) return;
+      // Mark the copy's name custom so editing its (likely different) target
+      // URL doesn't silently drop the " (copy)" suffix right after duplicating.
+      const copy = { ...rules[idx], id: uid(), name: (rules[idx].name || "Redirect") + " (copy)", nameCustom: true };
+      const next = [...rules]; next.splice(idx + 1, 0, copy);
+      saveUsRules(next, renderUsRules);
+    });
+  }
+  function deleteUsRule(id) {
+    if (!confirm("Delete this redirect rule?")) return;
+    withUsRules((rules) => saveUsRules(rules.filter((r) => String(r.id) !== String(id)), renderUsRules));
+  }
+  function patchUsRule(id, patch) {
+    withUsRules((rules) => saveUsRules(rules.map((r) => String(r.id) === String(id) ? { ...r, ...patch } : r), renderUsRules));
+  }
+  function reorderUsRules(srcId, targetId) {
+    withUsRules((rules) => {
+      const from = rules.findIndex((r) => String(r.id) === String(srcId));
+      const to = rules.findIndex((r) => String(r.id) === String(targetId));
+      if (from < 0 || to < 0 || from === to) return;
+      const next = [...rules];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      saveUsRules(next, renderUsRules);
+    });
+  }
+  function matchesUsSearch(rule, search) {
+    return [rule.name, rule.matchMode, rule.matchValue, rule.targetUrl].filter(Boolean).join(" ").toLowerCase().includes(search);
+  }
+  function usMatchPlaceholder(mode) {
+    if (mode === "exact" || mode === "partial") return "/umrah/mutamer/add-mutamer";
+    return "text to search for anywhere in the URL";
+  }
+
+  function buildUsCard(rule) {
+    const id = String(rule.id);
+    const isCollapsed = usCollapsed.has(id);
+    const card = document.createElement("div"); card.className = "rule-card us-card";
+    card.dataset.dragId = id;
+
+    const head = document.createElement("div"); head.className = "rule-head";
+    const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.className = "enable-toggle"; toggle.checked = !!rule.enabled;
+    toggle.title = "Enable this rule";
+    toggle.addEventListener("change", (e) => patchUsRule(id, { enabled: e.target.checked }));
+
+    const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
+    dragHandle.addEventListener("pointerdown", (e) => startPointerDrag(e, dragHandle, card, id, usListEl, ".us-card", (srcId, targetId) => reorderUsRules(srcId, targetId)));
+
+    const name = document.createElement("input"); name.className = "wf-step-name"; name.value = rule.name;
+    name.title = rule.nameCustom ? "" : "Auto-named from the redirect URL — type your own name to take over";
+    name.addEventListener("change", (e) => {
+      const v = e.target.value.trim();
+      // Clearing the name back to empty hands naming back to auto-mode;
+      // typing anything else marks it custom so URL edits stop overwriting it.
+      if (!v) patchUsRule(id, { name: usDeriveName(rule.targetUrl) || "Redirect", nameCustom: false });
+      else patchUsRule(id, { name: v, nameCustom: true });
+    });
+
+    const collapseBtn = iconMini(isCollapsed ? "chevDown" : "chevUp", isCollapsed ? "Show rule details" : "Hide rule details", () => {
+      usCollapsed.has(id) ? usCollapsed.delete(id) : usCollapsed.add(id);
+      persistUsCollapse();
+      renderUsRules();
+    });
+    const dup = iconMini("duplicate", "Duplicate this rule", () => duplicateUsRule(id));
+    const del = iconMini("trash", "Delete this rule", () => deleteUsRule(id), true);
+
+    head.append(toggle, dragHandle, name, collapseBtn, dup, del);
+
+    const body = document.createElement("div"); body.className = "rule-body us-body" + (isCollapsed ? " collapsed" : "");
+    const isPathMode = rule.matchMode === "exact" || rule.matchMode === "partial";
+    body.append(
+      fieldRow("Match", sel(rule.matchMode, ["exact", "partial", "contains", "not contains"], (v) => patchUsRule(id, { matchMode: v }))),
+      usUrlField(isPathMode ? "Path" : "Text in URL", rule.matchValue, usMatchPlaceholder(rule.matchMode), isPathMode ? "path" : "href", (v) => patchUsRule(id, { matchValue: v })),
+      usUrlField("Redirect to", rule.targetUrl, "https://… or /a-path-on-this-site", "href", (v) => {
+        const patch = { targetUrl: v };
+        if (!rule.nameCustom) { const derived = usDeriveName(v); if (derived) patch.name = derived; }
+        patchUsRule(id, patch);
+      }),
+    );
+
+    card.append(head, body);
+    return card;
+  }
+
+  function renderUsRules() {
+    if (!usListEl) return;
+    chrome.storage.local.get([US_KEY, US_SEARCH_KEY], (res) => {
+      const rules = (res[US_KEY] || []).map(usNormalizeRule);
+      const search = (res[US_SEARCH_KEY] || "").trim().toLowerCase();
+      const shown = search ? rules.filter((r) => matchesUsSearch(r, search)) : rules;
+      usListEl.textContent = "";
+      if (!rules.length) {
+        const e = document.createElement("div"); e.className = "logs-empty"; e.textContent = "No redirect rules yet";
+        usListEl.appendChild(e); return;
+      }
+      if (!shown.length) {
+        const e = document.createElement("div"); e.className = "logs-empty"; e.textContent = "No rules match your search.";
+        usListEl.appendChild(e); return;
+      }
+      shown.forEach((rule) => usListEl.appendChild(buildUsCard(rule)));
+    });
+  }
+
+  wireInfoToggle("us-info-btn", "us-info-panel");
+
+  const usAddBtn = document.getElementById("us-add");
+  if (usAddBtn) usAddBtn.onclick = addUsRule;
+
+  if (usSearchEl) {
+    chrome.storage.local.get([US_SEARCH_KEY], (res) => { usSearchEl.value = res[US_SEARCH_KEY] || ""; });
+    usSearchEl.addEventListener("input", (e) => { chrome.storage.local.set({ [US_SEARCH_KEY]: e.target.value }); renderUsRules(); });
+  }
+
+  // Share / Import link / Export / Import — identical infrastructure to
+  // rules and workflows, applied to the whole autoUrlShiftRules array.
+  const usShareBtn = document.getElementById("us-share");
+  if (usShareBtn) usShareBtn.onclick = () => {
+    chrome.storage.local.get([US_KEY], async (res) => {
+      const rules = res[US_KEY] || [];
+      if (!rules.length) { alert("No redirect rules to share."); return; }
+      usShareBtn.disabled = true;
+      if (window.NkLicense && window.NkLicense.shareRules) {
+        const r = await window.NkLicense.shareRules(rules);
+        usShareBtn.disabled = false;
+        if (r && r.ok && r.url) {
+          copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
+          return;
+        }
+        if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
+      } else usShareBtn.disabled = false;
+      copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+    });
+  };
+
+  const usImpLinkBtn = document.getElementById("us-import-link");
+  if (usImpLinkBtn) usImpLinkBtn.onclick = async () => {
+    const text = window.prompt("Paste a Nuskomate redirect-rules link:");
+    if (text == null || !text.trim()) return;
+    let imported = null;
+    const code = shareCodeFrom(text);
+    if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
+      const r = await window.NkLicense.fetchSharedRules(code);
+      if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
+      else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+    }
+    if (!imported) {
+      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+    }
+    if (!imported.length) { alert("That link has no rules."); return; }
+    withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { alert(`Imported ${imported.length} rule(s) from link.`); renderUsRules(); }));
+  };
+
+  const usExportBtn = document.getElementById("us-export");
+  if (usExportBtn) usExportBtn.onclick = () => {
+    chrome.storage.local.get([US_KEY], (res) => {
+      const rules = res[US_KEY] || [];
+      if (!rules.length) { alert("No redirect rules to export."); return; }
+      const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `redirect-rules-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+  };
+
+  const usImportBtn = document.getElementById("us-import");
+  const usImportFile = document.getElementById("us-import-file");
+  if (usImportBtn && usImportFile) usImportBtn.onclick = () => usImportFile.click();
+  if (usImportFile) usImportFile.addEventListener("change", (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
+        withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { alert(`Imported ${imported.length} rule(s).`); renderUsRules(); }));
+      } catch (err) { alert(`Import failed: ${err.message}`); }
+    };
+    reader.readAsText(file); usImportFile.value = "";
+  });
+
+  chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c[US_KEY]) renderUsRules(); });
+
   // Restore persisted Hide/Show state BEFORE the first render, so nothing
   // flashes open-then-collapsed. Both renders persist their own state again
   // right after, so subsequent toggles just work off the live Sets.
-  chrome.storage.local.get(["acKnownRuleIds", "acCollapsedRuleIds", "acCollapsedGroups", "acWfCollapsed", "acWfSettingsOpen"], (res) => {
+  chrome.storage.local.get(["acKnownRuleIds", "acCollapsedRuleIds", "acCollapsedGroups", "acWfCollapsed", "acWfSettingsOpen", "acUsCollapsed"], (res) => {
     (res.acKnownRuleIds || []).forEach((id) => knownRuleIds.add(id));
     (res.acCollapsedRuleIds || []).forEach((id) => collapsedRuleIds.add(id));
     (res.acCollapsedGroups || []).forEach((k) => collapsedGroups.add(k));
     (res.acWfCollapsed || []).forEach((id) => wfCollapsed.add(id));
     (res.acWfSettingsOpen || []).forEach((id) => wfSettingsOpen.add(id));
+    (res.acUsCollapsed || []).forEach((id) => usCollapsed.add(id));
     renderRules();
     renderWorkflows();
+    renderUsRules();
   });
 });

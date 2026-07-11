@@ -1438,6 +1438,17 @@ body { width: 500px; display: flex; flex-direction: column; }
 }
 .rule-field input:focus, .rule-field select:focus { outline: none; border-color: var(--accent); }
 
+/* URL Shifter: text field + "Use current" button sharing one row. Selector
+   specificity beats the plain ".rule-field input" rule above on purpose. */
+.rule-field .us-url-row { display: flex; gap: 6px; align-items: center; }
+.rule-field .us-url-row input { width: auto; flex: 1; min-width: 0; }
+.us-use-btn {
+  flex-shrink: 0; white-space: nowrap; font-size: 10px; font-weight: 700;
+  padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2); color: var(--text-muted); cursor: pointer; transition: all .15s;
+}
+.us-use-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+
 .multi-selector-list { display: grid; gap: 6px; margin-top: 6px; }
 .multi-selector-row { display: flex; gap: 6px; align-items: center; }
 .multi-selector-row input { flex: 1; }

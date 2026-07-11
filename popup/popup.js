@@ -86,6 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-father": "father", "toggle-batch": "batch",
       "toggle-autoclicker": "autoclick", "toggle-workflows": "workflows",
       "toggle-autofill-rules": "fillrules", "toggle-autoselect": "autoselect",
+      "toggle-urlshift": "urlshift",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -111,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now.
-      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"]].forEach(([up, ct, feat]) => {
+      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -319,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-autofill-rules", key: "moduleAutoFillRules", offLabel: true },
     { id: "toggle-autoselect",  key: "moduleAutoSelect", offLabel: true   },
     { id: "toggle-workflows",   key: "moduleWorkflows", offLabel: true    },
+    { id: "toggle-urlshift",    key: "moduleUrlShift", offLabel: true     },
   ];
 
   // All modules default ON for new installs (key never set = treat as true)

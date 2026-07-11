@@ -159,8 +159,32 @@
     element.click();
   }
 
+  // ── Date/time formatting (for fill rules whose value is "today's date") ───
+  // Tokens: YYYY YY MMM MM DD HH mm ss. Longer tokens are listed first in the
+  // alternation so e.g. "YYYY" isn't partially consumed by the "YY" branch.
+  function formatDate(d, fmt) {
+    const p2 = (n) => String(n).padStart(2, "0");
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const map = {
+      YYYY: d.getFullYear(), YY: String(d.getFullYear()).slice(-2),
+      MMM: MONTHS[d.getMonth()], MM: p2(d.getMonth() + 1),
+      DD: p2(d.getDate()), HH: p2(d.getHours()), mm: p2(d.getMinutes()), ss: p2(d.getSeconds()),
+    };
+    return String(fmt || "YYYY-MM-DD").replace(/YYYY|YY|MMM|MM|DD|HH|mm|ss/g, (t) => (t in map ? String(map[t]) : t));
+  }
+
+  // Fill rules can produce either static text or today's date/time in a
+  // chosen format, optionally wrapped in a prefix/suffix — e.g.
+  // prefix "Ref-" + date "YYYYMMDD" + suffix "-A" → "Ref-20260710-A".
+  function resolveFillValue(rule) {
+    const base = rule.valueMode === "date"
+      ? formatDate(new Date(), (rule.dateFormat === "custom" ? rule.dateFormatCustom : rule.dateFormat) || "YYYY-MM-DD")
+      : (rule.fillValue || "");
+    return (rule.prefix || "") + base + (rule.suffix || "");
+  }
+
   function fillInput(element, rule) {
-    const value = rule.fillValue || "";
+    const value = resolveFillValue(rule);
     element.focus();
 
     if (rule.clearFirst !== false) {
@@ -337,6 +361,11 @@
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
       jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
       fillValue: rule.fillValue || "",
+      valueMode: rule.valueMode === "date" ? "date" : "text",
+      dateFormat: rule.dateFormat || "YYYY-MM-DD",
+      dateFormatCustom: rule.dateFormatCustom || "",
+      prefix: rule.prefix || "",
+      suffix: rule.suffix || "",
       clearFirst: rule.clearFirst !== false,
       triggerAngularEvents: rule.triggerAngularEvents !== false,
       selectValue: rule.selectValue || "",
@@ -815,7 +844,7 @@
     // Human-like: a short random "reaction time" before each action.
     if (ctx.humanize) await sleep(150 + Math.random() * 450);
     switch (type) {
-      case "input":    fillInput(el, { ...step, fillValue: interp(step.fillValue, ctx) }); break;
+      case "input":    fillInput(el, { ...step, fillValue: interp(step.fillValue, ctx), prefix: interp(step.prefix, ctx), suffix: interp(step.suffix, ctx) }); break;
       case "dropdown": selectOption(el, { ...step, requiredElements: [sel], selectValue: interp(step.selectValue, ctx) }); break;
       case "checkbox": setCheckbox(el, step.targetState || "checked"); break;
       case "radio":    setCheckbox(el, step.targetState || "checked"); break;

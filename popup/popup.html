@@ -67,6 +67,10 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
             <span>Flows</span>
           </button>
+          <button class="tab" data-tab="urlshift" title="URL Shifter">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+            <span>Redirect</span>
+          </button>
           <button class="tab" data-tab="passport" title="Passport">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
@@ -767,6 +771,69 @@
     </div>
     </div><!-- /wf-content -->
     </div><!-- /panel-workflows -->
+
+    <!-- Panel: URL Shifter (redirect rules) -->
+    <div class="tab-panel" id="panel-urlshift">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">URL Shifter <button id="us-info-btn" class="info-btn" type="button" title="How URL Shifter works" aria-label="How URL Shifter works">i</button></div>
+            <div class="module-desc">Auto-redirect when the page URL matches</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-urlshift" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="us-info-panel" style="display:none;">
+          <li>Click <b>+</b>, name the rule, then set a <b>match</b> and a <b>redirect to</b> URL.</li>
+          <li><b>Exact</b> / <b>Partial</b> match the page's path (e.g. <code>/umrah/mutamer/add-mutamer</code>); <b>Partial</b> matches anything starting with it.</li>
+          <li><b>Contains</b> / <b>Not contains</b> match anywhere in the full URL — useful for query strings or a domain fragment.</li>
+          <li>Redirect to can be a full URL or a path on this site (e.g. <code>/umrah/mutamer-group</code>).</li>
+          <li>Works with Angular's in-app navigation, not just full page loads — a rule fires once per page/route, so it won't loop.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="us-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">URL Shifter is a premium tool</div>
+      <div class="premium-upsell-text">Automatically redirect away from — or into — a page when its URL matches a rule. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="us-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="us-content">
+    <div class="section">
+      <div class="ac-toolbar-compact">
+        <input type="search" id="us-search" class="logs-search" placeholder="Search redirect rules…" autocomplete="off" />
+        <button id="us-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add redirect rule" aria-label="Add redirect rule">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="us-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="us-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="us-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="us-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <input id="us-import-file" type="file" accept=".json" style="display:none;" />
+      </div>
+      <div id="us-list" class="ac-list"><div class="logs-empty">No redirect rules yet</div></div>
+    </div>
+    </div><!-- /us-content -->
+    </div><!-- /panel-urlshift -->
 
     <!-- Panel: Keys (admin — only shown when the master key is active) -->
     <div class="tab-panel" id="panel-keys">

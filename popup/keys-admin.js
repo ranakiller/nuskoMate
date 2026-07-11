@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoclick: "Auto Clicker",
     autoselect: "Auto Select",
     workflows: "Workflows",
+    urlshift: "URL Shifter",
     bulk: "Bulk Parser",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
@@ -24,7 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // select-all checkbox: clicking it checks/unchecks every tool inside it.
   const TOOL_GROUPS = [
     { name: "Mutamer Details Fill", tools: ["autofill", "translate", "issuedate", "vaccine", "ocr", "father", "batch"] },
-    { name: "Automation",           tools: ["fillrules", "autoclick", "autoselect", "workflows"] },
+    { name: "Automation",           tools: ["fillrules", "autoclick", "autoselect", "workflows", "urlshift"] },
     { name: "Passport Parser",      tools: ["bulk"] },
     { name: "Utilities",            tools: ["reload", "overlay"] },
   ];
