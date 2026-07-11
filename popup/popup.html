@@ -71,10 +71,6 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
           </button>
-          <button class="tab" data-tab="logs" title="Logs">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            <span>Logs</span><span class="tab-badge" id="tab-log-count"></span>
-          </button>
           <button class="tab" data-tab="keys" id="tab-keys" title="Keys" style="display:none;">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             <span>Keys</span>
@@ -82,8 +78,9 @@
         </div>
 
         <div class="side-foot">
-          <button class="side-collapse" id="side-collapse" title="Collapse / expand sidebar" aria-label="Collapse or expand sidebar">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          <button class="tab" data-tab="logs" title="Logs">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span>Logs</span><span class="tab-badge" id="tab-log-count"></span>
           </button>
           <button class="tab" data-tab="settings" title="Settings">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -337,14 +334,13 @@
 
     <!-- Fill Rules: reactive rules that fill input fields -->
     <div class="section">
-      <div class="section-title">Fill Rules</div>
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon autofill-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Fill Rules</div>
+            <div class="module-name">Auto Fill Rules <button id="fill-info-btn" class="info-btn" type="button" title="How fill rules work" aria-label="How fill rules work">i</button></div>
             <div class="module-desc">Reactive rules that fill input fields</div>
           </div>
           <label class="toggle-switch">
@@ -352,24 +348,34 @@
             <span class="slider"></span>
           </label>
         </div>
+        <ul class="info-panel" id="fill-info-panel" style="display:none;">
+          <li>Click <b>+</b>, then click an <b>input field</b> on the Masar page to capture it.</li>
+          <li>Rules are grouped by page URL.</li>
+          <li>Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.</li>
+        </ul>
       </div>
     </div>
 
     <div class="section">
-      <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Rules</div>
-        <span class="ac-off-tag" id="fill-off-tag" style="display:none;">module off</span>
-      </div>
-      <div class="ac-toolbar">
-        <button id="fill-add" class="bulk-btn bulk-btn-primary" type="button">+ Add fill rule</button>
-        <button id="fill-share" class="bulk-btn bulk-btn-soft" type="button">Share link</button>
-        <button id="fill-import-link" class="bulk-btn bulk-btn-soft" type="button">Import link</button>
-        <button id="fill-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
-        <button id="fill-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
+      <div class="ac-toolbar-compact">
+        <input type="search" id="fill-search" class="logs-search" placeholder="Search fill rules…" autocomplete="off" />
+        <button id="fill-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add fill rule" aria-label="Add fill rule">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="fill-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="fill-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="fill-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="fill-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
         <input id="fill-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-      <input type="search" id="fill-search" class="logs-search" placeholder="Search fill rules…" autocomplete="off" />
-      <div class="rule-help ac-help">Click <b>Add fill rule</b>, then click an <b>input field</b> on the Masar page to capture it. Rules are grouped by page URL.</div>
       <div id="fill-list" class="ac-list"><div class="logs-empty">No fill rules yet</div></div>
     </div>
 
@@ -581,14 +587,13 @@
     <div class="tab-panel" id="panel-autoclick">
 
     <div class="section">
-      <div class="section-title">Auto Clicker</div>
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon clicker-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 3v2M5 9H3m4-4L5.5 5.5M9 12l9 4-4 2-2 4-3-10z"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Clicker</div>
+            <div class="module-name">Auto Clicker <button id="ac-info-btn" class="info-btn" type="button" title="How click rules work" aria-label="How click rules work">i</button></div>
             <div class="module-desc">Reactive rules that click buttons</div>
           </div>
           <label class="toggle-switch">
@@ -596,6 +601,11 @@
             <span class="slider"></span>
           </label>
         </div>
+        <ul class="info-panel" id="ac-info-panel" style="display:none;">
+          <li>Click <b>+</b>, then click a <b>button</b> on the Masar page to capture it.</li>
+          <li>Rules are grouped by page URL — expand a rule to add conditions or timing.</li>
+          <li>Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.</li>
+        </ul>
       </div>
     </div>
 
@@ -610,36 +620,24 @@
 
     <div id="ac-content">
     <div class="section">
-      <div class="section-title">Profiles</div>
-      <div class="rule-help ac-help">A profile is a saved set of <b>all rules + workflows</b>. Save the current setup under a name, then switch sets any time (loading replaces the current set — Ctrl+Z undoes it).</div>
-      <select id="prof-select" class="prof-select"><option value="">— no profiles saved —</option></select>
-      <div class="ac-toolbar prof-toolbar">
-        <button id="prof-save" class="bulk-btn bulk-btn-primary" type="button">+ Save current as…</button>
-        <button id="prof-load" class="bulk-btn bulk-btn-soft" type="button">Load</button>
-        <button id="prof-update" class="bulk-btn bulk-btn-soft" type="button">Update</button>
-        <button id="prof-delete" class="bulk-btn bulk-btn-soft" type="button">Delete</button>
-      </div>
-      <div id="prof-info" class="wf-data-info"></div>
-    </div>
-
-    <div class="section">
-      <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Rules</div>
-        <span class="ac-off-tag" id="ac-off-tag" style="display:none;">module off</span>
-      </div>
-      <div class="ac-toolbar">
-        <button id="ac-add" class="bulk-btn bulk-btn-primary" type="button">+ Add click rule</button>
-        <button id="ac-share" class="bulk-btn bulk-btn-soft" type="button">Share link</button>
-        <button id="ac-import-link" class="bulk-btn bulk-btn-soft" type="button">Import link</button>
-        <button id="ac-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
-        <button id="ac-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
+      <div class="ac-toolbar-compact">
+        <input type="search" id="ac-search" class="logs-search" placeholder="Search click rules…" autocomplete="off" />
+        <button id="ac-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add click rule" aria-label="Add click rule">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="ac-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="ac-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="ac-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="ac-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
         <input id="ac-import-file" type="file" accept=".json" style="display:none;" />
-      </div>
-      <input type="search" id="ac-search" class="logs-search" placeholder="Search click rules…" autocomplete="off" />
-      <div class="rule-help ac-help">
-        Click <b>Add click rule</b>, then click a <b>button</b> on the Masar page to capture it.
-        Rules are grouped by page URL. Expand a rule to add conditions or timing.
-        Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.
       </div>
       <div id="ac-list" class="ac-list"><div class="logs-empty">No click rules yet</div></div>
     </div>
@@ -650,14 +648,13 @@
     <div class="tab-panel" id="panel-autoselect">
 
     <div class="section">
-      <div class="section-title">Auto Select</div>
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon fill-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 10 12 14 16 10"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Select</div>
+            <div class="module-name">Auto Select <button id="as-info-btn" class="info-btn" type="button" title="How select rules work" aria-label="How select rules work">i</button></div>
             <div class="module-desc">Reactive rules that pick dropdown values</div>
           </div>
           <label class="toggle-switch">
@@ -665,6 +662,10 @@
             <span class="slider"></span>
           </label>
         </div>
+        <ul class="info-panel" id="as-info-panel" style="display:none;">
+          <li>Click <b>+</b>, then click a <b>dropdown</b> on the Masar page to capture it.</li>
+          <li>Set the value you want it to pick, and how to match it (by value or by visible text).</li>
+        </ul>
       </div>
     </div>
 
@@ -679,20 +680,25 @@
 
     <div id="as-content">
     <div class="section">
-      <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Rules</div>
-        <span class="ac-off-tag" id="as-off-tag" style="display:none;">module off</span>
-      </div>
-      <div class="ac-toolbar">
-        <button id="as-add" class="bulk-btn bulk-btn-primary" type="button">+ Add select rule</button>
-        <button id="as-share" class="bulk-btn bulk-btn-soft" type="button">Share link</button>
-        <button id="as-import-link" class="bulk-btn bulk-btn-soft" type="button">Import link</button>
-        <button id="as-export" class="bulk-btn bulk-btn-soft" type="button">Export</button>
-        <button id="as-import" class="bulk-btn bulk-btn-soft" type="button">Import</button>
+      <div class="ac-toolbar-compact">
+        <input type="search" id="as-search" class="logs-search" placeholder="Search select rules…" autocomplete="off" />
+        <button id="as-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add select rule" aria-label="Add select rule">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="as-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="as-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="as-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="as-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
         <input id="as-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-      <input type="search" id="as-search" class="logs-search" placeholder="Search select rules…" autocomplete="off" />
-      <div class="rule-help ac-help">Click <b>Add select rule</b>, then click a <b>dropdown</b> on the Masar page to capture it, and set the value to pick.</div>
       <div id="as-list" class="ac-list"><div class="logs-empty">No select rules yet</div></div>
     </div>
     </div><!-- /as-content -->
@@ -702,14 +708,13 @@
     <div class="tab-panel" id="panel-workflows">
 
     <div class="section">
-      <div class="section-title">Workflows</div>
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon clicker-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Workflows</div>
+            <div class="module-name">Workflows <button id="wf-info-btn" class="info-btn" type="button" title="How workflows work" aria-label="How workflows work">i</button></div>
             <div class="module-desc">Programmable step sequences (loops, data, hotkeys)</div>
           </div>
           <label class="toggle-switch">
@@ -717,6 +722,14 @@
             <span class="slider"></span>
           </label>
         </div>
+        <ul class="info-panel" id="wf-info-panel" style="display:none;">
+          <li>Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press <b>▶ Run</b> to play it.</li>
+          <li>Or press <b>● Rec</b> and just do the actions on the page — your clicks, typing and dropdown picks are captured as steps automatically.</li>
+          <li>Hover between steps for a <b>+</b> to insert one exactly there (e.g. a Delay).</li>
+          <li>Drag the <b>☰</b> handle to reorder steps.</li>
+          <li>Use <b>◎</b> to flash a step's element on the page.</li>
+          <li>Use <b>⚙</b> for run mode / hotkey / repeat / CSV data.</li>
+        </ul>
       </div>
     </div>
 
@@ -731,18 +744,24 @@
 
     <div id="wf-content">
     <div class="section" id="wf-section">
-      <div class="ac-head">
-        <div class="section-title" style="margin-bottom:0;">Workflows</div>
-        <span class="ac-off-tag" id="wf-off-tag" style="display:none;">module off</span>
-      </div>
-      <div class="ac-toolbar" style="grid-template-columns:1fr;">
-        <button id="wf-add" class="bulk-btn bulk-btn-primary" type="button">+ New workflow</button>
-      </div>
-      <div class="rule-help ac-help">
-        Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press
-        <b>▶ Run</b> to play it — or press <b>● Rec</b> and just do the actions on the page:
-        your clicks, typing and dropdown picks are captured as steps automatically.
-        Use <b>◎</b> to flash a step's element, and <b>⚙</b> for run mode / hotkey / repeat / CSV data.
+      <div class="ac-toolbar-compact">
+        <input type="search" id="wf-search" class="logs-search" placeholder="Search workflows…" autocomplete="off" />
+        <button id="wf-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="New workflow" aria-label="New workflow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="wf-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="wf-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="wf-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="wf-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <input id="wf-import-file" type="file" accept=".json" style="display:none;" />
       </div>
       <div id="wf-list" class="ac-list"></div>
     </div>

@@ -11,33 +11,37 @@ document.addEventListener("DOMContentLoaded", () => {
   //   fill   → Autofill      (input fields)             → moduleAutoFillRules
   //   select → Auto Select   (dropdowns)                → moduleAutoSelect
   const CATS = [
-    { cat: "click",  list: "ac-list",   search: "ac-search",   offTag: "ac-off-tag",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules" },
-    { cat: "fill",   list: "fill-list", search: "fill-search", offTag: "fill-off-tag", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules" },
-    { cat: "select", list: "as-list",   search: "as-search",   offTag: "as-off-tag",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules" },
+    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
+    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
+    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
   ];
-  const wfOffTag = document.getElementById("wf-off-tag");
   if (!document.getElementById("ac-list")) return;
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
   const collapsedGroups = new Set(); // "cat|path" groups collapsed in the rules lists
-  let draggedId = null; // id of the rule currently being dragged (reliable across drop)
+
+  // A popup is fully torn down and rebuilt every time it's closed, so these
+  // Sets would otherwise forget every Hide/Show the instant you close the
+  // popup. knownRuleIds is persisted alongside collapsedRuleIds so a rule
+  // that's genuinely brand-new (never in either) still defaults to
+  // collapsed, while a previously-seen rule keeps whatever state you left it in.
+  function persistRuleCollapse() {
+    chrome.storage.local.set({
+      acKnownRuleIds: [...knownRuleIds],
+      acCollapsedRuleIds: [...collapsedRuleIds],
+      acCollapsedGroups: [...collapsedGroups],
+    });
+  }
 
   function categoryOf(rule) {
     const t = rule.type || "button";
     return t === "input" ? "fill" : t === "dropdown" ? "select" : "click";
   }
 
-  // ── "module off" hints ─────────────────────────────────────────────────────
-  function refreshOffTag() {
-    chrome.storage.local.get(["moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect", "moduleWorkflows"], (res) => {
-      CATS.forEach((c) => { const el = document.getElementById(c.offTag); if (el) el.style.display = res[c.module] ? "none" : ""; });
-      if (wfOffTag) wfOffTag.style.display = res.moduleWorkflows ? "none" : "";
-    });
-  }
-
-  // ── Per-category search ────────────────────────────────────────────────────
+  // ── Per-category search + info toggle ───────────────────────────────────
   CATS.forEach((c) => {
+    wireInfoToggle(c.infoBtn, c.infoPanel);
     const s = document.getElementById(c.search);
     if (!s) return;
     chrome.storage.local.get([c.searchKey], (res) => { s.value = res[c.searchKey] || ""; });
@@ -95,7 +99,71 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // ── Search matching ─────────────────────────────────────────────────────
+  // "How this works" — collapsed behind an ⓘ button next to a section title
+  // so it doesn't eat space once you already know the ropes.
+  function wireInfoToggle(btnId, panelId) {
+    const btn = document.getElementById(btnId);
+    const panel = document.getElementById(panelId);
+    if (!btn || !panel) return;
+    btn.addEventListener("click", () => {
+      const open = panel.style.display !== "none";
+      panel.style.display = open ? "none" : "";
+      btn.classList.toggle("info-btn-open", !open);
+    });
+  }
+
+  // ── Drag-to-reorder (pointer-based, NOT native HTML5 DnD) ─────────────────
+  // Native HTML5 drag-and-drop (draggable="true" + dragstart/dragover/drop)
+  // is unreliable inside a small extension popup — the drop kept being
+  // rejected and the browser played its "snap back to origin" animation, no
+  // matter how the drop targets were wired. So this doesn't use the browser's
+  // DnD state machine AT ALL: it's plain pointer tracking with Pointer
+  // Capture, which keeps receiving move/up events for the rest of the
+  // gesture regardless of what's under the cursor (a card, a gap, a group
+  // header, a step inserter — doesn't matter).
+  //
+  // Call from a drag-HANDLE's pointerdown: startPointerDrag(e, handleEl,
+  // itemEl, itemId, container, itemSelector, onReorder). onReorder(srcId,
+  // targetId) fires once, on release, with whichever item ended up closest
+  // to the pointer.
+  function startPointerDrag(e, handleEl, itemEl, itemId, container, itemSelector, onReorder) {
+    if (e.button !== 0) return; // left button / primary touch only
+    e.preventDefault();
+    itemEl.classList.add("dragging");
+    try { handleEl.setPointerCapture(e.pointerId); } catch (_) {}
+
+    function closestItem(clientY) {
+      let best = null, bestDist = Infinity;
+      container.querySelectorAll(itemSelector).forEach((el) => {
+        if (el === itemEl) return;
+        const r = el.getBoundingClientRect();
+        const dist = Math.abs(clientY - (r.top + r.height / 2));
+        if (dist < bestDist) { bestDist = dist; best = el; }
+      });
+      return best;
+    }
+
+    function onMove(ev) {
+      const near = closestItem(ev.clientY);
+      container.querySelectorAll(itemSelector).forEach((el) => el.classList.toggle("drag-over", el === near));
+    }
+    function finish(ev) {
+      handleEl.removeEventListener("pointermove", onMove);
+      handleEl.removeEventListener("pointerup", finish);
+      handleEl.removeEventListener("pointercancel", finish);
+      try { handleEl.releasePointerCapture(ev.pointerId); } catch (_) {}
+      const near = closestItem(ev.clientY);
+      itemEl.classList.remove("dragging");
+      container.querySelectorAll(itemSelector).forEach((el) => el.classList.remove("drag-over"));
+      if (near && near.dataset.dragId && String(near.dataset.dragId) !== String(itemId)) {
+        onReorder(itemId, near.dataset.dragId);
+      }
+    }
+    handleEl.addEventListener("pointermove", onMove);
+    handleEl.addEventListener("pointerup", finish);
+    handleEl.addEventListener("pointercancel", finish);
+  }
+
   function matchesSearch(rule, search) {
     return [
       rule.name, rule.type, rule.pathname, rule.pathMatch, rule.fillValue, rule.selectValue,
@@ -202,14 +270,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // ── Persistence ─────────────────────────────────────────────────────────
   function saveRules(rules, callback) { pushUndo(() => chrome.storage.local.set({ [RULES_KEY]: rules }, callback)); }
 
-  function reorderRules(sourceId, targetId, rules) {
-    const from = rules.findIndex((r) => String(r.id) === String(sourceId));
-    const to = rules.findIndex((r) => String(r.id) === String(targetId));
-    if (from < 0 || to < 0 || from === to) return;
-    const next = [...rules];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    saveRules(next, renderRules);
+  // Reads current storage itself (rather than trusting a `rules` array
+  // handed in from whenever the card was rendered) so it's always correct
+  // even if the drag took a while or another edit landed in between.
+  function reorderRules(sourceId, targetId) {
+    chrome.storage.local.get([RULES_KEY, "autoButtons"], (res) => {
+      const rules = (res[RULES_KEY] || res.autoButtons || []).map(normalizeRule);
+      const from = rules.findIndex((r) => String(r.id) === String(sourceId));
+      const to = rules.findIndex((r) => String(r.id) === String(targetId));
+      if (from < 0 || to < 0 || from === to) return;
+      const next = [...rules];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      saveRules(next, renderRules);
+    });
   }
 
   // ── Field helpers ─────────────────────────────────────────────────────────
@@ -373,19 +447,29 @@ document.addEventListener("DOMContentLoaded", () => {
         badge.className = `type-badge type-badge--${rule.type}`;
         badge.textContent = TYPE_LABELS[rule.type] || "BTN";
 
+        const isCollapsed = collapsedRuleIds.has(id);
         const collapseBtn = document.createElement("button");
-        collapseBtn.className = "collapse-rule";
+        collapseBtn.className = "collapse-rule wf-icon-btn";
         collapseBtn.type = "button";
         collapseBtn.dataset.id = id;
-        collapseBtn.textContent = collapsedRuleIds.has(id) ? "Show" : "Hide";
+        collapseBtn.innerHTML = svgIcon(isCollapsed ? "chevDown" : "chevUp");
+        collapseBtn.title = isCollapsed ? "Show rule details" : "Hide rule details";
+
+        const dupBtn = document.createElement("button");
+        dupBtn.className = "secondary-btn wf-icon-btn dup-btn";
+        dupBtn.dataset.id = id;
+        dupBtn.type = "button";
+        dupBtn.innerHTML = svgIcon("duplicate");
+        dupBtn.title = "Duplicate this rule";
 
         const delBtn = document.createElement("button");
-        delBtn.className = "delete-rule del-btn";
+        delBtn.className = "delete-rule wf-icon-btn del-btn";
         delBtn.dataset.id = id;
         delBtn.type = "button";
-        delBtn.textContent = "Delete";
+        delBtn.innerHTML = svgIcon("trash");
+        delBtn.title = "Delete this rule";
 
-        head.append(toggle, dragHandle, title, badge, collapseBtn, delBtn);
+        head.append(toggle, dragHandle, title, badge, collapseBtn, dupBtn, delBtn);
 
         const summary = document.createElement("div");
         summary.className = "rule-summary";
@@ -415,33 +499,12 @@ document.addEventListener("DOMContentLoaded", () => {
           body.append(divider, ...typeFields);
         }
 
-        // Drag to reorder — enabled ONLY from the handle so the form inputs
-        // don't hijack it into a text-drag (which was losing the rule id on drop).
-        card.draggable = false;
-        dragHandle.addEventListener("mousedown", () => { card.draggable = true; });
-        dragHandle.addEventListener("mouseup", () => { card.draggable = false; });
-        card.addEventListener("dragstart", (e) => {
-          draggedId = id;
-          e.dataTransfer.effectAllowed = "move";
-          try { e.dataTransfer.setData("text/plain", id); } catch (_) {}
-          card.classList.add("dragging");
-        });
-        card.addEventListener("dragend", () => {
-          card.classList.remove("dragging");
-          card.draggable = false;
-          draggedId = null;
-        });
-        card.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          card.classList.add("drag-over");
-        });
-        card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
-        card.addEventListener("drop", (e) => {
-          e.preventDefault();
-          card.classList.remove("drag-over");
-          const srcId = draggedId || e.dataTransfer.getData("text/plain");
-          if (srcId && String(srcId) !== id) reorderRules(srcId, id, rules);
+        // Drag to reorder — pointer-based, handle-only (form inputs inside
+        // the card stay untouched). See startPointerDrag for why.
+        card.dataset.dragId = id;
+        dragHandle.addEventListener("pointerdown", (e) => {
+          const listEl = card.closest(".ac-list");
+          if (listEl) startPointerDrag(e, dragHandle, card, id, listEl, ".rule-card", (srcId, targetId) => reorderRules(srcId, targetId));
         });
 
         card.append(head, summary, body);
@@ -496,10 +559,23 @@ document.addEventListener("DOMContentLoaded", () => {
         listEl.querySelectorAll(".collapse-rule").forEach((btn) => {
           btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.has(rid) ? collapsedRuleIds.delete(rid) : collapsedRuleIds.add(rid); renderRules(); };
         });
+        listEl.querySelectorAll(".dup-btn").forEach((btn) => {
+          btn.onclick = (e) => {
+            const rid = e.currentTarget.dataset.id;
+            const idx = rules.findIndex((r) => String(r.id) === rid);
+            if (idx < 0) return;
+            const copy = { ...rules[idx], id: Date.now() + Math.random(), name: (rules[idx].name || "Unnamed") + " (copy)" };
+            const next = [...rules]; next.splice(idx + 1, 0, copy);
+            const newId = String(copy.id);
+            knownRuleIds.add(newId); collapsedRuleIds.delete(newId); // land expanded so the copy is easy to spot
+            saveRules(next, renderRules);
+          };
+        });
         listEl.querySelectorAll(".del-btn").forEach((btn) => {
           btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.delete(rid); knownRuleIds.delete(rid); saveRules(rules.filter((r) => String(r.id) !== rid), renderRules); };
         });
       });
+      persistRuleCollapse(); // covers explicit Hide/Show toggles AND newly-discovered rules defaulting to collapsed
     });
   }
 
@@ -520,23 +596,26 @@ document.addEventListener("DOMContentLoaded", () => {
     if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
 
     // Share this category's rules — short server link, long link as fallback.
+    // NOTE: never touch .textContent/.innerHTML on this button for a "loading"
+    // state — it's icon-only now, and overwriting its content would wipe the
+    // SVG out permanently (same bug that turned the module-off info button
+    // into a stray "i"). Use the disabled state (dimmed via CSS) instead.
     const shareBtn = document.getElementById(cfg.share);
     if (shareBtn) shareBtn.onclick = () => {
       chrome.storage.local.get([RULES_KEY], async (res) => {
         const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
         if (!rules.length) { alert("No rules to share."); return; }
-        shareBtn.disabled = true; shareBtn.textContent = "Sharing…";
-        const done = () => { shareBtn.disabled = false; shareBtn.textContent = "Share link"; };
+        shareBtn.disabled = true;
         if (window.NkLicense && window.NkLicense.shareRules) {
           const r = await window.NkLicense.shareRules(rules);
-          done();
+          shareBtn.disabled = false;
           if (r && r.ok && r.url) {
             copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
             return;
           }
           // Server refused / unreachable → offer the offline self-contained link.
           if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
-        } else done();
+        } else shareBtn.disabled = false;
         copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
       });
     };
@@ -595,98 +674,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ══ Named profiles (Tier 3) ═══════════════════════════════════════════════
-  // A profile = a named snapshot of ALL rules + workflows. Loading one replaces
-  // the current set (undo-able via the shared history).
-  const PROF_KEY = "acProfiles";
-  const profSelect = document.getElementById("prof-select");
-  const profInfo = document.getElementById("prof-info");
-
-  function withProfiles(fn) { chrome.storage.local.get([PROF_KEY], (res) => fn(res[PROF_KEY] || [])); }
-
-  function renderProfiles() {
-    if (!profSelect) return;
-    withProfiles((profs) => {
-      const cur = profSelect.value;
-      profSelect.textContent = "";
-      if (!profs.length) {
-        const o = document.createElement("option"); o.value = ""; o.textContent = "— no profiles saved —";
-        profSelect.appendChild(o);
-      } else {
-        profs.forEach((p) => {
-          const o = document.createElement("option"); o.value = String(p.id);
-          o.textContent = `${p.name} (${(p.rules || []).length} rules · ${(p.wfs || []).length} workflows)`;
-          profSelect.appendChild(o);
-        });
-        if ([...profSelect.options].some((o) => o.value === cur)) profSelect.value = cur;
-      }
-      if (profInfo) {
-        const p = profs.find((x) => String(x.id) === profSelect.value);
-        profInfo.textContent = p ? `Saved ${new Date(p.savedAt).toLocaleString()}` : "";
-      }
-    });
-  }
-
-  function currentSnapshot(cb) {
-    chrome.storage.local.get([RULES_KEY, "autoWorkflows"], (res) =>
-      cb({ rules: res[RULES_KEY] || [], wfs: res.autoWorkflows || [] }));
-  }
-  function selectedProfile(profs) { return profs.find((p) => String(p.id) === (profSelect ? profSelect.value : "")); }
-
-  if (profSelect) {
-    profSelect.addEventListener("change", renderProfiles);
-
-    document.getElementById("prof-save").addEventListener("click", () => {
-      const name = window.prompt("Profile name:");
-      if (name == null || !name.trim()) return;
-      currentSnapshot((snap) => withProfiles((profs) => {
-        const prof = { id: Date.now(), name: name.trim(), rules: snap.rules, wfs: snap.wfs, savedAt: Date.now() };
-        chrome.storage.local.set({ [PROF_KEY]: [...profs, prof] }, () => {
-          renderProfiles();
-          setTimeout(() => { profSelect.value = String(prof.id); renderProfiles(); }, 50);
-        });
-      }));
-    });
-
-    document.getElementById("prof-load").addEventListener("click", () => withProfiles((profs) => {
-      const p = selectedProfile(profs);
-      if (!p) { alert("Select a profile first."); return; }
-      if (!confirm(`Load "${p.name}"? Current rules + workflows will be replaced (Ctrl+Z undoes it).`)) return;
-      pushUndo(() => chrome.storage.local.set({ [RULES_KEY]: p.rules || [], autoWorkflows: p.wfs || [] }, () => {
-        renderRules(); renderWorkflows();
-        alert(`Loaded profile "${p.name}".`);
-      }));
-    }));
-
-    document.getElementById("prof-update").addEventListener("click", () => withProfiles((profs) => {
-      const p = selectedProfile(profs);
-      if (!p) { alert("Select a profile first."); return; }
-      if (!confirm(`Overwrite "${p.name}" with the CURRENT rules + workflows?`)) return;
-      currentSnapshot((snap) => {
-        const next = profs.map((x) => x.id === p.id ? { ...x, rules: snap.rules, wfs: snap.wfs, savedAt: Date.now() } : x);
-        chrome.storage.local.set({ [PROF_KEY]: next }, renderProfiles);
-      });
-    }));
-
-    document.getElementById("prof-delete").addEventListener("click", () => withProfiles((profs) => {
-      const p = selectedProfile(profs);
-      if (!p) { alert("Select a profile first."); return; }
-      if (!confirm(`Delete profile "${p.name}"? (The active rules/workflows are not affected.)`)) return;
-      chrome.storage.local.set({ [PROF_KEY]: profs.filter((x) => x.id !== p.id) }, renderProfiles);
-    }));
-
-    renderProfiles();
-  }
-
   // ══ Workflows ═════════════════════════════════════════════════════════════
   const WF_KEY = "autoWorkflows";
   const STATUS_KEY = "acRunStatus";
+  const WF_SEARCH_KEY = "acSearch_workflow";
   const wfListEl = document.getElementById("wf-list");
+  const wfSearchEl = document.getElementById("wf-search");
   const wfKnown = new Set();
   const wfSettingsOpen = new Set(); // workflow ids whose settings panel is expanded
   const wfCollapsed = new Set();    // collapsed (hidden body) workflow ids
-  let draggedWfId = null;
   let liveStatus = {};
+  let openInserterKey = null; // "<wfId>|<afterId or START>" of the one open "+ insert" menu
+
+  // Same reasoning as persistRuleCollapse: a popup is rebuilt from scratch
+  // every time it's opened, so Hide/Show and the ⚙ settings panel would
+  // otherwise forget themselves the moment you close the popup.
+  function persistWfCollapse() {
+    chrome.storage.local.set({ acWfCollapsed: [...wfCollapsed], acWfSettingsOpen: [...wfSettingsOpen] });
+  }
 
   const STEP_LABEL = {
     button: "CLICK", click: "CLICK", input: "FILL", dropdown: "SELECT",
@@ -695,6 +700,10 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const MARKER_TYPES = new Set(["else", "endif", "loopEnd"]);       // no fields, minimal row
   const NO_HIGHLIGHT = new Set(["wait", "delay", "else", "endif", "loopEnd", "loopStart"]);
+  // Block openers/closers aren't safe to duplicate on their own (they're
+  // paired — duplicating just one half would misalign the loop/if structure).
+  // Duplicate is offered only for self-contained action/wait/capture steps.
+  const BLOCK_TYPES = new Set(["if", "else", "endif", "loopStart", "loopEnd"]);
 
   function saveWorkflows(wfs, cb) { pushUndo(() => chrome.storage.local.set({ [WF_KEY]: wfs }, cb)); }
   function withWorkflows(fn) { chrome.storage.local.get([WF_KEY], (res) => fn(res[WF_KEY] || [])); }
@@ -722,6 +731,17 @@ document.addEventListener("DOMContentLoaded", () => {
     withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) !== String(wfId) ? w
       : { ...w, steps: (w.steps || []).filter((s) => String(s.id) !== String(stepId)) }), renderWorkflows));
   }
+  function duplicateStep(wfId, stepId) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => {
+      if (String(w.id) !== String(wfId)) return w;
+      const steps = [...(w.steps || [])];
+      const idx = steps.findIndex((s) => String(s.id) === String(stepId));
+      if (idx < 0) return w;
+      const copy = { ...steps[idx], id: uid(), name: (steps[idx].name || steps[idx].type) + " (copy)" };
+      steps.splice(idx + 1, 0, copy);
+      return { ...w, steps };
+    }), renderWorkflows));
+  }
   function moveStep(wfId, stepId, dir) {
     withWorkflows((wfs) => saveWorkflows(wfs.map((w) => {
       if (String(w.id) !== String(wfId)) return w;
@@ -733,15 +753,31 @@ document.addEventListener("DOMContentLoaded", () => {
       return { ...w, steps };
     }), renderWorkflows));
   }
-  function addWaitStep(wfId, type) {
+  function addWaitStep(wfId, type, afterId) {
     const step = type === "wait"
       ? { id: uid(), type: "wait", name: "Delay", waitMs: 1000 }
       : { id: uid(), type, name: type === "waitFor" ? "Wait for element" : "Wait until gone", requiredElements: [""], selector: "", timeoutMs: 15000 };
-    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), step] } : w), renderWorkflows));
+    addStepAt(wfId, step, afterId);
   }
   function deleteWorkflow(wfId) {
     if (!confirm("Delete this workflow?")) return;
     withWorkflows((wfs) => saveWorkflows(wfs.filter((w) => String(w.id) !== String(wfId)), renderWorkflows));
+  }
+  function duplicateWorkflow(wfId) {
+    withWorkflows((wfs) => {
+      const idx = wfs.findIndex((w) => String(w.id) === String(wfId));
+      if (idx < 0) return;
+      const src = wfs[idx];
+      const copy = {
+        ...src,
+        id: uid(),
+        name: (src.name || "Workflow") + " (copy)",
+        steps: (src.steps || []).map((s) => ({ ...s, id: uid() })), // fresh step ids
+        hotkey: "", // cleared — two workflows sharing one hotkey would silently collide
+      };
+      const next = [...wfs]; next.splice(idx + 1, 0, copy);
+      saveWorkflows(next, renderWorkflows);
+    });
   }
   function addWorkflow() {
     withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
@@ -757,16 +793,41 @@ document.addEventListener("DOMContentLoaded", () => {
       saveWorkflows(next, renderWorkflows);
     });
   }
-  function addStep(wfId, step) {
-    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), step] } : w), renderWorkflows));
+  // Insert one/many steps right after the step whose id === afterId, or at
+  // the end when afterId is null/undefined — every "+ add" control (bottom
+  // toolbar AND the per-step inserters) goes through these two.
+  function spliceIn(steps, afterId, items) {
+    const idx = afterId != null ? steps.findIndex((s) => String(s.id) === String(afterId)) : -1;
+    const next = [...steps];
+    if (idx >= 0) next.splice(idx + 1, 0, ...items); else next.push(...items);
+    return next;
   }
-  function addSteps(wfId, arr) {
-    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: [...(w.steps || []), ...arr] } : w), renderWorkflows));
+  function addStepAt(wfId, step, afterId) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: spliceIn(w.steps || [], afterId, [step]) } : w), renderWorkflows));
   }
-  function addCapture(wfId) { addStep(wfId, { id: uid(), type: "capture", name: "Capture", requiredElements: [""], selector: "", varName: "myVar", captureSource: "text", timeoutMs: 8000 }); }
-  function addIf(wfId)   { addSteps(wfId, [{ id: uid(), type: "if", name: "If", requiredElements: [""], selector: "", condition: "visible", value: "" }, { id: uid(), type: "endif", name: "End if" }]); }
-  function addElse(wfId) { addStep(wfId, { id: uid(), type: "else", name: "Else" }); }
-  function addLoop(wfId) { addSteps(wfId, [{ id: uid(), type: "loopStart", name: "Loop", loopMode: "count", count: 2, requiredElements: [""], selector: "" }, { id: uid(), type: "loopEnd", name: "End loop" }]); }
+  function addStepsAt(wfId, arr, afterId) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, steps: spliceIn(w.steps || [], afterId, arr) } : w), renderWorkflows));
+  }
+  function addStep(wfId, step) { addStepAt(wfId, step, null); }
+  function addSteps(wfId, arr) { addStepsAt(wfId, arr, null); }
+  function addCapture(wfId, afterId) { addStepAt(wfId, { id: uid(), type: "capture", name: "Capture", requiredElements: [""], selector: "", varName: "myVar", captureSource: "text", timeoutMs: 8000 }, afterId); }
+  function addIf(wfId, afterId)   { addStepsAt(wfId, [{ id: uid(), type: "if", name: "If", requiredElements: [""], selector: "", condition: "visible", value: "" }, { id: uid(), type: "endif", name: "End if" }], afterId); }
+  function addElse(wfId, afterId) { addStepAt(wfId, { id: uid(), type: "else", name: "Else" }, afterId); }
+  function addLoop(wfId, afterId) { addStepsAt(wfId, [{ id: uid(), type: "loopStart", name: "Loop", loopMode: "count", count: 2, requiredElements: [""], selector: "" }, { id: uid(), type: "loopEnd", name: "End loop" }], afterId); }
+
+  // Drag-and-drop reorder of steps WITHIN a workflow.
+  function reorderSteps(wfId, sourceStepId, targetStepId) {
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => {
+      if (String(w.id) !== String(wfId)) return w;
+      const steps = [...(w.steps || [])];
+      const from = steps.findIndex((s) => String(s.id) === String(sourceStepId));
+      const to = steps.findIndex((s) => String(s.id) === String(targetStepId));
+      if (from < 0 || to < 0 || from === to) return w;
+      const [moved] = steps.splice(from, 1);
+      steps.splice(to, 0, moved);
+      return { ...w, steps };
+    }), renderWorkflows));
+  }
 
   function patchRepeat(wfId, patch) {
     withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, repeat: { ...(w.repeat || { mode: "off" }), ...patch } } : w), renderWorkflows));
@@ -890,33 +951,85 @@ document.addEventListener("DOMContentLoaded", () => {
     return fields;
   }
 
+  // The 8 "add a step" actions, reused by both the per-step inserter and the
+  // trailing (append-at-end) inserter. afterId = null means append at end.
+  function buildInserterMenu(wf, afterId, onAdded) {
+    const menu = document.createElement("div"); menu.className = "wf-inserter-menu";
+    const wrap = (fn) => () => { fn(); onAdded(); };
+    menu.append(
+      mini("+ Pick element", wrap(() => startPicker({ forWorkflow: true, workflowId: wf.id, afterStepId: afterId }))),
+      mini("+ Wait for", wrap(() => addWaitStep(wf.id, "waitFor", afterId))),
+      mini("+ Wait gone", wrap(() => addWaitStep(wf.id, "waitGone", afterId))),
+      mini("+ Delay", wrap(() => addWaitStep(wf.id, "wait", afterId))),
+      mini("+ Capture", wrap(() => addCapture(wf.id, afterId))),
+      mini("+ If", wrap(() => addIf(wf.id, afterId))),
+      mini("+ Else", wrap(() => addElse(wf.id, afterId))),
+      mini("+ Loop", wrap(() => addLoop(wf.id, afterId))),
+    );
+    return menu;
+  }
+
+  // Thin "+" divider between steps (and before the first / after the last)
+  // that a user clicks to insert a new step at exactly that point.
+  function buildInserter(wf, afterId) {
+    const key = wf.id + "|" + (afterId == null ? "START" : afterId);
+    const wrap = document.createElement("div"); wrap.className = "wf-inserter";
+    const line = document.createElement("div"); line.className = "wf-inserter-line";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "wf-inserter-btn";
+    const isOpen = openInserterKey === key;
+    btn.textContent = isOpen ? "×" : "+";
+    btn.title = isOpen ? "Close" : "Insert a step here";
+    btn.addEventListener("click", () => { openInserterKey = isOpen ? null : key; renderWorkflows(); });
+    wrap.append(line, btn);
+    if (isOpen) {
+      wrap.appendChild(buildInserterMenu(wf, afterId, () => { openInserterKey = null; }));
+    }
+    return wrap;
+  }
+
   function renderStepCard(wf, step, index, total, activeIndex, depth) {
     const isMarker = MARKER_TYPES.has(step.type);
+    const id = String(step.id);
     const card = document.createElement("div");
     card.className = "wf-step" + (isMarker ? " wf-step-marker" : "") + (activeIndex === index ? " wf-step-active" : "");
-    if (depth > 0) card.style.marginLeft = Math.min(depth, 4) * 14 + "px";
+    if (depth > 0) { card.style.marginLeft = Math.min(depth, 4) * 14 + "px"; card.classList.add("wf-step-nested"); }
 
     const head = document.createElement("div"); head.className = "wf-step-head";
+    const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle wf-step-drag"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
     const numTag = document.createElement("span"); numTag.className = "wf-step-num"; numTag.textContent = index + 1;
     const badge = document.createElement("span"); badge.className = `type-badge type-badge--${step.type}`; badge.textContent = STEP_LABEL[step.type] || "STEP";
-    const up = mini("↑", () => moveStep(wf.id, step.id, -1));
-    const down = mini("↓", () => moveStep(wf.id, step.id, +1));
-    const del = mini("×", () => removeStep(wf.id, step.id), true);
+    const up = iconMini("chevUp", "Move step up", () => moveStep(wf.id, step.id, -1));
+    const down = iconMini("chevDown", "Move step down", () => moveStep(wf.id, step.id, +1));
+    // Loop/If openers & closers are paired — duplicating just one half would
+    // misalign the block, so the button is only offered on self-contained steps.
+    const canDuplicate = !BLOCK_TYPES.has(step.type);
+    const dup = canDuplicate ? iconMini("duplicate", "Duplicate this step", () => duplicateStep(wf.id, step.id)) : null;
+    const del = iconMini("trash", "Delete this step", () => removeStep(wf.id, step.id), true);
+
+    // Drag to reorder — pointer-based, handle-only (inputs inside the body
+    // stay usable). Container resolved lazily at drag-start via .closest()
+    // since stepsWrap isn't in scope here.
+    card.dataset.dragId = id;
+    dragHandle.addEventListener("pointerdown", (e) => {
+      const stepsWrap = card.closest(".wf-steps");
+      if (stepsWrap) startPointerDrag(e, dragHandle, card, id, stepsWrap, ".wf-step", (srcId, targetId) => reorderSteps(wf.id, srcId, targetId));
+    });
 
     // Block markers (else / endif / end loop) are a single compact row.
     if (isMarker) {
       const lbl = document.createElement("span"); lbl.className = "wf-marker-label"; lbl.textContent = stepSummary(step);
-      head.append(numTag, badge, lbl, up, down, del);
+      head.append(dragHandle, numTag, badge, lbl, up, down, del);
       card.append(head);
       return card;
     }
 
     const name = document.createElement("input"); name.className = "wf-step-name"; name.value = step.name || step.type;
     name.addEventListener("change", (e) => patchStep(wf.id, step.id, { name: e.target.value }));
-    const hi = mini("◎", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
-    hi.title = "Flash this element on the page";
+    const hi = iconMini("target", "Flash this element on the page", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
     hi.disabled = NO_HIGHLIGHT.has(step.type);
-    head.append(numTag, badge, name, up, down, hi, del);
+    head.append(dragHandle, numTag, badge, name, up, down, hi, ...(dup ? [dup] : []), del);
 
     const summary = document.createElement("div"); summary.className = "wf-step-sum"; summary.textContent = stepSummary(step);
     const body = document.createElement("div"); body.className = "wf-step-body";
@@ -949,7 +1062,32 @@ document.addEventListener("DOMContentLoaded", () => {
       th.textContent = "Auto-run fires once when the element appears; it re-arms after the element disappears. Leave the selector blank to use the first step's element.";
       panel.append(th);
     }
-    panel.append(fieldRow("Hotkey (e.g. Alt+1)", txt(wf.hotkey, "Ctrl+Shift+K", (v) => patchWorkflow(wf.id, { hotkey: v }))));
+    // Hotkey RECORDER — click the box and press the actual combo (e.g. Alt+1).
+    // Must include Ctrl/Alt/Meta (Shift alone would clash with normal typing).
+    // Backspace/Delete clears; Esc leaves the field.
+    const hk = document.createElement("input");
+    hk.type = "text";
+    hk.readOnly = true;
+    hk.value = wf.hotkey || "";
+    hk.placeholder = "Click, then press keys… (e.g. Alt+1)";
+    hk.title = "Press the combo you want (must include Ctrl, Alt or Cmd). Backspace clears.";
+    hk.addEventListener("focus", () => { if (!hk.value) hk.placeholder = "Press keys now… (Ctrl/Alt + key)"; });
+    hk.addEventListener("blur", () => { hk.placeholder = "Click, then press keys… (e.g. Alt+1)"; });
+    hk.addEventListener("keydown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === "Escape") { hk.blur(); return; }
+      if (e.key === "Backspace" || e.key === "Delete") { patchWorkflow(wf.id, { hotkey: "" }); return; }
+      if (["Alt", "Control", "Shift", "Meta"].includes(e.key)) return;   // wait for the real key
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) { hk.value = "add Ctrl or Alt…"; return; }
+      const parts = [];
+      if (e.ctrlKey)  parts.push("Ctrl");
+      if (e.altKey)   parts.push("Alt");
+      if (e.shiftKey) parts.push("Shift");
+      if (e.metaKey)  parts.push("Meta");
+      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      patchWorkflow(wf.id, { hotkey: parts.join("+") });
+    });
+    panel.append(fieldRow("Hotkey — click box, press combo", hk));
 
     // Human-like: random reaction pause before actions + varied step gaps.
     const humWrap = document.createElement("div"); humWrap.className = "check-row";
@@ -995,6 +1133,35 @@ document.addEventListener("DOMContentLoaded", () => {
     return b;
   }
 
+  // ── Icon buttons ────────────────────────────────────────────────────────
+  // Same look/feel as mini() but with an SVG glyph instead of a text label,
+  // plus a native title tooltip so the icon is never a guessing game.
+  const ICON = {
+    play:      '<polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>',
+    stop:      '<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none"/>',
+    pause:     '<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/>',
+    record:    '<circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/>',
+    duplicate: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    gear:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    chevDown:  '<polyline points="6 9 12 15 18 9"/>',
+    chevUp:    '<polyline points="18 15 12 9 6 15"/>',
+    trash:     '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    target:    '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>',
+  };
+  function svgIcon(name, size) {
+    return `<svg width="${size || 13}" height="${size || 13}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">${ICON[name] || ""}</svg>`;
+  }
+  function iconMini(iconName, title, fn, danger) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "wf-mini wf-icon-btn" + (danger ? " wf-mini-danger" : "");
+    b.innerHTML = svgIcon(iconName);
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", fn);
+    return b;
+  }
+
   function renderWorkflowCard(wf) {
     const running = liveStatus.running && String(liveStatus.id) === String(wf.id);
     const paused = running && liveStatus.paused;
@@ -1012,29 +1179,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const runBtn = document.createElement("button");
     runBtn.type = "button";
     runBtn.className = "wf-run" + (running ? " wf-run-stop" : "");
-    runBtn.textContent = running ? "■ Stop" : "▶ Run";
+    runBtn.innerHTML = svgIcon(running ? "stop" : "play", 13);
+    runBtn.title = running ? "Stop this workflow" : "Run this workflow";
+    runBtn.setAttribute("aria-label", runBtn.title);
     runBtn.onclick = () => running ? sendToPage({ action: "STOP_WORKFLOW" }) : sendToPage({ action: "RUN_WORKFLOW", workflowId: wf.id });
 
-    const pauseBtn = document.createElement("button");
-    pauseBtn.type = "button";
-    pauseBtn.className = "wf-mini";
-    pauseBtn.textContent = paused ? "▶" : "❚❚";
-    pauseBtn.title = paused ? "Resume" : "Pause";
+    const pauseBtn = iconMini(paused ? "play" : "pause", paused ? "Resume" : "Pause", () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" }));
     pauseBtn.style.display = running ? "" : "none";
-    pauseBtn.onclick = () => sendToPage({ action: paused ? "RESUME_WORKFLOW" : "PAUSE_WORKFLOW" });
 
-    const recBtn = mini("● Rec", () => {
+    const recBtn = iconMini("record", "Record on the page — your clicks, typing and dropdown picks become steps", () => {
       sendToPage({ action: "START_RECORD", workflowId: wf.id }, (ok) => { if (ok) window.close(); });
     });
-    recBtn.title = "Record on the page — your clicks, typing and dropdown picks become steps";
     recBtn.classList.add("wf-rec");
 
-    const gear = mini("⚙", () => { wfSettingsOpen.has(id) ? wfSettingsOpen.delete(id) : wfSettingsOpen.add(id); renderWorkflows(); });
-    gear.title = "Workflow settings (hotkey, repeat, data)";
-    const collapseBtn = mini(collapsed ? "Show" : "Hide", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
-    const del = mini("Delete", () => deleteWorkflow(wf.id), true);
+    const gear = iconMini("gear", "Workflow settings (hotkey, repeat, data)", () => { wfSettingsOpen.has(id) ? wfSettingsOpen.delete(id) : wfSettingsOpen.add(id); renderWorkflows(); });
+    const dupBtn = iconMini("duplicate", "Duplicate this workflow (its hotkey is not copied)", () => duplicateWorkflow(wf.id));
+    const collapseBtn = iconMini(collapsed ? "chevDown" : "chevUp", collapsed ? "Show steps" : "Hide steps", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
+    const del = iconMini("trash", "Delete this workflow", () => deleteWorkflow(wf.id), true);
 
-    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, collapseBtn, del);
+    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, dupBtn, collapseBtn, del);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";
@@ -1056,77 +1219,167 @@ document.addEventListener("DOMContentLoaded", () => {
     // settings panel (collapsible)
     const settings = wfSettingsOpen.has(String(wf.id)) ? buildSettings(wf) : null;
 
-    // steps (indented by loop/if nesting)
+    // steps (indented by loop/if nesting), with a thin "+" inserter BEFORE
+    // the first step and AFTER every step — click one to add a step exactly
+    // there instead of always at the end.
     const stepsWrap = document.createElement("div"); stepsWrap.className = "wf-steps";
     const steps = wf.steps || [];
-    if (!steps.length) { const e = document.createElement("div"); e.className = "wf-empty"; e.textContent = "No steps yet — add one below."; stepsWrap.appendChild(e); }
-    else {
+    if (!steps.length) {
+      stepsWrap.appendChild(buildInserter(wf, null));
+      const e = document.createElement("div"); e.className = "wf-empty"; e.textContent = "No steps yet — click + above to add one.";
+      stepsWrap.appendChild(e);
+    } else {
       const depths = computeDepths(steps);
-      steps.forEach((s, i) => stepsWrap.appendChild(renderStepCard(wf, s, i, steps.length, activeIndex, depths[i])));
+      stepsWrap.appendChild(buildInserter(wf, null)); // insert before the first step
+      steps.forEach((s, i) => {
+        stepsWrap.appendChild(renderStepCard(wf, s, i, steps.length, activeIndex, depths[i]));
+        stepsWrap.appendChild(buildInserter(wf, s.id)); // insert right after this step
+      });
     }
-
-    // add-step toolbar
-    const add = document.createElement("div"); add.className = "wf-add-row";
-    add.append(
-      mini("+ Pick element", () => startPicker({ forWorkflow: true, workflowId: wf.id })),
-      mini("+ Wait for", () => addWaitStep(wf.id, "waitFor")),
-      mini("+ Wait gone", () => addWaitStep(wf.id, "waitGone")),
-      mini("+ Delay", () => addWaitStep(wf.id, "wait")),
-      mini("+ Capture", () => addCapture(wf.id)),
-      mini("+ If", () => addIf(wf.id)),
-      mini("+ Else", () => addElse(wf.id)),
-      mini("+ Loop", () => addLoop(wf.id)),
-    );
 
     card.append(head, status);
     if (!collapsed) {
       if (settings) card.append(settings);
-      card.append(stepsWrap, add);
+      card.append(stepsWrap);
     }
 
-    // Drag to reorder workflows — only from the ☰ handle (inputs don't hijack it).
-    card.draggable = false;
-    dragHandle.addEventListener("mousedown", () => { card.draggable = true; });
-    dragHandle.addEventListener("mouseup", () => { card.draggable = false; });
-    card.addEventListener("dragstart", (e) => { draggedWfId = id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", id); } catch (_) {} card.classList.add("dragging"); });
-    card.addEventListener("dragend", () => { card.classList.remove("dragging"); card.draggable = false; draggedWfId = null; });
-    card.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; card.classList.add("drag-over"); });
-    card.addEventListener("dragleave", () => card.classList.remove("drag-over"));
-    card.addEventListener("drop", (e) => {
-      e.preventDefault(); card.classList.remove("drag-over");
-      const src = draggedWfId || e.dataTransfer.getData("text/plain");
-      if (src && String(src) !== id) reorderWorkflows(src, id);
+    // Drag to reorder workflows — pointer-based, handle-only.
+    card.dataset.dragId = id;
+    dragHandle.addEventListener("pointerdown", (e) => {
+      startPointerDrag(e, dragHandle, card, id, wfListEl, ".wf-card", (srcId, targetId) => reorderWorkflows(srcId, targetId));
     });
     return card;
   }
 
+  // Matches on the workflow's own name/hotkey AND every step inside it (name,
+  // type, selector, fill/select value) — so searching "consulate" finds a
+  // workflow whose 3rd step just happens to target that dropdown.
+  function matchesWfSearch(wf, search) {
+    const stepText = (wf.steps || []).flatMap((s) => [
+      s.name, s.type, s.selector, s.fillValue, s.selectValue, ...(s.requiredElements || []),
+    ]);
+    return [wf.name, wf.hotkey, ...stepText].filter(Boolean).join(" ").toLowerCase().includes(search);
+  }
+
+  if (wfSearchEl) {
+    chrome.storage.local.get([WF_SEARCH_KEY], (res) => { wfSearchEl.value = res[WF_SEARCH_KEY] || ""; });
+    wfSearchEl.addEventListener("input", (e) => { chrome.storage.local.set({ [WF_SEARCH_KEY]: e.target.value }); renderWorkflows(); });
+  }
+
   function renderWorkflows() {
     if (!wfListEl) return;
-    chrome.storage.local.get([WF_KEY, STATUS_KEY], (res) => {
+    chrome.storage.local.get([WF_KEY, STATUS_KEY, WF_SEARCH_KEY], (res) => {
       const wfs = res[WF_KEY] || [];
       liveStatus = res[STATUS_KEY] || {};
+      const search = (res[WF_SEARCH_KEY] || "").trim().toLowerCase();
+      const shown = search ? wfs.filter((w) => matchesWfSearch(w, search)) : wfs;
       wfListEl.textContent = "";
       if (!wfs.length) {
         const e = document.createElement("div"); e.className = "logs-empty";
         e.textContent = "No workflows yet — create one to build a step sequence.";
         wfListEl.appendChild(e); return;
       }
-      wfs.forEach((wf) => wfListEl.appendChild(renderWorkflowCard(wf)));
+      if (!shown.length) {
+        const e = document.createElement("div"); e.className = "logs-empty";
+        e.textContent = "No workflows match your search.";
+        wfListEl.appendChild(e); return;
+      }
+      shown.forEach((wf) => wfListEl.appendChild(renderWorkflowCard(wf)));
+      persistWfCollapse();
     });
   }
 
   const wfAddBtn = document.getElementById("wf-add");
   if (wfAddBtn) wfAddBtn.onclick = addWorkflow;
 
-  // Keep in sync if rules / workflows / status / toggle change elsewhere.
+  wireInfoToggle("wf-info-btn", "wf-info-panel");
+
+  // ── Workflows toolbar: Share / Import link / Export / Import ─────────────
+  // Same share-link infrastructure as rules (utils/license.js shareRules /
+  // fetchSharedRules don't care what shape the array is), applied to the
+  // whole autoWorkflows array instead of a filtered rule category.
+  const wfShareBtn = document.getElementById("wf-share");
+  if (wfShareBtn) wfShareBtn.onclick = () => {
+    chrome.storage.local.get([WF_KEY], async (res) => {
+      const wfs = res[WF_KEY] || [];
+      if (!wfs.length) { alert("No workflows to share."); return; }
+      wfShareBtn.disabled = true;
+      if (window.NkLicense && window.NkLicense.shareRules) {
+        const r = await window.NkLicense.shareRules(wfs);
+        wfShareBtn.disabled = false;
+        if (r && r.ok && r.url) {
+          copyText(r.url, `Short link copied — ${wfs.length} workflow(s), valid 180 days.\nAnyone imports it with "Import link".`);
+          return;
+        }
+        if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
+      } else wfShareBtn.disabled = false;
+      copyText(encodeRulesLink(wfs), `Long link copied — ${wfs.length} workflow(s). Paste it to anyone; they import it with "Import link".`);
+    });
+  };
+
+  const wfImpLinkBtn = document.getElementById("wf-import-link");
+  if (wfImpLinkBtn) wfImpLinkBtn.onclick = async () => {
+    const text = window.prompt("Paste a Nuskomate workflows link:");
+    if (text == null || !text.trim()) return;
+    let imported = null;
+    const code = shareCodeFrom(text);
+    if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
+      const r = await window.NkLicense.fetchSharedRules(code);
+      if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
+      else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+    }
+    if (!imported) {
+      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+    }
+    if (!imported.length) { alert("That link has no workflows."); return; }
+    withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { alert(`Imported ${imported.length} workflow(s) from link.`); renderWorkflows(); }));
+  };
+
+  const wfExportBtn = document.getElementById("wf-export");
+  if (wfExportBtn) wfExportBtn.onclick = () => {
+    chrome.storage.local.get([WF_KEY], (res) => {
+      const wfs = res[WF_KEY] || [];
+      if (!wfs.length) { alert("No workflows to export."); return; }
+      const blob = new Blob([JSON.stringify(wfs, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `workflows-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+  };
+
+  const wfImportBtn = document.getElementById("wf-import");
+  const wfImportFile = document.getElementById("wf-import-file");
+  if (wfImportBtn && wfImportFile) wfImportBtn.onclick = () => wfImportFile.click();
+  if (wfImportFile) wfImportFile.addEventListener("change", (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        if (!Array.isArray(imported)) throw new Error("Expected an array of workflows.");
+        withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { alert(`Imported ${imported.length} workflow(s).`); renderWorkflows(); }));
+      } catch (err) { alert(`Import failed: ${err.message}`); }
+    };
+    reader.readAsText(file); wfImportFile.value = "";
+  });
+
+  // Keep in sync if rules / workflows / status change elsewhere.
   chrome.storage.onChanged.addListener((c, a) => {
     if (a !== "local") return;
     if (c[RULES_KEY] || c.autoButtons) renderRules();
     if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
-    if (c.moduleAutoClicker || c.moduleAutoFillRules || c.moduleAutoSelect || c.moduleWorkflows) refreshOffTag();
   });
 
-  refreshOffTag();
-  renderRules();
-  renderWorkflows();
+  // Restore persisted Hide/Show state BEFORE the first render, so nothing
+  // flashes open-then-collapsed. Both renders persist their own state again
+  // right after, so subsequent toggles just work off the live Sets.
+  chrome.storage.local.get(["acKnownRuleIds", "acCollapsedRuleIds", "acCollapsedGroups", "acWfCollapsed", "acWfSettingsOpen"], (res) => {
+    (res.acKnownRuleIds || []).forEach((id) => knownRuleIds.add(id));
+    (res.acCollapsedRuleIds || []).forEach((id) => collapsedRuleIds.add(id));
+    (res.acCollapsedGroups || []).forEach((k) => collapsedGroups.add(k));
+    (res.acWfCollapsed || []).forEach((id) => wfCollapsed.add(id));
+    (res.acWfSettingsOpen || []).forEach((id) => wfSettingsOpen.add(id));
+    renderRules();
+    renderWorkflows();
+  });
 });

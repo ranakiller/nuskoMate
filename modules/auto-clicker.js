@@ -458,11 +458,16 @@
     return step;
   }
 
-  function saveCapturedStep(selection, workflowId) {
+  function saveCapturedStep(selection, workflowId, afterStepId) {
     const step = buildStepFromSelection(selection);
     chrome.storage.local.get(["autoWorkflows"], (res) => {
-      const wfs = (res.autoWorkflows || []).map((w) =>
-        String(w.id) === String(workflowId) ? { ...w, steps: [...(w.steps || []), step] } : w);
+      const wfs = (res.autoWorkflows || []).map((w) => {
+        if (String(w.id) !== String(workflowId)) return w;
+        const steps = [...(w.steps || [])];
+        const idx = afterStepId != null ? steps.findIndex((s) => String(s.id) === String(afterStepId)) : -1;
+        if (idx >= 0) steps.splice(idx + 1, 0, step); else steps.push(step);
+        return { ...w, steps };
+      });
       chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Step added: ${step.name}  (${step.type})`));
     });
   }
@@ -486,7 +491,7 @@
     const inspector = new window.ElementInspector();
     inspector.start((selection) => {
       if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
-      if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId); return; }
+      if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId, options.afterStepId); return; }
       if (options.ruleId) {
         const key = options.mode === "forbidden" ? "forbiddenElements" : "requiredElements";
         updateSelectorInRule(options.ruleId, selection, key);
@@ -659,17 +664,18 @@
     scanWorkflows();
   });
 
-  // Premium — its own per-key tool. Enabled only when the master extension
-  // toggle is on, the module toggle is on, AND the license includes "autoclick".
-  const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("autoclick");
+  // Premium — each automation tool has its OWN key entitlement now:
+  //   autoclick = click rules, fillrules = input-fill rules,
+  //   autoselect = dropdown rules, workflows = sequences.
+  const featOK = (f) => !window.NkLicense || window.NkLicense.featureOK(f);
 
   function refreshEnabled(after) {
     chrome.storage.local.get(["moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect", "moduleWorkflows", "extensionEnabled"], (res) => {
-      const on = res.extensionEnabled !== false && premiumOK();
-      moduleEnabled    = on && !!res.moduleAutoClicker;    // click rules
-      fillEnabled      = on && !!res.moduleAutoFillRules;  // input-fill rules
-      selectEnabled    = on && !!res.moduleAutoSelect;     // dropdown rules
-      workflowsEnabled = on && !!res.moduleWorkflows;
+      const on = res.extensionEnabled !== false;
+      moduleEnabled    = on && !!res.moduleAutoClicker   && featOK("autoclick");  // click rules
+      fillEnabled      = on && !!res.moduleAutoFillRules && featOK("fillrules");  // input-fill rules
+      selectEnabled    = on && !!res.moduleAutoSelect    && featOK("autoselect"); // dropdown rules
+      workflowsEnabled = on && !!res.moduleWorkflows     && featOK("workflows");
       if (after) after();
       scanWorkflows();
     });
@@ -1015,7 +1021,7 @@
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, workflowId: msg.workflowId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, workflowId: msg.workflowId, afterStepId: msg.afterStepId });
         break;
       case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;

@@ -338,6 +338,12 @@ body {
   color: var(--text);
 }
 
+.module-off-suffix {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--overlay-fg);
+}
+
 .module-desc {
   font-size: 11px;
   color: var(--text-muted);
@@ -1194,7 +1200,18 @@ input:checked + .slider::before {
 #panel-keys input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* Tool entitlement chips (2-col grid, highlight when ticked) */
-.k-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 0; }
+.k-tools { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 0; }
+.k-group {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2);
+}
+.k-group-head {
+  grid-column: 1 / -1;
+  background: var(--surface); font-weight: 700; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted);
+}
+.k-group-head:has(input:checked), .k-group-head:has(input:indeterminate) { color: var(--text); border-color: var(--accent); }
 .k-check {
   display: flex; align-items: center; gap: 7px; margin: 0;
   padding: 7px 9px; border: 1.5px solid var(--border); border-radius: var(--radius-xs);
@@ -1302,24 +1319,15 @@ body { width: 500px; display: flex; flex-direction: column; }
 #panel-logs .logs-box { flex: 1; min-height: 0; max-height: none; margin-top: 8px; }
 
 /* ── Sidebar collapse / expand ──────────────────────────────────────── */
-.side-collapse {
-  align-self: flex-start;            /* anchored to the fixed left edge — stays put */
-  display: flex; align-items: center; justify-content: center;
-  width: 32px; height: 28px; margin-bottom: 4px;
-  border: none; background: transparent; color: var(--text-muted);
-  border-radius: var(--radius-xs); cursor: pointer;
-}
-.side-collapse:hover { background: var(--surface2); color: var(--text); }
-.side-collapse .tab-ico { width: 16px; height: 16px; transition: transform .15s; }
+/* Click anywhere on the sidebar background (not a tab) to collapse/expand */
+.tabbar { cursor: pointer; }
+.tabbar .tab { cursor: pointer; }
 
 .layout.collapsed .tabbar { width: 56px; }
 .layout.collapsed .tab { justify-content: center; padding: 9px 0; gap: 0; }
 .layout.collapsed .tab span { display: none; }
 .layout.collapsed .tab-badge { display: none; }
 .layout.collapsed .side-ver { display: none; }
-/* Keep the collapse button at the same left position whether open or closed */
-.layout.collapsed .side-collapse { align-self: flex-start; }
-.layout.collapsed .side-collapse .tab-ico { transform: rotate(180deg); }
 
 /* Bulk parser — inline failure reason on bad rows */
 .bulk-err { color: var(--overlay-fg); font-size: 11px; font-style: italic; }
@@ -1342,22 +1350,51 @@ body { width: 500px; display: flex; flex-direction: column; }
 /* Version badge in the header (next to the app name) */
 .app-ver { font-size: 10px; font-weight: 700; color: var(--text-sub); letter-spacing: .02em; }
 /* Collapse button sits above Settings, right-aligned (centers when collapsed) */
-.side-foot .side-collapse { margin-bottom: 2px; }
-
-/* Father Name nested under Passport OCR */
-.module-sub { margin-left: 16px; }
-
 /* ── Auto Clicker (Clicker tab) ─────────────────────────────────────────── */
-.ac-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.ac-off-tag {
-  font-size: 10px; font-weight: 700; letter-spacing: .3px;
-  padding: 2px 7px; border-radius: 999px;
-  background: var(--overlay-bg); color: var(--overlay-fg);
+
+/* "ⓘ" info trigger — inline right after the module's own name (e.g.
+   "Auto Select ⓘ"), so there's no separate heading row for it at all. */
+.info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; padding: 0; margin: 0 0 0 5px; vertical-align: middle;
+  border: 1.5px solid var(--text-sub); border-radius: 50%; background: transparent;
+  color: var(--text-sub); font-size: 9px; font-weight: 700; font-style: italic;
+  font-family: Georgia, "Times New Roman", serif; line-height: 1; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
 }
-.ac-toolbar {
-  display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; margin-bottom: 10px;
+.info-btn:hover, .info-btn-open { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+/* Info panel sits INSIDE the module-card, right below the name+info-button
+   row it belongs to — not down by the search box. */
+.info-panel {
+  list-style: none; margin: 10px 0 0; padding: 10px 12px;
+  border-radius: var(--radius-xs); background: var(--accent-soft);
+  border: 1px solid var(--border);
 }
-.ac-toolbar .bulk-btn { margin: 0; }
+.info-panel li {
+  position: relative; padding-left: 14px; margin: 0 0 6px;
+  font-size: 11px; color: var(--text-muted); line-height: 1.45;
+}
+.info-panel li:last-child { margin-bottom: 0; }
+.info-panel li::before {
+  content: "•"; position: absolute; left: 2px; color: var(--accent); font-weight: 700;
+}
+
+/* Compact single-row toolbar: search box + Add + the 4 icon-only utility
+   buttons (Share / Import link / Export / Import), all in one line. */
+.ac-toolbar-compact { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.ac-toolbar-compact .logs-search { flex: 1; min-width: 0; margin: 0; }
+.ac-icon-btn {
+  flex-shrink: 0; width: 30px; height: 30px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2); color: var(--text-muted); cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.ac-icon-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.ac-icon-btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
+.ac-icon-btn-primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.ac-icon-btn-primary:hover { opacity: .9; background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .ac-help {
   margin: 4px 0 12px; font-size: 11px; color: var(--text-muted); line-height: 1.4;
 }
@@ -1379,7 +1416,9 @@ body { width: 500px; display: flex; flex-direction: column; }
 .drag-handle {
   cursor: grab; padding: 2px 7px; border: 1px solid var(--border); border-radius: var(--radius-xs);
   background: var(--surface2); color: var(--text-muted); user-select: none; font-size: 11px;
+  touch-action: none; /* let pointer events drive the drag instead of touch-scroll */
 }
+.drag-handle:active { cursor: grabbing; }
 .rule-summary {
   margin: 6px 0 0 26px; font-size: 11px; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1443,24 +1482,42 @@ body { width: 500px; display: flex; flex-direction: column; }
 .wf-name:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
 
 .wf-run {
-  flex-shrink: 0; border: none; border-radius: var(--radius-xs); cursor: pointer;
-  font-size: 11px; font-weight: 700; padding: 6px 12px; color: #fff; background: var(--accent2);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius-xs); cursor: pointer;
+  width: 28px; height: 26px; padding: 0; color: #fff; background: var(--accent2);
+  transition: background .12s;
 }
+.wf-run:hover { filter: brightness(1.08); }
 .wf-run-stop { background: var(--overlay-fg); }
+
+/* Icon-only mini buttons (run/pause/rec/gear/duplicate/collapse/delete …) —
+   the glyph communicates the action; the native title attr is the tooltip. */
+.wf-icon-btn { display: flex; align-items: center; justify-content: center; padding: 5px; min-width: 0; }
+.wf-icon-btn svg { display: block; }
 
 .wf-status { margin: 8px 2px 4px; font-size: 11px; color: var(--text-muted); }
 .wf-status-err { color: var(--overlay-fg); font-weight: 600; }
 .wf-status-ok  { color: var(--fill-fg); font-weight: 600; }
 
-.wf-steps { display: grid; gap: 6px; margin-top: 4px; }
+.wf-steps { display: flex; flex-direction: column; margin-top: 4px; }
 .wf-empty { font-size: 11px; color: var(--text-sub); padding: 6px 2px; }
 
 .wf-step {
   background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius-xs); padding: 8px;
+  border-radius: var(--radius-sm); padding: 9px 10px;
+  transition: border-color .12s, box-shadow .12s, background .12s;
 }
-.wf-step-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.wf-step:hover { border-color: color-mix(in srgb, var(--border) 40%, var(--accent)); }
+.wf-step-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); background: var(--surface); }
+.wf-step.dragging { opacity: .45; }
+.wf-step.drag-over { border-color: var(--accent); border-style: dashed; background: var(--accent-soft); }
+
+/* Nested (inside a Loop / If block) — a left guide bar ties the body steps
+   visually to their opening marker, like a code-editor indent guide. */
+.wf-step-nested { border-left: 2px solid var(--accent-soft); }
+
 .wf-step-head { display: flex; align-items: center; gap: 6px; }
+.wf-step-drag { flex-shrink: 0; padding: 2px 5px; font-size: 10px; }
 .wf-step-num {
   flex-shrink: 0; width: 18px; height: 18px; line-height: 18px; text-align: center;
   font-size: 10px; font-weight: 700; border-radius: 50%; background: var(--surface); color: var(--text-muted);
@@ -1472,21 +1529,47 @@ body { width: 500px; display: flex; flex-direction: column; }
 .wf-step-name:hover { border-color: var(--border); }
 .wf-step-name:focus { outline: none; border-color: var(--accent); background: var(--surface); }
 .wf-step-sum {
-  margin: 5px 0 0 24px; font-size: 10px; color: var(--text-muted);
+  margin: 5px 0 0 24px; font-size: 10.5px; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
 }
-.wf-step-body { display: grid; gap: 6px; margin-top: 8px; }
+.wf-step-body { display: grid; gap: 6px; margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--border); }
 
 .wf-mini {
   flex-shrink: 0; border: 1px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: var(--radius-xs); cursor: pointer; font-size: 11px; font-weight: 700;
-  padding: 4px 8px; min-width: 26px;
+  padding: 4px 8px; min-width: 26px; transition: border-color .12s, background .12s;
 }
-.wf-mini:hover { border-color: var(--accent); }
+.wf-mini:hover { border-color: var(--accent); background: var(--accent-soft); }
 .wf-mini:disabled { opacity: .4; cursor: default; }
 .wf-mini-danger { color: var(--overlay-fg); }
+/* Compound selector so this wins over .wf-mini's own padding/min-width
+   regardless of source order — keeps icon-only mini buttons square. */
+.wf-mini.wf-icon-btn { padding: 5px; min-width: 0; }
 
-.wf-add-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Per-step "+" inserter — a thin line with a small round button; clicking it
+   drops an inline menu of the 8 "add a step" actions right at that point.
+   The line/button are dim until hovered, so a workflow with 15 steps doesn't
+   read as 15 toolbars. */
+.wf-inserter { position: relative; display: flex; align-items: center; height: 14px; margin: -1px 0; }
+.wf-inserter-line {
+  flex: 1; height: 1px; background: var(--border); opacity: 0; transition: opacity .12s;
+}
+.wf-inserter:hover .wf-inserter-line { opacity: 1; }
+.wf-inserter-btn {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 16px; height: 16px; line-height: 14px; padding: 0; text-align: center;
+  border-radius: 50%; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer;
+  opacity: 0; transition: opacity .12s, border-color .12s, color .12s, background .12s;
+}
+.wf-inserter:hover .wf-inserter-btn, .wf-inserter-btn:focus { opacity: 1; }
+.wf-inserter-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.wf-inserter-menu {
+  display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;
+  padding: 8px; margin: 3px 0 6px; border-radius: var(--radius-xs);
+  background: var(--accent-soft); border: 1px dashed var(--accent);
+}
 
 .type-badge--waitFor  { background: var(--reload-bg);   color: var(--reload-fg);   }
 .type-badge--waitGone { background: var(--overlay-bg);  color: var(--overlay-fg);  }
@@ -1500,7 +1583,7 @@ body { width: 500px; display: flex; flex-direction: column; }
   background: var(--surface); color: var(--text-muted);
 }
 
-.wf-step-marker { background: transparent; border-style: dashed; padding: 5px 8px; }
+.wf-step-marker { background: transparent; border: 1px dashed var(--border); padding: 5px 8px; }
 .wf-marker-label { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--text-muted); }
 
 .wf-settings {
@@ -1528,14 +1611,6 @@ body { width: 500px; display: flex; flex-direction: column; }
   flex-shrink: 0; font-size: 10px; font-weight: 700; color: var(--text-muted);
   background: var(--surface); border-radius: 999px; padding: 1px 7px;
 }
-
-/* Profiles (named rule + workflow sets) */
-.prof-select {
-  width: 100%; margin-bottom: 8px; padding: 7px 8px; font-size: 12px;
-  border: 1px solid var(--border); border-radius: var(--radius-xs);
-  background: var(--surface); color: var(--text);
-}
-.prof-toolbar { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
 
 /* Expand-all / collapse-all bar above the URL groups */
 .rule-group-controls { display: flex; gap: 6px; justify-content: flex-end; margin: 2px 0 2px; }

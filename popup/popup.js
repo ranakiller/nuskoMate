@@ -5,16 +5,20 @@ document.addEventListener("DOMContentLoaded", () => {
   if (verEl && chrome.runtime?.getManifest) verEl.textContent = "v" + chrome.runtime.getManifest().version;
 
   // ── Sidebar collapse / expand (remembered) ───────────────────
+  // No dedicated button: clicking anywhere on the sidebar BACKGROUND toggles
+  // it. Clicks on the tab buttons themselves still switch tabs as usual.
   const layoutEl = document.querySelector(".layout");
-  const collapseBtn = document.getElementById("side-collapse");
-  if (layoutEl && collapseBtn) {
+  const tabbarEl = document.querySelector(".tabbar");
+  if (layoutEl && tabbarEl) {
     chrome.storage.local.get(["uiSidebarCollapsed"], (r) => {
       if (r.uiSidebarCollapsed) layoutEl.classList.add("collapsed");
     });
-    collapseBtn.addEventListener("click", () => {
+    tabbarEl.addEventListener("click", (e) => {
+      if (e.target.closest(".tab")) return;              // tab click = navigate
       const collapsed = layoutEl.classList.toggle("collapsed");
       chrome.storage.local.set({ uiSidebarCollapsed: collapsed });
     });
+    tabbarEl.title = "Click empty space to collapse / expand";
   }
 
   // ── Update check (GitHub releases) ───────────────────────────
@@ -80,8 +84,8 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
-      "toggle-autoclicker": "autoclick", "toggle-workflows": "autoclick",
-      "toggle-autofill-rules": "autoclick", "toggle-autoselect": "autoclick",
+      "toggle-autoclicker": "autoclick", "toggle-workflows": "workflows",
+      "toggle-autofill-rules": "fillrules", "toggle-autoselect": "autoselect",
     };
 
     // Is a given tool unlocked for the current key? (features null = all tools)
@@ -106,12 +110,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // The Bulk Parser section needs the "bulk" tool specifically.
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
-      // Auto Clicker + Workflows tabs: upsell unless the "autoclick" tool is licensed.
-      const acOk = has(st, "autoclick");
-      [["ac-upsell", "ac-content"], ["wf-upsell", "wf-content"], ["as-upsell", "as-content"]].forEach(([up, ct]) => {
+      // Automation tabs: each has its own tool id now.
+      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"]].forEach(([up, ct, feat]) => {
+        const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
-        if (u) u.style.display = acOk ? "none" : "block";
-        if (c) c.style.display = acOk ? ""     : "none";
+        if (u) u.style.display = ok ? "none" : "block";
+        if (c) c.style.display = ok ? ""     : "none";
       });
     }
 
@@ -309,10 +313,12 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-ocr",       key: "moduleOcr"            },
     { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
-    { id: "toggle-autoclicker", key: "moduleAutoClicker"  },
-    { id: "toggle-autofill-rules", key: "moduleAutoFillRules" },
-    { id: "toggle-autoselect",  key: "moduleAutoSelect"   },
-    { id: "toggle-workflows",   key: "moduleWorkflows"    },
+    // The 4 automation-tab toggles show "(Module off)" inline in their own
+    // module-name instead of a separate pill elsewhere on the tab.
+    { id: "toggle-autoclicker", key: "moduleAutoClicker", offLabel: true  },
+    { id: "toggle-autofill-rules", key: "moduleAutoFillRules", offLabel: true },
+    { id: "toggle-autoselect",  key: "moduleAutoSelect", offLabel: true   },
+    { id: "toggle-workflows",   key: "moduleWorkflows", offLabel: true    },
   ];
 
   // All modules default ON for new installs (key never set = treat as true)
@@ -322,7 +328,29 @@ document.addEventListener("DOMContentLoaded", () => {
     "moduleTranslate", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
   ]);
 
-  toggles.forEach(({ id, key }) => {
+  // Appends/removes " (Module off)" on the module-card's own name — as a
+  // separate <span> so it can be styled distinctly from the base name —
+  // instead of a separate off-tag pill elsewhere on the tab.
+  // IMPORTANT: .module-name also contains the inline ⓘ info button, so this
+  // must never touch .textContent on the whole element (that would wipe out
+  // the button along with the name — exactly the bug that turned the info
+  // button into a stray "i" of plain text). Only ever add/remove the
+  // dedicated suffix <span>, leaving every other child node untouched.
+  function reflectModuleOffLabel(toggleEl) {
+    const card = toggleEl.closest(".module-card");
+    const nameEl = card && card.querySelector(".module-name");
+    if (!nameEl) return;
+    const existing = nameEl.querySelector(".module-off-suffix");
+    if (existing) existing.remove();
+    if (!toggleEl.checked) {
+      const suffix = document.createElement("span");
+      suffix.className = "module-off-suffix";
+      suffix.textContent = " (Module off)";
+      nameEl.appendChild(suffix);
+    }
+  }
+
+  toggles.forEach(({ id, key, offLabel }) => {
     const el = document.getElementById(id);
     if (!el) return;
     chrome.storage.local.get([key], (res) => {
@@ -330,9 +358,11 @@ document.addEventListener("DOMContentLoaded", () => {
       el.checked = !!val;
       // Persist the default so the content script reads it correctly on next load
       if (!(key in res) && defaultOnKeys.has(key)) chrome.storage.local.set({ [key]: true });
+      if (offLabel) reflectModuleOffLabel(el);
     });
     el.addEventListener("change", () => {
       chrome.storage.local.set({ [key]: el.checked });
+      if (offLabel) reflectModuleOffLabel(el);
     });
   });
 

@@ -5,19 +5,29 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!window.NkLicense) return;
 
   const TOOL_LABELS = {
+    autofill: "Mutamer Details Fill",
+    translate: "Auto Translate",
+    issuedate: "Issue Date Calc",
+    vaccine: "Vaccine Upload",
     ocr: "Passport OCR (page scan)",
     father: "Father Name fill",
-    bulk: "Bulk Parser",
     batch: "Batch Passports",
-    translate: "Auto Translate",
-    vaccine: "Vaccine Upload",
-    issuedate: "Issue Date Calc",
+    fillrules: "Autofill (fill rules)",
+    autoclick: "Auto Clicker",
+    autoselect: "Auto Select",
+    workflows: "Workflows",
+    bulk: "Bulk Parser",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
-    autoclick: "Auto Clicker",
-    autofill: "Autofill (form fill)",
   };
-  const TOOLS = window.NkLicense.FEATURES || Object.keys(TOOL_LABELS);
+  // Tools grouped the way they appear in the extension. Each group header is a
+  // select-all checkbox: clicking it checks/unchecks every tool inside it.
+  const TOOL_GROUPS = [
+    { name: "Mutamer Details Fill", tools: ["autofill", "translate", "issuedate", "vaccine", "ocr", "father", "batch"] },
+    { name: "Automation",           tools: ["fillrules", "autoclick", "autoselect", "workflows"] },
+    { name: "Passport Parser",      tools: ["bulk"] },
+    { name: "Utilities",            tools: ["reload", "overlay"] },
+  ];
 
   const $ = (id) => document.getElementById(id);
   const nameEl = $("k-name"), keyEl = $("k-key"), seatsEl = $("k-seats");
@@ -31,19 +41,51 @@ document.addEventListener("DOMContentLoaded", () => {
   let editing = null;   // { key, devices, master, expires } when editing
   let loaded  = false;  // have we fetched the list yet?
 
-  // ── tool checkboxes ────────────────────────────────────────
-  TOOLS.forEach((t) => {
-    const lbl = document.createElement("label");
-    lbl.className = "k-check";
-    lbl.innerHTML = `<input type="checkbox" class="k-tool" value="${t}" /> ${TOOL_LABELS[t] || t}`;
-    toolsEl.appendChild(lbl);
+  // ── tool checkboxes (grouped, with select-all group headers) ──
+  TOOL_GROUPS.forEach((grp) => {
+    const wrap = document.createElement("div");
+    wrap.className = "k-group";
+    const head = document.createElement("label");
+    head.className = "k-check k-group-head";
+    head.innerHTML = `<input type="checkbox" class="k-group-all" /> <b>${grp.name}</b>`;
+    wrap.appendChild(head);
+    grp.tools.forEach((t) => {
+      const lbl = document.createElement("label");
+      lbl.className = "k-check";
+      lbl.innerHTML = `<input type="checkbox" class="k-tool" value="${t}" /> ${TOOL_LABELS[t] || t}`;
+      wrap.appendChild(lbl);
+    });
+    toolsEl.appendChild(wrap);
   });
   const toolBoxes = () => [...toolsEl.querySelectorAll(".k-tool")];
+  const groupEls  = () => [...toolsEl.querySelectorAll(".k-group")];
+
+  // Header ⇄ children sync: header click sets all; child changes update the
+  // header (checked = all, unchecked = none, indeterminate = some).
+  function refreshGroupHeads() {
+    groupEls().forEach((g) => {
+      const head = g.querySelector(".k-group-all");
+      const kids = [...g.querySelectorAll(".k-tool")];
+      const on = kids.filter((k) => k.checked).length;
+      head.checked = on === kids.length && kids.length > 0;
+      head.indeterminate = on > 0 && on < kids.length;
+    });
+  }
+  groupEls().forEach((g) => {
+    const head = g.querySelector(".k-group-all");
+    head.addEventListener("change", () => {
+      g.querySelectorAll(".k-tool").forEach((k) => { if (!k.disabled) k.checked = head.checked; });
+      refreshGroupHeads();
+    });
+    g.querySelectorAll(".k-tool").forEach((k) => k.addEventListener("change", refreshGroupHeads));
+  });
 
   function syncAll() {
     const all = allEl.checked;
     toolBoxes().forEach((b) => { b.disabled = all; if (all) b.checked = false; });
+    toolsEl.querySelectorAll(".k-group-all").forEach((h) => { h.disabled = all; if (all) { h.checked = false; h.indeterminate = false; } });
     toolsEl.style.opacity = all ? ".5" : "1";
+    refreshGroupHeads();
   }
   allEl.addEventListener("change", syncAll);
   syncAll();
