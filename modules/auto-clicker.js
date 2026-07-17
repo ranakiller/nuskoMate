@@ -509,6 +509,14 @@
     });
   }
 
+  function saveRepeatWhileSelector(selection, workflowId) {
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) =>
+        String(w.id) === String(workflowId) ? { ...w, repeat: { ...(w.repeat || {}), whileSelector: selection.selector } } : w);
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Selector set: ${selection.selector}`));
+    });
+  }
+
   // Re-pick the selector for an EXISTING step (unlike saveCapturedStep, which
   // adds a whole new step). A step has exactly one target, so this REPLACES
   // requiredElements/selector rather than appending like rules' multi-selector
@@ -539,6 +547,7 @@
     const inspector = new window.ElementInspector();
     inspector.start((selection) => {
       if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
+      if (options.forWorkflowRepeatWhile) { saveRepeatWhileSelector(selection, options.workflowId); return; }
       if (options.forWorkflowStep) { updateWorkflowStepSelector(selection, options.workflowId, options.stepId); return; }
       if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId, options.afterStepId); return; }
       if (options.ruleId) {
@@ -1070,7 +1079,7 @@
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowRepeatWhile: msg.forWorkflowRepeatWhile, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
         break;
       case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;

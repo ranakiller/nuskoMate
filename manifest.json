@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite", "sidePanel"],
   "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*", "https://*.workers.dev/*", "https://api.github.com/*"],
@@ -12,7 +12,17 @@
     "128": "images/icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "nuskomate@ranakiller59.com",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": ["technicalAndInteraction"]
+      }
+    }
   },
   "action": {
     "default_popup": "popup/popup.html",

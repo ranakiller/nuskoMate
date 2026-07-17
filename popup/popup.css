@@ -1401,6 +1401,7 @@ body { width: 500px; display: flex; flex-direction: column; }
 .ac-icon-btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
 .ac-icon-btn-primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
 .ac-icon-btn-primary:hover { opacity: .9; background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.ac-icon-btn-danger:hover { background: var(--overlay-bg); border-color: var(--overlay-fg); color: var(--overlay-fg); }
 .ac-help {
   margin: 4px 0 12px; font-size: 11px; color: var(--text-muted); line-height: 1.4;
 }

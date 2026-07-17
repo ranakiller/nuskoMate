@@ -19,9 +19,9 @@ document.addEventListener("DOMContentLoaded", () => {
   //   fill   → Autofill      (input fields)             → moduleAutoFillRules
   //   select → Auto Select   (dropdowns)                → moduleAutoSelect
   const CATS = [
-    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
-    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
-    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
+    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   delAll: "ac-delete-all",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
+    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", delAll: "fill-delete-all", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
+    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   delAll: "as-delete-all",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
   ];
   if (!document.getElementById("ac-list")) return;
 
@@ -224,16 +224,36 @@ document.addEventListener("DOMContentLoaded", () => {
     } else fallback();
   }
 
+  // Shared by bulk (whole category / whole URL group), single-rule and
+  // per-group Share buttons across click/fill/select AND URL Shifter — same
+  // short-link-first, long-link-fallback flow, just given a smaller array.
+  async function shareRuleArray(rules, btnEl) {
+    if (!rules.length) { alert("No rules to share."); return; }
+    if (btnEl) btnEl.disabled = true;
+    if (window.NkLicense && window.NkLicense.shareRules) {
+      const r = await window.NkLicense.shareRules(rules);
+      if (btnEl) btnEl.disabled = false;
+      if (r && r.ok && r.url) {
+        copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
+        return;
+      }
+      if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
+    } else if (btnEl) btnEl.disabled = false;
+    copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+  }
+
   // ── Undo / redo (Tier 3) ───────────────────────────────────────────────────
-  // Every rule/workflow mutation snapshots BOTH stores first, so Ctrl+Z walks
-  // back edits, deletes, imports, reorders and profile loads. Per popup session.
+  // Every rule/workflow/redirect-rule mutation snapshots ALL THREE stores
+  // first, so Ctrl+Z walks back edits, deletes, imports, reorders and profile
+  // loads across the Clicker/Fill/Select tabs, Workflows, AND URL Shifter.
+  // Per popup session.
   const HISTORY_MAX = 60;
   const history = { undo: [], redo: [] };
   let restoringHistory = false;
 
   function historySnapshot(cb) {
-    chrome.storage.local.get([RULES_KEY, "autoWorkflows"], (res) =>
-      cb({ rules: res[RULES_KEY] || [], wfs: res.autoWorkflows || [] }));
+    chrome.storage.local.get([RULES_KEY, "autoWorkflows", "autoUrlShiftRules"], (res) =>
+      cb({ rules: res[RULES_KEY] || [], wfs: res.autoWorkflows || [], usRules: res.autoUrlShiftRules || [] }));
   }
   function pushUndo(then) {
     if (restoringHistory) { then(); return; }
@@ -247,9 +267,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function applyHistorySnapshot(snap) {
     restoringHistory = true;
-    chrome.storage.local.set({ [RULES_KEY]: snap.rules, autoWorkflows: snap.wfs }, () => {
+    chrome.storage.local.set({ [RULES_KEY]: snap.rules, autoWorkflows: snap.wfs, autoUrlShiftRules: snap.usRules }, () => {
       restoringHistory = false;
-      renderRules(); renderWorkflows(); updateHistoryButtons();
+      renderRules(); renderWorkflows(); renderUsRules(); updateHistoryButtons();
     });
   }
   function doUndo() {
@@ -492,6 +512,13 @@ document.addEventListener("DOMContentLoaded", () => {
         collapseBtn.innerHTML = svgIcon(isCollapsed ? "chevDown" : "chevUp");
         collapseBtn.title = isCollapsed ? "Show rule details" : "Hide rule details";
 
+        const shareBtn = document.createElement("button");
+        shareBtn.className = "secondary-btn wf-icon-btn rule-share-btn";
+        shareBtn.dataset.id = id;
+        shareBtn.type = "button";
+        shareBtn.innerHTML = svgIcon("share");
+        shareBtn.title = "Share this rule as a link";
+
         const dupBtn = document.createElement("button");
         dupBtn.className = "secondary-btn wf-icon-btn dup-btn";
         dupBtn.dataset.id = id;
@@ -506,7 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
         delBtn.innerHTML = svgIcon("trash");
         delBtn.title = "Delete this rule";
 
-        head.append(toggle, dragHandle, title, badge, collapseBtn, dupBtn, delBtn);
+        head.append(toggle, dragHandle, title, badge, collapseBtn, shareBtn, dupBtn, delBtn);
 
         const summary = document.createElement("div");
         summary.className = "rule-summary";
@@ -579,12 +606,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         groups.forEach((grpRules, key) => {
           const gkey = cfg.cat + "|" + key;
+          const label = key === "__any__" ? "Any page" : key;
           const gh = document.createElement("div"); gh.className = "rule-group-head";
           const gcol = collapsedGroups.has(gkey);
           const caret = document.createElement("span"); caret.className = "rule-group-caret"; caret.textContent = gcol ? "▸" : "▾";
-          const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = key === "__any__" ? "Any page" : key;
+          const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = label;
           const gc = document.createElement("span"); gc.className = "rule-group-count"; gc.textContent = grpRules.length;
-          gh.append(caret, gt, gc);
+          const gShare = iconMini("share", `Share all ${grpRules.length} rule(s) in "${label}" as a link`, (e) => {
+            e.stopPropagation();
+            shareRuleArray(grpRules, null);
+          });
+          const gDel = iconMini("trash", `Delete all ${grpRules.length} rule(s) in "${label}"`, (e) => {
+            e.stopPropagation();
+            if (!confirm(`Delete all ${grpRules.length} rule(s) under "${label}"? This can be undone with Ctrl+Z.`)) return;
+            const ids = new Set(grpRules.map((r) => String(r.id)));
+            saveRules(rules.filter((r) => !ids.has(String(r.id))), renderRules);
+          }, true);
+          gh.append(caret, gt, gc, gShare, gDel);
           gh.addEventListener("click", () => { collapsedGroups.has(gkey) ? collapsedGroups.delete(gkey) : collapsedGroups.add(gkey); renderRules(); });
           listEl.appendChild(gh);
           if (gcol) return;
@@ -595,6 +633,13 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         listEl.querySelectorAll(".collapse-rule").forEach((btn) => {
           btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.has(rid) ? collapsedRuleIds.delete(rid) : collapsedRuleIds.add(rid); renderRules(); };
+        });
+        listEl.querySelectorAll(".rule-share-btn").forEach((btn) => {
+          btn.onclick = (e) => {
+            const rid = e.currentTarget.dataset.id;
+            const rule = rules.find((r) => String(r.id) === rid);
+            if (rule) shareRuleArray([rule], btn);
+          };
         });
         listEl.querySelectorAll(".dup-btn").forEach((btn) => {
           btn.onclick = (e) => {
@@ -639,21 +684,22 @@ document.addEventListener("DOMContentLoaded", () => {
     // into a stray "i"). Use the disabled state (dimmed via CSS) instead.
     const shareBtn = document.getElementById(cfg.share);
     if (shareBtn) shareBtn.onclick = () => {
-      chrome.storage.local.get([RULES_KEY], async (res) => {
+      chrome.storage.local.get([RULES_KEY], (res) => {
         const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
-        if (!rules.length) { alert("No rules to share."); return; }
-        shareBtn.disabled = true;
-        if (window.NkLicense && window.NkLicense.shareRules) {
-          const r = await window.NkLicense.shareRules(rules);
-          shareBtn.disabled = false;
-          if (r && r.ok && r.url) {
-            copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
-            return;
-          }
-          // Server refused / unreachable → offer the offline self-contained link.
-          if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
-        } else shareBtn.disabled = false;
-        copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+        shareRuleArray(rules, shareBtn);
+      });
+    };
+
+    // Bulk "delete all" for just this category — other categories' rules
+    // (they share the same RULES_KEY array) are left untouched.
+    const delAllBtn = document.getElementById(cfg.delAll);
+    if (delAllBtn) delAllBtn.onclick = () => {
+      chrome.storage.local.get([RULES_KEY], (res) => {
+        const all = res[RULES_KEY] || [];
+        const count = all.filter((r) => categoryOf(normalizeRule(r)) === cfg.cat).length;
+        if (!count) { alert("No rules to delete."); return; }
+        if (!confirm(`Delete all ${count} rule(s) in this tab? This can be undone with Ctrl+Z.`)) return;
+        saveRules(all.filter((r) => categoryOf(normalizeRule(r)) !== cfg.cat), renderRules);
       });
     };
 
@@ -1184,7 +1230,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     panel.append(fieldRow("Repeat", sel(repeat.mode || "off", ["off", "count", "whileVisible", "perRow"], (v) => patchRepeat(wf.id, { mode: v }))));
     if (repeat.mode === "count") panel.append(fieldRow("Times", num(repeat.count == null ? 1 : repeat.count, (v) => patchRepeat(wf.id, { count: v }))));
-    if (repeat.mode === "whileVisible") panel.append(fieldRow("While selector visible", txt(repeat.whileSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchRepeat(wf.id, { whileSelector: v }))));
+    if (repeat.mode === "whileVisible") {
+      const wvWrap = document.createElement("div"); wvWrap.className = "rule-field full";
+      const wvLbl = document.createElement("label"); wvLbl.textContent = "While selector visible";
+      const wvRow = document.createElement("div"); wvRow.className = "us-url-row";
+      const wvInput = txt(repeat.whileSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchRepeat(wf.id, { whileSelector: v }));
+      const wvPick = document.createElement("button");
+      wvPick.type = "button"; wvPick.className = "us-use-btn"; wvPick.textContent = "Pick";
+      wvPick.title = "Click, then click the element on the page";
+      wvPick.addEventListener("click", () => startPicker({ forWorkflowRepeatWhile: true, workflowId: wf.id }));
+      const wvHi = document.createElement("button");
+      wvHi.type = "button"; wvHi.className = "us-use-btn"; wvHi.textContent = "◎";
+      wvHi.title = "Highlight this element on the page";
+      wvHi.addEventListener("click", () => { const s = (repeat.whileSelector || "").trim(); if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); else alert("Set a selector first."); });
+      wvRow.append(wvInput, wvPick, wvHi);
+      wvWrap.append(wvLbl, wvRow);
+      panel.append(wvWrap);
+    }
 
     // Data source (CSV) — feeds {{column}} variables; run "Per data row" to loop rows.
     const dataInfo = document.createElement("div"); dataInfo.className = "wf-data-info";
@@ -1228,6 +1290,7 @@ document.addEventListener("DOMContentLoaded", () => {
     pause:     '<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/>',
     record:    '<circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/>',
     duplicate: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    share:     '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
     gear:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     chevDown:  '<polyline points="6 9 12 15 18 9"/>',
     chevUp:    '<polyline points="18 15 12 9 6 15"/>',
@@ -1279,11 +1342,12 @@ document.addEventListener("DOMContentLoaded", () => {
     recBtn.classList.add("wf-rec");
 
     const gear = iconMini("gear", "Workflow settings (hotkey, repeat, data)", () => { wfSettingsOpen.has(id) ? wfSettingsOpen.delete(id) : wfSettingsOpen.add(id); renderWorkflows(); });
+    const shareBtn = iconMini("share", "Share this workflow as a link", (e) => shareRuleArray([wf], e.currentTarget));
     const dupBtn = iconMini("duplicate", "Duplicate this workflow (its hotkey is not copied)", () => duplicateWorkflow(wf.id));
     const collapseBtn = iconMini(collapsed ? "chevDown" : "chevUp", collapsed ? "Show steps" : "Hide steps", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
     const del = iconMini("trash", "Delete this workflow", () => deleteWorkflow(wf.id), true);
 
-    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, dupBtn, collapseBtn, del);
+    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, shareBtn, dupBtn, collapseBtn, del);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";
@@ -1386,21 +1450,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // whole autoWorkflows array instead of a filtered rule category.
   const wfShareBtn = document.getElementById("wf-share");
   if (wfShareBtn) wfShareBtn.onclick = () => {
-    chrome.storage.local.get([WF_KEY], async (res) => {
-      const wfs = res[WF_KEY] || [];
-      if (!wfs.length) { alert("No workflows to share."); return; }
-      wfShareBtn.disabled = true;
-      if (window.NkLicense && window.NkLicense.shareRules) {
-        const r = await window.NkLicense.shareRules(wfs);
-        wfShareBtn.disabled = false;
-        if (r && r.ok && r.url) {
-          copyText(r.url, `Short link copied — ${wfs.length} workflow(s), valid 180 days.\nAnyone imports it with "Import link".`);
-          return;
-        }
-        if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
-      } else wfShareBtn.disabled = false;
-      copyText(encodeRulesLink(wfs), `Long link copied — ${wfs.length} workflow(s). Paste it to anyone; they import it with "Import link".`);
-    });
+    chrome.storage.local.get([WF_KEY], (res) => shareRuleArray(res[WF_KEY] || [], wfShareBtn));
   };
 
   const wfImpLinkBtn = document.getElementById("wf-import-link");
@@ -1599,10 +1649,11 @@ document.addEventListener("DOMContentLoaded", () => {
       persistUsCollapse();
       renderUsRules();
     });
+    const shareOne = iconMini("share", "Share this rule as a link", (e) => shareRuleArray([rule], e.currentTarget));
     const dup = iconMini("duplicate", "Duplicate this rule", () => duplicateUsRule(id));
     const del = iconMini("trash", "Delete this rule", () => deleteUsRule(id), true);
 
-    head.append(toggle, dragHandle, name, collapseBtn, dup, del);
+    head.append(toggle, dragHandle, name, collapseBtn, shareOne, dup, del);
 
     const body = document.createElement("div"); body.className = "rule-body us-body" + (isCollapsed ? " collapsed" : "");
     const isPathMode = rule.matchMode === "exact" || rule.matchMode === "partial";
@@ -1653,20 +1704,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // rules and workflows, applied to the whole autoUrlShiftRules array.
   const usShareBtn = document.getElementById("us-share");
   if (usShareBtn) usShareBtn.onclick = () => {
-    chrome.storage.local.get([US_KEY], async (res) => {
-      const rules = res[US_KEY] || [];
-      if (!rules.length) { alert("No redirect rules to share."); return; }
-      usShareBtn.disabled = true;
-      if (window.NkLicense && window.NkLicense.shareRules) {
-        const r = await window.NkLicense.shareRules(rules);
-        usShareBtn.disabled = false;
-        if (r && r.ok && r.url) {
-          copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
-          return;
-        }
-        if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
-      } else usShareBtn.disabled = false;
-      copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
+    chrome.storage.local.get([US_KEY], (res) => shareRuleArray(res[US_KEY] || [], usShareBtn));
+  };
+
+  const usDelAllBtn = document.getElementById("us-delete-all");
+  if (usDelAllBtn) usDelAllBtn.onclick = () => {
+    withUsRules((rules) => {
+      if (!rules.length) { alert("No redirect rules to delete."); return; }
+      if (!confirm(`Delete all ${rules.length} redirect rule(s)? This can be undone with Ctrl+Z.`)) return;
+      saveUsRules([], renderUsRules);
     });
   };
 
