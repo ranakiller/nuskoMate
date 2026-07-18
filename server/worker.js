@@ -2,31 +2,34 @@
  * Nuskomate license + scan server (Cloudflare Worker).
  *
  * This is the part that actually protects the product:
- *   • The OCR.space API key lives here as a secret (never in the extension).
  *   • The passport PARSER runs here (imported from the shared module), so the
  *     valuable logic is never shipped to users.
  *   • Every scan requires a valid activation key, checked against a KV list you
  *     control — revoke a key and that customer is cut off within seconds.
+ *   • OCR itself runs against the CUSTOMER's own ocr.space API key (sent as
+ *     X-Ocr-Key, required — no request without one is accepted). There is
+ *     deliberately no shared/fallback key here: with many installs sharing
+ *     one key, that key's free-tier quota would get exhausted by everyone at
+ *     once. Each customer's own free key means their usage is theirs alone.
  *
  * Endpoints:
- *   POST /activate   { key, device }                → { ok, name? }
- *   POST /status     { key, device }                → { ok, features, ... }  (heartbeat re-check)
- *   POST /scan       multipart "file" + X-License   → { ok, result, raw }
- *   POST /share      { rules } + X-License          → { ok, code }   (short share link)
- *   GET  /share/CODE                                → { ok, rules }  (fetch a share)
- *   POST /sync/push  { data } + X-License, X-Device  → { ok, at }     (cross-device backup, one slot per key)
- *   POST /sync/pull  {} + X-License, X-Device        → { ok, data, at, device }
+ *   POST /activate   { key, device }                              → { ok, name? }
+ *   POST /status     { key, device }                              → { ok, features, ... }  (heartbeat re-check)
+ *   POST /scan       multipart "file" + X-License, X-Ocr-Key      → { ok, result, raw }
+ *   POST /share      { rules } + X-License                        → { ok, code }   (short share link)
+ *   GET  /share/CODE                                              → { ok, rules }  (fetch a share)
+ *   POST /sync/push  { data } + X-License, X-Device                → { ok, at }     (cross-device backup, one slot per key)
+ *   POST /sync/pull  {} + X-License, X-Device                      → { ok, data, at, device }
  *
  * Bindings (see wrangler.toml / README):
  *   LICENSES   KV namespace   key → customer name ("revoked" disables it)
- *   OCR_SPACE_KEY   secret    your ocr.space API key
  */
 import NkPassport from "../utils/passport-parser.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-License, X-Device, X-Feature, X-Admin",
+  "Access-Control-Allow-Headers": "Content-Type, X-License, X-Device, X-Feature, X-Admin, X-Ocr-Key",
 };
 
 const json = (obj, status = 200) =>
@@ -158,10 +161,14 @@ function sharePage(code) {
 const SYNC_PREFIX = "sync:";
 const SYNC_MAX_BYTES = 1000000; // ~1 MB — generous for rules + settings
 
-async function ocrSpace(env, file) {
+// apiKey is the CUSTOMER's own ocr.space key (forwarded from their device via
+// X-Ocr-Key) — every scan bills against that customer's own free-tier quota,
+// never a single key shared across every install. There is no server-side
+// fallback key; a request with no key is rejected before this is even called.
+async function ocrSpace(env, file, apiKey) {
   const fd = new FormData();
   fd.append("file", file, file.name || "scan.jpg");
-  fd.append("apikey", env.OCR_SPACE_KEY);
+  fd.append("apikey", apiKey);
   fd.append("language", "eng");
   fd.append("scale", "true");
   fd.append("OCREngine", "2");
@@ -356,18 +363,20 @@ export default {
         const key = request.headers.get("X-License") || "";
         const device = request.headers.get("X-Device") || "";
         const feature = request.headers.get("X-Feature") || "ocr";
+        const ocrKey = (request.headers.get("X-Ocr-Key") || "").trim();
         const rec = await getRecord(env, key);
         if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
         if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
         const adm = requireActiveDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
         if (!featureAllowed(rec, feature)) return json({ ok: false, error: "This key does not include this feature" }, 403);
+        if (!ocrKey) return json({ ok: false, error: "Add your own free ocr.space API key in Settings to use OCR" }, 400);
 
         const form = await request.formData();
         const file = form.get("file");
         if (!file) return json({ ok: false, error: "No image" }, 400);
 
-        const raw = await ocrSpace(env, file);
+        const raw = await ocrSpace(env, file, ocrKey);
         const parsed = NkPassport.parse(raw); // parser runs server-side
         return json({ ok: true, result: parsed, raw });
       }

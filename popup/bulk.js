@@ -34,8 +34,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return logChain;
   }
 
+  // No fallback demo key — every install must supply its own free key
+  // (Settings → OCR), so usage counts against that install's own quota
+  // instead of one shared key everyone would exhaust together.
   function getApiKey() {
-    return new Promise((r) => chrome.storage.local.get(["ocrApiKey"], (x) => r(x.ocrApiKey || "helloworld")));
+    return new Promise((r) => chrome.storage.local.get(["ocrApiKey"], (x) => r((x.ocrApiKey || "").trim())));
   }
 
   // Restore previous conversions when the popup reopens
@@ -100,6 +103,13 @@ document.addEventListener("DOMContentLoaded", () => {
     fileInput.disabled = true;
 
     const apiKey = await getApiKey();
+    if (!(window.NkLicense && window.NkLicense.enforced()) && !apiKey) {
+      bulkLog("Bulk parse refused — no local ocr.space API key set (Settings → OCR)", "warn");
+      alert("Add your own free ocr.space API key in Settings to use Bulk Parser.");
+      progress.style.display = "none";
+      fileInput.disabled = false;
+      return;
+    }
     const startCount = results.length;
 
     for (let i = 0; i < files.length; i++) {

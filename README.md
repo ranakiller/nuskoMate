@@ -14,11 +14,13 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | **Auto Translate Names** | Transliterates English names into Arabic script across all four name boxes |
 | **Auto Issue Date** | Calculates the passport issue date from the expiry date and copies it to your clipboard |
 | **Vaccine Image Upload** | Auto-uploads the bundled vaccine placeholder image to the vaccine file input |
-| **Passport OCR** | Scans an uploaded passport image server-side (OCR.space + a custom MRZ-aware parser) and fills the form — name boxes, DOB, gender, issue date. Validates MRZ check digits and warns on a blurry/unreliable scan instead of silently filling wrong data |
-| **Father Name** | Fills the father/husband name from OCR (toggle off to keep whatever Masar already has) |
-| **Batch Passports** | Select many passport images at once; the extension feeds them through the form one at a time |
+| **Passport OCR** | Scans an uploaded passport image server-side (your own [free ocr.space key](https://ocr.space/ocrapi/freekey) + a custom MRZ-aware parser) and fills the form — name boxes, DOB, gender, issue date. Validates MRZ check digits and warns on a blurry/unreliable scan instead of silently filling wrong data. **Requires an OCR API key saved in Settings** — see note below |
+| **Father Name** | Fills the father/husband name from OCR (toggle off to keep whatever Masar already has) — needs the same OCR key |
+| **Batch Passports** | Select many passport images at once; the extension feeds them through the form one at a time — needs the same OCR key |
 | **Auto Reload** | Reloads the tab after a configurable idle period — skips the tab while it's active, so it never interrupts you mid-edit |
 | **Disable Overlay** | Removes Masar's blocking loading spinner so the page stays interactive |
+
+> **OCR requires your own free ocr.space API key.** Every OCR-dependent feature (Passport OCR, Father Name, Batch Passports) sends that key to the license server with each scan, which uses it to call ocr.space on your behalf — there's no shared/fallback key. This is deliberate: with potentially thousands of installs, one shared key would hit ocr.space's free-tier rate limit for everyone at once. Add yours in Settings → OCR (a "get a free key" link is shown until one's saved); nothing OCR-related runs without it.
 
 ## Automation Tabs — Reactive Rules & Workflows
 
@@ -126,8 +128,8 @@ nuskoMate/
 | `sidePanel` | Optional docked side-panel UI mode |
 | `alarms` | Once-a-minute Cloud Sync poll for changes made on other devices |
 | `https://translate.googleapis.com/*` | Arabic name transliteration |
-| `https://api.ocr.space/*` | Passport OCR (dev-mode fallback; production scans route through the license server) |
-| `https://*.workers.dev/*` | License server — activation, heartbeat, OCR proxy, rule sharing, Cloud Sync |
+| `https://api.ocr.space/*` | Passport OCR (dev-mode fallback only; production scans route through the license server) |
+| `https://*.workers.dev/*` | License server — activation, heartbeat, OCR proxy (using each customer's own ocr.space key), rule sharing, Cloud Sync |
 | `https://api.github.com/*` | Update checker (points at the public releases repo) |
 
 ---

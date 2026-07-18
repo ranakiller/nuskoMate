@@ -77,7 +77,7 @@ async function handle(msg) {
     fd.append("file", blob, msg.fileName || "scan.jpg");
     const res = await fetch(base + "/scan", {
       method: "POST",
-      headers: { "X-License": msg.key || "", "X-Device": msg.device || "", "X-Feature": msg.feature || "ocr" },
+      headers: { "X-License": msg.key || "", "X-Device": msg.device || "", "X-Feature": msg.feature || "ocr", "X-Ocr-Key": msg.ocrApiKey || "" },
       body: fd,
     });
     const data = await res.json().catch(() => ({ ok: false, error: "Bad server response" }));

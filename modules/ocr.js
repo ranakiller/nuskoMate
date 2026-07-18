@@ -176,6 +176,11 @@
       } else {
         // ── Dev mode: OCR + parse locally ──
         const apiKey = await getApiKey();
+        if (!apiKey) {
+          toast("✗ Add your own free ocr.space API key in Settings to use OCR", "err");
+          log.warn("[Nuskomate OCR] no local API key set — scan refused");
+          return;
+        }
         const text = await callOCR(file, apiKey);
         raw = text;
         log.info("[Nuskomate OCR] raw text:\n", text);
@@ -547,8 +552,11 @@
   }
 
   // ── OCR API ─────────────────────────────────────────────────
+  // No fallback demo key — every install must supply its own free key
+  // (Settings → OCR), so usage counts against that install's own quota
+  // instead of one shared key everyone would exhaust together.
   function getApiKey() {
-    return new Promise(r => chrome.storage.local.get(["ocrApiKey"], res => r(res.ocrApiKey || "helloworld")));
+    return new Promise(r => chrome.storage.local.get(["ocrApiKey"], res => r((res.ocrApiKey || "").trim())));
   }
 
   async function callOCR(file, apiKey) {

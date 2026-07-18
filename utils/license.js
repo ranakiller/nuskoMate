@@ -263,11 +263,16 @@
 
   // Send an image to the server, which validates the key, runs OCR + parsing,
   // and returns { ok, result, raw }. result is the full parsed passport object.
+  // Requires the customer's OWN ocr.space key (Settings → OCR) — there is no
+  // shared/fallback key, so every install's OCR usage counts against its own
+  // free-tier quota instead of one key shared (and exhausted) by everyone.
   async function scan(file, feature) {
     if (!enforced()) return { ok: false, error: "Licensing not configured" };
     const key = await getKey();
     if (!key) return { ok: false, error: "Not activated" };
     const device = await getDevice();
+    const ocrApiKey = (await read(["ocrApiKey"])).ocrApiKey || "";
+    if (!ocrApiKey.trim()) return { ok: false, error: "Add your own free ocr.space API key in Settings to use OCR" };
 
     const sized = await shrinkImage(file); // fit OCR.space's 1 MB free-tier limit
     let fileB64;
@@ -276,7 +281,7 @@
 
     const r = await send({
       type: "nkLicense", action: "scan", base, key, device,
-      feature: feature || "ocr",
+      feature: feature || "ocr", ocrApiKey: ocrApiKey.trim(),
       fileB64, fileName: file.name || "scan.jpg", fileType: sized.type || file.type || "image/jpeg",
     });
 
