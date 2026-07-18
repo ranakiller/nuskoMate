@@ -24,7 +24,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Chrome can't auto-install a sideloaded extension, so we notify + one-click
   // open the new build. Compares this build's version to the latest release.
   (function checkForUpdate() {
-    const REPO = "ranakiller/nuskoMate";
+    // Points at the public releases-only repo, NOT the (private) source repo
+    // — a private repo's API/release assets require auth, which this
+    // unauthenticated fetch can't provide.
+    const REPO = "ranakiller/nuskomate-releases";
     const cur = (chrome.runtime?.getManifest && chrome.runtime.getManifest().version) || "0";
     const banner = document.getElementById("update-banner");
     const text   = document.getElementById("update-text");
