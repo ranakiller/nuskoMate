@@ -19,15 +19,33 @@ document.addEventListener("DOMContentLoaded", () => {
   //   fill   → Autofill      (input fields)             → moduleAutoFillRules
   //   select → Auto Select   (dropdowns)                → moduleAutoSelect
   const CATS = [
-    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   delAll: "ac-delete-all",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
-    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", delAll: "fill-delete-all", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
-    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   delAll: "as-delete-all",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
+    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   delAll: "ac-delete-all",   expandToggle: "ac-expand-toggle",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
+    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", delAll: "fill-delete-all", expandToggle: "fill-expand-toggle", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
+    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   delAll: "as-delete-all",   expandToggle: "as-expand-toggle",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
   ];
   if (!document.getElementById("ac-list")) return;
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
   const collapsedGroups = new Set(); // "cat|path" groups collapsed in the rules lists
+
+  // Flipping a rule/workflow/redirect-rule's on/off slider is the one card
+  // interaction with a CSS transition to actually see — but every save here
+  // triggers a storage.onChanged event, which the listeners below react to
+  // by tearing down and rebuilding the whole list. If that rebuild lands
+  // (and it reliably does, well inside the slider's transition duration)
+  // it replaces the very DOM node mid-animation with a fresh one already in
+  // its final state, so the slide never gets to play — it just snaps.
+  // The toggle's native checked state is already visually correct the
+  // instant you click it, so for THIS one save there's nothing else on
+  // screen that actually needs a rebuild — skip the next onChanged-driven
+  // render it causes. Self-clears on a short timer too, in case the write
+  // is a no-op (same value) and onChanged never actually fires.
+  let suppressNextToggleRender = false;
+  function skipNextToggleRender() {
+    suppressNextToggleRender = true;
+    setTimeout(() => { suppressNextToggleRender = false; }, 400);
+  }
 
   // A popup is fully torn down and rebuilt every time it's closed, so these
   // Sets would otherwise forget every Hide/Show the instant you close the
@@ -242,6 +260,28 @@ document.addEventListener("DOMContentLoaded", () => {
     copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
   }
 
+  // Single toolbar icon shared by every automation tab (Click/Fill/Select/
+  // Workflows/URL Shifter) that flips between "expand everything" and
+  // "collapse everything" — one click opens every collapsible item in the
+  // tab, the next click closes them all again. `ids` is whichever set of
+  // collapse-keys applies to that tab (rule-group keys for Click/Fill/Select,
+  // workflow ids for Workflows, rule ids for URL Shifter); `collapsedSet` is
+  // that tab's own Set tracking which of those keys are currently collapsed.
+  function wireExpandToggle(btnId, ids, collapsedSet, rerender, noun) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const anyCollapsed = ids.some((id) => collapsedSet.has(id));
+    btn.innerHTML = svgIcon(anyCollapsed ? "chevDown" : "chevUp");
+    btn.title = ids.length ? (anyCollapsed ? `Expand all ${noun}` : `Collapse all ${noun}`) : `No ${noun} yet`;
+    btn.setAttribute("aria-label", btn.title);
+    btn.disabled = !ids.length;
+    btn.onclick = () => {
+      if (anyCollapsed) ids.forEach((id) => collapsedSet.delete(id));
+      else ids.forEach((id) => collapsedSet.add(id));
+      rerender();
+    };
+  }
+
   // ── Undo / redo (Tier 3) ───────────────────────────────────────────────────
   // Every rule/workflow/redirect-rule mutation snapshots ALL THREE stores
   // first, so Ctrl+Z walks back edits, deletes, imports, reorders and profile
@@ -410,27 +450,21 @@ document.addEventListener("DOMContentLoaded", () => {
           next[index] = e.target.value.trim();
           saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, [key]: next.filter(Boolean) } : r), renderRules);
         });
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "secondary-btn";
-        removeBtn.textContent = "×";
-        removeBtn.addEventListener("click", () => {
+        const removeBtn = iconMini("trash", "Remove this selector", () => {
           const next = [...values];
           next.splice(index, 1);
           saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, [key]: next.filter(Boolean) } : r), renderRules);
-        });
-        row.append(input, removeBtn);
+        }, true);
+        // Pick always APPENDS a new selector to the list (it doesn't target
+        // this specific row) — shown on every row anyway so the button is
+        // right next to the field, same layout as every other selector row
+        // in the extension (input, Pick, Highlight[, Delete]).
+        row.append(input, pickSelectorBtn({ mode, ruleId: rule.id }), highlightSelectorBtn(() => input.value), removeBtn);
         list.appendChild(row);
       });
     };
 
-    const pickBtn = document.createElement("button");
-    pickBtn.type = "button";
-    pickBtn.className = "secondary-btn";
-    pickBtn.textContent = `Pick ${labelText.replace(/s$/, "")}`;
-    pickBtn.addEventListener("click", () => startPicker({ mode, ruleId: rule.id }));
-
-    wrapper.append(label, list, pickBtn);
+    wrapper.append(label, list);
     renderItems();
     return wrapper;
   }
@@ -486,11 +520,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const head = document.createElement("div");
         head.className = "rule-head";
 
-        const toggle = document.createElement("input");
-        toggle.type = "checkbox";
-        toggle.className = "enable-toggle";
+        const { label: toggleWrap, input: toggle } = toggleSwitch(rule.enabled, "enable-toggle");
         toggle.dataset.id = id;
-        toggle.checked = !!rule.enabled;
+        toggle.title = "Enable this rule";
 
         const dragHandle = document.createElement("span");
         dragHandle.className = "drag-handle";
@@ -533,7 +565,7 @@ document.addEventListener("DOMContentLoaded", () => {
         delBtn.innerHTML = svgIcon("trash");
         delBtn.title = "Delete this rule";
 
-        head.append(toggle, dragHandle, title, badge, collapseBtn, shareBtn, dupBtn, delBtn);
+        head.append(toggleWrap, dragHandle, title, badge, collapseBtn, shareBtn, dupBtn, delBtn);
 
         const summary = document.createElement("div");
         summary.className = "rule-summary";
@@ -552,7 +584,9 @@ document.addEventListener("DOMContentLoaded", () => {
           createField(rule, "actionType", "Action", "select", rules, ["run", "stop", "delay"]),
         );
         if (rule.action.type === "delay") body.append(createField(rule, "actionDelaySeconds", "Delay sec", "input", rules));
-        body.append(createField(rule, "jitterSeconds", "Jitter max sec (human-like)", "input", rules));
+        const jitterField = createField(rule, "jitterSeconds", "Jitter (sec)", "input", rules);
+        jitterField.querySelector("input").title = "Random extra delay added before running, up to this many seconds — makes timing look human, not robotic.";
+        body.append(jitterField);
         body.append(createCheckboxField(rule, "repeat", "Repeat", rules, renderRules));
         if (rule.repeat) body.append(createField(rule, "repeatIntervalSeconds", "Repeat interval sec", "input", rules));
 
@@ -584,25 +618,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const search = (res[cfg.searchKey] || "").trim().toLowerCase();
         const displayed = search ? catRules.filter((r) => matchesSearch(r, search)) : catRules;
         if (!displayed.length) {
+          wireExpandToggle(cfg.expandToggle, [], collapsedGroups, renderRules, "groups");
           const e = document.createElement("div"); e.className = "logs-empty";
           e.textContent = catRules.length ? "No rules match your search." : cfg.empty;
           listEl.appendChild(e); return;
         }
         const groups = new Map();
         displayed.forEach((rule) => { const key = (rule.pathname || "").trim() || "__any__"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(rule); });
-
-        // Expand-all / collapse-all for this category's URL groups (only useful
-        // when there is more than one group).
-        if (groups.size > 1) {
-          const gkeys = [...groups.keys()].map((k) => cfg.cat + "|" + k);
-          const ctrl = document.createElement("div"); ctrl.className = "rule-group-controls";
-          const expBtn = document.createElement("button"); expBtn.type = "button"; expBtn.className = "group-ctrl-btn"; expBtn.textContent = "Expand all";
-          expBtn.onclick = () => { gkeys.forEach((k) => collapsedGroups.delete(k)); renderRules(); };
-          const colBtn = document.createElement("button"); colBtn.type = "button"; colBtn.className = "group-ctrl-btn"; colBtn.textContent = "Collapse all";
-          colBtn.onclick = () => { gkeys.forEach((k) => collapsedGroups.add(k)); renderRules(); };
-          ctrl.append(expBtn, colBtn);
-          listEl.appendChild(ctrl);
-        }
+        wireExpandToggle(cfg.expandToggle, [...groups.keys()].map((k) => cfg.cat + "|" + k), collapsedGroups, renderRules, "groups");
 
         groups.forEach((grpRules, key) => {
           const gkey = cfg.cat + "|" + key;
@@ -629,7 +652,11 @@ document.addEventListener("DOMContentLoaded", () => {
           grpRules.forEach((rule) => listEl.appendChild(buildRuleCard(rule)));
         });
         listEl.querySelectorAll(".enable-toggle").forEach((cb) => {
-          cb.onchange = (e) => { const rid = e.target.dataset.id; saveRules(rules.map((r) => String(r.id) === rid ? { ...r, enabled: e.target.checked } : r)); };
+          cb.onchange = (e) => {
+            const rid = e.target.dataset.id;
+            skipNextToggleRender();
+            saveRules(rules.map((r) => String(r.id) === rid ? { ...r, enabled: e.target.checked } : r));
+          };
         });
         listEl.querySelectorAll(".collapse-rule").forEach((btn) => {
           btn.onclick = (e) => { const rid = e.currentTarget.dataset.id; collapsedRuleIds.has(rid) ? collapsedRuleIds.delete(rid) : collapsedRuleIds.add(rid); renderRules(); };
@@ -670,6 +697,36 @@ document.addEventListener("DOMContentLoaded", () => {
         else window.close();
       });
     });
+  }
+
+  // ── Shared Pick / Highlight buttons ───────────────────────────────────────
+  // ONE visual language + behavior for every selector field in the extension
+  // (Required/Forbidden selectors, workflow step Selector, workflow Trigger
+  // element, "While selector visible", URL Shifter's Element selector) —
+  // reuse these two instead of hand-rolling another slightly different pair.
+  // `getSelector` is a function returning the CURRENT value to highlight
+  // (usually `() => input.value`, so an unsaved edit still highlights right).
+  function pickSelectorBtn(payload) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "us-use-btn";
+    b.textContent = "Pick";
+    b.title = "Click, then click the element on the page";
+    b.addEventListener("click", () => startPicker(payload));
+    return b;
+  }
+  function highlightSelectorBtn(getSelector) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "us-use-btn";
+    b.textContent = "◎";
+    b.title = "Highlight this element on the page";
+    b.addEventListener("click", () => {
+      const s = (getSelector() || "").trim();
+      if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s });
+      else alert("Set a selector first.");
+    });
+    return b;
   }
 
   // ── Per-category toolbars (Add picks only that type; export/import filter) ──
@@ -833,6 +890,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function patchWorkflow(wfId, patch) {
     withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, ...patch } : w), renderWorkflows));
   }
+  // Same write as patchWorkflow, but WITHOUT the immediate renderWorkflows()
+  // callback — used only by the enable/disable slider, whose native checked
+  // state is already visually correct the instant you click it. Rebuilding
+  // the card right away (either via this callback or the onChanged listener
+  // it also triggers) would replace that DOM node mid-transition, which is
+  // why the slide looked instant instead of smooth. skipNextToggleRender()
+  // suppresses the onChanged-driven rebuild too.
+  function patchWorkflowEnabled(wfId, enabled) {
+    skipNextToggleRender();
+    withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) === String(wfId) ? { ...w, enabled } : w)));
+  }
   function patchStep(wfId, stepId, patch) {
     withWorkflows((wfs) => saveWorkflows(wfs.map((w) => String(w.id) !== String(wfId) ? w
       : { ...w, steps: (w.steps || []).map((s) => String(s.id) === String(stepId) ? { ...s, ...patch } : s) }), renderWorkflows));
@@ -890,7 +958,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   function addWorkflow() {
-    withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
+    withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, enabled: true, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
   }
   function reorderWorkflows(srcId, targetId) {
     withWorkflows((wfs) => {
@@ -1008,7 +1076,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function sel(value, opts, onchange) {
     const s = document.createElement("select");
-    opts.forEach((o) => { const op = document.createElement("option"); op.value = o; op.textContent = o; s.appendChild(op); });
+    opts.forEach((o) => {
+      const op = document.createElement("option");
+      op.value = typeof o === "object" ? o.value : o;
+      op.textContent = typeof o === "object" ? o.label : o;
+      s.appendChild(op);
+    });
     s.value = value; s.addEventListener("change", (e) => onchange(e.target.value)); return s;
   }
 
@@ -1020,12 +1093,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const l = document.createElement("label"); l.textContent = labelText;
     const row = document.createElement("div"); row.className = "us-url-row";
     const input = txt(selVal, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchStep(wf.id, step.id, { requiredElements: [v], selector: v }));
-    const pickBtn = document.createElement("button");
-    pickBtn.type = "button"; pickBtn.className = "us-use-btn";
-    pickBtn.textContent = "Pick";
-    pickBtn.title = "Click, then click the element on the page";
-    pickBtn.addEventListener("click", () => startPicker({ forWorkflowStep: true, workflowId: wf.id, stepId: step.id }));
-    row.append(input, pickBtn);
+    row.append(
+      input,
+      pickSelectorBtn({ forWorkflowStep: true, workflowId: wf.id, stepId: step.id }),
+      highlightSelectorBtn(() => input.value),
+    );
     w.append(l, row);
     return w;
   }
@@ -1181,15 +1253,17 @@ document.addEventListener("DOMContentLoaded", () => {
     // appears, like a reactive rule).
     panel.append(fieldRow("Run", sel(wf.trigger === "auto" ? "auto" : "manual", ["manual", "auto"], (v) => patchWorkflow(wf.id, { trigger: v }))));
     if (wf.trigger === "auto") {
+      const trigWrap = document.createElement("div"); trigWrap.className = "rule-field full";
+      const trigLbl = document.createElement("label"); trigLbl.textContent = "Trigger element (runs when it appears)";
+      const trigRow = document.createElement("div"); trigRow.className = "us-url-row";
       const trig = txt(wf.triggerSelector, "CSS selector (blank = first step)", (v) => patchWorkflow(wf.id, { triggerSelector: v }));
-      const trigRow = fieldRow("Trigger element (runs when it appears)", trig);
-      const trigBtns = document.createElement("div"); trigBtns.className = "wf-data-row";
-      trigBtns.append(
-        mini("Pick", () => startPicker({ forWorkflowTrigger: true, workflowId: wf.id })),
-        mini("◎ Highlight", () => { const s = (wf.triggerSelector || "").trim(); if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); else alert("Set a trigger selector first (or it uses the first step)."); }),
+      trigRow.append(
+        trig,
+        pickSelectorBtn({ forWorkflowTrigger: true, workflowId: wf.id }),
+        highlightSelectorBtn(() => trig.value),
       );
-      trigRow.append(trigBtns);
-      panel.append(trigRow);
+      trigWrap.append(trigLbl, trigRow);
+      panel.append(trigWrap);
       const th = document.createElement("div"); th.className = "wf-data-hint";
       th.textContent = "Auto-run fires once when the element appears; it re-arms after the element disappears. Leave the selector blank to use the first step's element.";
       panel.append(th);
@@ -1235,15 +1309,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const wvLbl = document.createElement("label"); wvLbl.textContent = "While selector visible";
       const wvRow = document.createElement("div"); wvRow.className = "us-url-row";
       const wvInput = txt(repeat.whileSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchRepeat(wf.id, { whileSelector: v }));
-      const wvPick = document.createElement("button");
-      wvPick.type = "button"; wvPick.className = "us-use-btn"; wvPick.textContent = "Pick";
-      wvPick.title = "Click, then click the element on the page";
-      wvPick.addEventListener("click", () => startPicker({ forWorkflowRepeatWhile: true, workflowId: wf.id }));
-      const wvHi = document.createElement("button");
-      wvHi.type = "button"; wvHi.className = "us-use-btn"; wvHi.textContent = "◎";
-      wvHi.title = "Highlight this element on the page";
-      wvHi.addEventListener("click", () => { const s = (repeat.whileSelector || "").trim(); if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); else alert("Set a selector first."); });
-      wvRow.append(wvInput, wvPick, wvHi);
+      wvRow.append(
+        wvInput,
+        pickSelectorBtn({ forWorkflowRepeatWhile: true, workflowId: wf.id }),
+        highlightSelectorBtn(() => wvInput.value),
+      );
       wvWrap.append(wvLbl, wvRow);
       panel.append(wvWrap);
     }
@@ -1311,6 +1381,27 @@ document.addEventListener("DOMContentLoaded", () => {
     return b;
   }
 
+  // Compact on/off slider (same look as the Settings/Modules toggles) used
+  // inline in card headers instead of a plain checkbox. `extraClass` lets a
+  // caller keep the ".enable-toggle" class for event-delegation wiring
+  // (rule cards, which rewire everything after every render); `onChange` lets
+  // a caller wire the listener directly instead (workflow / URL Shifter
+  // cards, which build listeners once per card). Returns both the wrapper
+  // <label> (append this) and the inner <input> (set dataset/title on this).
+  function toggleSwitch(checked, extraClass, onChange) {
+    const label = document.createElement("label");
+    label.className = "toggle-switch toggle-switch-sm";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = !!checked;
+    if (extraClass) input.className = extraClass;
+    if (onChange) input.addEventListener("change", (e) => onChange(e.target.checked));
+    const slider = document.createElement("span");
+    slider.className = "slider";
+    label.append(input, slider);
+    return { label, input };
+  }
+
   function renderWorkflowCard(wf) {
     const running = liveStatus.running && String(liveStatus.id) === String(wf.id);
     const paused = running && liveStatus.paused;
@@ -1321,6 +1412,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const card = document.createElement("div"); card.className = "wf-card" + (running ? " wf-card-running" : "");
 
     const head = document.createElement("div"); head.className = "wf-head";
+    const { label: toggleWrap } = toggleSwitch(wf.enabled !== false, null, (checked) => patchWorkflowEnabled(wf.id, checked));
+    toggleWrap.title = "Turn this workflow on/off (blocks its hotkey, auto-trigger and Run button)";
     const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle wf-drag"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
     const name = document.createElement("input"); name.className = "wf-name"; name.value = wf.name || "Workflow";
     name.addEventListener("change", (e) => patchWorkflow(wf.id, { name: e.target.value }));
@@ -1347,7 +1440,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const collapseBtn = iconMini(collapsed ? "chevDown" : "chevUp", collapsed ? "Show steps" : "Hide steps", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
     const del = iconMini("trash", "Delete this workflow", () => deleteWorkflow(wf.id), true);
 
-    head.append(dragHandle, name, runBtn, pauseBtn, recBtn, gear, shareBtn, dupBtn, collapseBtn, del);
+    head.append(toggleWrap, dragHandle, name, runBtn, pauseBtn, recBtn, gear, shareBtn, dupBtn, collapseBtn, del);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";
@@ -1423,6 +1516,7 @@ document.addEventListener("DOMContentLoaded", () => {
       liveStatus = res[STATUS_KEY] || {};
       const search = (res[WF_SEARCH_KEY] || "").trim().toLowerCase();
       const shown = search ? wfs.filter((w) => matchesWfSearch(w, search)) : wfs;
+      wireExpandToggle("wf-expand-toggle", shown.map((w) => String(w.id)), wfCollapsed, () => { persistWfCollapse(); renderWorkflows(); }, "workflows");
       wfListEl.textContent = "";
       if (!wfs.length) {
         const e = document.createElement("div"); e.className = "logs-empty";
@@ -1502,8 +1596,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Keep in sync if rules / workflows / status change elsewhere.
   chrome.storage.onChanged.addListener((c, a) => {
     if (a !== "local") return;
-    if (c[RULES_KEY] || c.autoButtons) renderRules();
-    if (c[WF_KEY] || c[STATUS_KEY]) renderWorkflows();
+    if (c[RULES_KEY] || c.autoButtons) {
+      if (suppressNextToggleRender) suppressNextToggleRender = false;
+      else renderRules();
+    }
+    if (c[WF_KEY] || c[STATUS_KEY]) {
+      if (suppressNextToggleRender) suppressNextToggleRender = false;
+      else renderWorkflows();
+    }
   });
 
   // ══ URL Shifter (redirect rules) ═══════════════════════════════════════════
@@ -1557,8 +1657,10 @@ document.addEventListener("DOMContentLoaded", () => {
       name: rule.name || "Redirect",
       nameCustom: !!rule.nameCustom, // true once the user types their own name — stops auto-rename
       enabled: rule.enabled !== false,
+      triggerBy: rule.triggerBy === "element" ? "element" : "url",
       matchMode: rule.matchMode || "contains",
       matchValue: rule.matchValue || "",
+      elementSelector: rule.elementSelector || "",
       targetUrl: rule.targetUrl || "",
     };
   }
@@ -1601,6 +1703,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function patchUsRule(id, patch) {
     withUsRules((rules) => saveUsRules(rules.map((r) => String(r.id) === String(id) ? { ...r, ...patch } : r), renderUsRules));
   }
+  // Same write as patchUsRule, but WITHOUT the immediate renderUsRules()
+  // callback — see patchWorkflowEnabled for why the enable/disable slider
+  // specifically needs to skip both re-render paths.
+  function patchUsRuleEnabled(id, enabled) {
+    skipNextToggleRender();
+    withUsRules((rules) => saveUsRules(rules.map((r) => String(r.id) === String(id) ? { ...r, enabled } : r)));
+  }
   function reorderUsRules(srcId, targetId) {
     withUsRules((rules) => {
       const from = rules.findIndex((r) => String(r.id) === String(srcId));
@@ -1613,7 +1722,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   function matchesUsSearch(rule, search) {
-    return [rule.name, rule.matchMode, rule.matchValue, rule.targetUrl].filter(Boolean).join(" ").toLowerCase().includes(search);
+    return [rule.name, rule.triggerBy, rule.matchMode, rule.matchValue, rule.elementSelector, rule.targetUrl].filter(Boolean).join(" ").toLowerCase().includes(search);
   }
   function usMatchPlaceholder(mode) {
     if (mode === "exact" || mode === "partial") return "/umrah/mutamer/add-mutamer";
@@ -1627,9 +1736,8 @@ document.addEventListener("DOMContentLoaded", () => {
     card.dataset.dragId = id;
 
     const head = document.createElement("div"); head.className = "rule-head";
-    const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.className = "enable-toggle"; toggle.checked = !!rule.enabled;
-    toggle.title = "Enable this rule";
-    toggle.addEventListener("change", (e) => patchUsRule(id, { enabled: e.target.checked }));
+    const { label: toggleWrap } = toggleSwitch(rule.enabled, null, (checked) => patchUsRuleEnabled(id, checked));
+    toggleWrap.title = "Enable this rule";
 
     const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
     dragHandle.addEventListener("pointerdown", (e) => startPointerDrag(e, dragHandle, card, id, usListEl, ".us-card", (srcId, targetId) => reorderUsRules(srcId, targetId)));
@@ -1653,19 +1761,40 @@ document.addEventListener("DOMContentLoaded", () => {
     const dup = iconMini("duplicate", "Duplicate this rule", () => duplicateUsRule(id));
     const del = iconMini("trash", "Delete this rule", () => deleteUsRule(id), true);
 
-    head.append(toggle, dragHandle, name, collapseBtn, shareOne, dup, del);
+    head.append(toggleWrap, dragHandle, name, collapseBtn, shareOne, dup, del);
 
     const body = document.createElement("div"); body.className = "rule-body us-body" + (isCollapsed ? " collapsed" : "");
-    const isPathMode = rule.matchMode === "exact" || rule.matchMode === "partial";
-    body.append(
-      fieldRow("Match", sel(rule.matchMode, ["exact", "partial", "contains", "not contains"], (v) => patchUsRule(id, { matchMode: v }))),
-      usUrlField(isPathMode ? "Path" : "Text in URL", rule.matchValue, usMatchPlaceholder(rule.matchMode), isPathMode ? "path" : "href", (v) => patchUsRule(id, { matchValue: v })),
-      usUrlField("Redirect to", rule.targetUrl, "https://… or /a-path-on-this-site", "href", (v) => {
-        const patch = { targetUrl: v };
-        if (!rule.nameCustom) { const derived = usDeriveName(v); if (derived) patch.name = derived; }
-        patchUsRule(id, patch);
-      }),
-    );
+    const triggerBy = rule.triggerBy || "url";
+    body.append(fieldRow("Trigger", sel(triggerBy, [
+      { value: "url", label: "URL matches" },
+      { value: "element", label: "Element appears on the page" },
+    ], (v) => patchUsRule(id, { triggerBy: v }))));
+
+    if (triggerBy === "element") {
+      const esWrap = document.createElement("div"); esWrap.className = "rule-field full";
+      const esLbl = document.createElement("label"); esLbl.textContent = "Element selector (redirects once it shows up, anywhere on the page)";
+      const esRow = document.createElement("div"); esRow.className = "us-url-row";
+      const esInput = txt(rule.elementSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchUsRule(id, { elementSelector: v }));
+      esRow.append(
+        esInput,
+        pickSelectorBtn({ forUsElement: true, ruleId: id }),
+        highlightSelectorBtn(() => esInput.value),
+      );
+      esWrap.append(esLbl, esRow);
+      body.append(esWrap);
+    } else {
+      const isPathMode = rule.matchMode === "exact" || rule.matchMode === "partial";
+      body.append(
+        fieldRow("Match", sel(rule.matchMode, ["exact", "partial", "contains", "not contains"], (v) => patchUsRule(id, { matchMode: v }))),
+        usUrlField(isPathMode ? "Path" : "Text in URL", rule.matchValue, usMatchPlaceholder(rule.matchMode), isPathMode ? "path" : "href", (v) => patchUsRule(id, { matchValue: v })),
+      );
+    }
+
+    body.append(usUrlField("Redirect to", rule.targetUrl, "https://… or /a-path-on-this-site", "href", (v) => {
+      const patch = { targetUrl: v };
+      if (!rule.nameCustom) { const derived = usDeriveName(v); if (derived) patch.name = derived; }
+      patchUsRule(id, patch);
+    }));
 
     card.append(head, body);
     return card;
@@ -1677,6 +1806,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const rules = (res[US_KEY] || []).map(usNormalizeRule);
       const search = (res[US_SEARCH_KEY] || "").trim().toLowerCase();
       const shown = search ? rules.filter((r) => matchesUsSearch(r, search)) : rules;
+      wireExpandToggle("us-expand-toggle", shown.map((r) => String(r.id)), usCollapsed, () => { persistUsCollapse(); renderUsRules(); }, "redirect rules");
       usListEl.textContent = "";
       if (!rules.length) {
         const e = document.createElement("div"); e.className = "logs-empty"; e.textContent = "No redirect rules yet";
@@ -1762,7 +1892,11 @@ document.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file); usImportFile.value = "";
   });
 
-  chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c[US_KEY]) renderUsRules(); });
+  chrome.storage.onChanged.addListener((c, a) => {
+    if (a !== "local" || !c[US_KEY]) return;
+    if (suppressNextToggleRender) suppressNextToggleRender = false;
+    else renderUsRules();
+  });
 
   // Restore persisted Hide/Show state BEFORE the first render, so nothing
   // flashes open-then-collapsed. Both renders persist their own state again

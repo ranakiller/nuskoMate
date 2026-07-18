@@ -41,6 +41,11 @@
       <button id="update-btn" class="update-btn">Get update</button>
     </div>
 
+    <!-- Sync banner (shown while Cloud Sync is pushing/pulling; auto-hides when done) -->
+    <div id="sync-banner" class="update-banner sync-banner" style="display:none;">
+      <span id="sync-banner-text">Syncing with cloud…</span>
+    </div>
+
     <!-- App layout: left sidebar + content -->
     <div class="layout">
 
@@ -376,6 +381,9 @@
         <button id="fill-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add fill rule" aria-label="Add fill rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
+        <button id="fill-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
         <button id="fill-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
@@ -425,6 +433,28 @@
       <button id="act-deactivate" class="act-deactivate" style="display:none;">Deactivate this device</button>
 
       <div id="act-msg" class="act-msg"></div>
+    </div>
+
+    <!-- Section: Cloud Sync (rules + settings, tied to your license key) -->
+    <div class="section" id="sync-section">
+      <div class="section-title">Cloud Sync <button id="sync-info-btn" class="info-btn" type="button" title="How sync works" aria-label="How sync works">i</button></div>
+      <ul class="info-panel" id="sync-info-panel" style="display:none;">
+        <li>Turn this on and any add / edit / delete to your rules, workflows or settings uploads to the server automatically, tied to your license key.</li>
+        <li>Turning it on also downloads whatever was last saved under this key onto this device, right away.</li>
+        <li>Changes made on <b>other</b> devices arrive here whenever this popup opens, and about once a minute in the background otherwise — not instant, but no action needed.</li>
+        <li>Turned off, nothing uploads and nothing downloads — sync is completely inert.</li>
+        <li>One slot per license key — every device using the same key shares the same saved copy (the most recent change wins).</li>
+      </ul>
+      <div class="act-status sync-status-row" id="sync-status">
+        <span class="sync-status-left">
+          <span class="act-dot" id="sync-dot"></span>
+          <span id="sync-status-text">Sync is off</span>
+        </span>
+        <label class="toggle-switch" title="Enable / disable cloud sync">
+          <input type="checkbox" id="toggle-cloud-sync" />
+          <span class="slider"></span>
+        </label>
+      </div>
     </div>
 
     <!-- Section: Appearance (theme) -->
@@ -643,6 +673,9 @@
         <button id="ac-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add click rule" aria-label="Add click rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
+        <button id="ac-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
         <button id="ac-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
@@ -705,6 +738,9 @@
         <input type="search" id="as-search" class="logs-search" placeholder="Search select rules…" autocomplete="off" />
         <button id="as-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add select rule" aria-label="Add select rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="as-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         <button id="as-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -773,6 +809,9 @@
         <button id="wf-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="New workflow" aria-label="New workflow">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
+        <button id="wf-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
         <button id="wf-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
@@ -811,9 +850,9 @@
           </label>
         </div>
         <ul class="info-panel" id="us-info-panel" style="display:none;">
-          <li>Click <b>+</b>, name the rule, then set a <b>match</b> and a <b>redirect to</b> URL.</li>
-          <li><b>Exact</b> / <b>Partial</b> match the page's path (e.g. <code>/umrah/mutamer/add-mutamer</code>); <b>Partial</b> matches anything starting with it.</li>
-          <li><b>Contains</b> / <b>Not contains</b> match anywhere in the full URL — useful for query strings or a domain fragment.</li>
+          <li>Click <b>+</b>, name the rule, choose a <b>Trigger</b>, then set a <b>redirect to</b> URL.</li>
+          <li><b>Trigger: URL matches</b> — <b>Exact</b> / <b>Partial</b> match the page's path (e.g. <code>/umrah/mutamer/add-mutamer</code>); <b>Partial</b> matches anything starting with it. <b>Contains</b> / <b>Not contains</b> match anywhere in the full URL — useful for query strings or a domain fragment.</li>
+          <li><b>Trigger: Element appears on the page</b> — pick (or type) a selector; the rule fires as soon as that element shows up, even if it's inserted dynamically after the page loads.</li>
           <li>Redirect to can be a full URL or a path on this site (e.g. <code>/umrah/mutamer-group</code>).</li>
           <li>Works with Angular's in-app navigation, not just full page loads — a rule fires once per page/route, so it won't loop.</li>
         </ul>
@@ -835,6 +874,9 @@
         <input type="search" id="us-search" class="logs-search" placeholder="Search redirect rules…" autocomplete="off" />
         <button id="us-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add redirect rule" aria-label="Add redirect rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="us-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
         <button id="us-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -861,8 +903,23 @@
     <!-- Panel: Keys (admin — only shown when the master key is active) -->
     <div class="tab-panel" id="panel-keys">
 
-      <!-- Create / edit form -->
       <div class="section">
+        <div class="logs-header">
+          <div class="section-title" style="margin-bottom:0;">License Keys</div>
+          <div class="logs-actions">
+            <span class="logs-count" id="k-count">0</span>
+            <button class="logs-btn" id="k-refresh" title="Refresh">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+            <button id="k-add-toggle" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Create a new key" aria-label="Create a new key">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create / edit form -->
+      <div class="section" id="k-form-section" style="display:none;">
         <div class="section-title" id="k-form-title">Create a key</div>
         <input type="text" id="k-name" class="field-input" placeholder="Customer name / note (e.g. Lahore Office)" autocomplete="off" />
         <div class="k-row">
@@ -894,15 +951,6 @@
 
       <!-- Existing keys -->
       <div class="section">
-        <div class="logs-header">
-          <div class="section-title" style="margin-bottom:0;">Existing keys</div>
-          <div class="logs-actions">
-            <span class="logs-count" id="k-count">0</span>
-            <button class="logs-btn" id="k-refresh" title="Refresh">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            </button>
-          </div>
-        </div>
         <div id="k-list" class="k-list"><div class="logs-empty">Loading…</div></div>
       </div>
 

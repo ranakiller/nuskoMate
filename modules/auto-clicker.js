@@ -517,6 +517,17 @@
     });
   }
 
+  // URL Shifter's "element appears" trigger — Pick sets the element selector
+  // on the given redirect rule (modules/url-shifter.js owns its own storage
+  // key, "autoUrlShiftRules", separate from click/fill/select rules).
+  function saveUsElementSelector(selection, ruleId) {
+    chrome.storage.local.get(["autoUrlShiftRules"], (res) => {
+      const rules = (res.autoUrlShiftRules || []).map((r) =>
+        String(r.id) === String(ruleId) ? { ...r, elementSelector: selection.selector } : r);
+      chrome.storage.local.set({ autoUrlShiftRules: rules }, () => alert(`Element selector set: ${selection.selector}`));
+    });
+  }
+
   // Re-pick the selector for an EXISTING step (unlike saveCapturedStep, which
   // adds a whole new step). A step has exactly one target, so this REPLACES
   // requiredElements/selector rather than appending like rules' multi-selector
@@ -548,6 +559,7 @@
     inspector.start((selection) => {
       if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
       if (options.forWorkflowRepeatWhile) { saveRepeatWhileSelector(selection, options.workflowId); return; }
+      if (options.forUsElement) { saveUsElementSelector(selection, options.ruleId); return; }
       if (options.forWorkflowStep) { updateWorkflowStepSelector(selection, options.workflowId, options.stepId); return; }
       if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId, options.afterStepId); return; }
       if (options.ruleId) {
@@ -983,7 +995,9 @@
     if (!workflowsEnabled) { wlog("Workflows module is off or not licensed"); return; }
     chrome.storage.local.get([WF_KEY], (res) => {
       const wf = (res[WF_KEY] || []).find((w) => String(w.id) === String(id));
-      if (wf) runWorkflow(wf); else wlog("workflow not found");
+      if (!wf) { wlog("workflow not found"); return; }
+      if (wf.enabled === false) { wlog(`"${wf.name}" is turned off`); return; }
+      runWorkflow(wf);
     });
   }
 
@@ -1006,7 +1020,7 @@
 
   function refreshAutoWorkflows() {
     chrome.storage.local.get([WF_KEY], (res) => {
-      autoWfs = (res[WF_KEY] || []).filter((w) => w.trigger === "auto" && wfTriggerSelector(w));
+      autoWfs = (res[WF_KEY] || []).filter((w) => w.enabled !== false && w.trigger === "auto" && wfTriggerSelector(w));
     });
   }
   refreshAutoWorkflows();
@@ -1057,7 +1071,7 @@
   function refreshHotkeys() {
     chrome.storage.local.get([WF_KEY], (res) => {
       hotkeyMap = {};
-      (res[WF_KEY] || []).forEach((w) => { if (w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = w; } });
+      (res[WF_KEY] || []).forEach((w) => { if (w.enabled !== false && w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = w; } });
     });
   }
   refreshHotkeys();
@@ -1079,7 +1093,7 @@
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowRepeatWhile: msg.forWorkflowRepeatWhile, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowRepeatWhile: msg.forWorkflowRepeatWhile, forUsElement: msg.forUsElement, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
         break;
       case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;

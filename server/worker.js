@@ -14,6 +14,8 @@
  *   POST /scan       multipart "file" + X-License   → { ok, result, raw }
  *   POST /share      { rules } + X-License          → { ok, code }   (short share link)
  *   GET  /share/CODE                                → { ok, rules }  (fetch a share)
+ *   POST /sync/push  { data } + X-License, X-Device  → { ok, at }     (cross-device backup, one slot per key)
+ *   POST /sync/pull  {} + X-License, X-Device        → { ok, data, at, device }
  *
  * Bindings (see wrangler.toml / README):
  *   LICENSES   KV namespace   key → customer name ("revoked" disables it)
@@ -146,6 +148,16 @@ function sharePage(code) {
     { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
 }
 
+// ── Cross-device sync (rules + settings), one slot per license key ──────────
+// Stored in the SAME KV under a "sync:" prefix, no expiry — this is the
+// customer's own persistent cloud backup, not a temporary share. Manual
+// push/pull only (the extension never calls this automatically); a pull
+// always replaces local data wholesale, there is no merge logic. Every
+// device activated under the same key reads/writes the SAME slot, so the
+// most recent push simply wins.
+const SYNC_PREFIX = "sync:";
+const SYNC_MAX_BYTES = 1000000; // ~1 MB — generous for rules + settings
+
 async function ocrSpace(env, file) {
   const fd = new FormData();
   fd.append("file", file, file.name || "scan.jpg");
@@ -207,6 +219,43 @@ export default {
         return json({ ok: true, code });
       }
 
+      // ── Cloud sync: push (requires a valid, licensed device) ──────────────
+      if (url.pathname === "/sync/push" && request.method === "POST") {
+        const key = request.headers.get("X-License") || "";
+        const device = request.headers.get("X-Device") || "";
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
+        const adm = requireActiveDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+
+        const body = await request.json().catch(() => null);
+        const data = body && body.data;
+        if (!data || typeof data !== "object") return json({ ok: false, error: "No data to sync" }, 400);
+        const at = Date.now();
+        const payload = JSON.stringify({ data, at, device });
+        if (payload.length > SYNC_MAX_BYTES) return json({ ok: false, error: "Too much data to sync" }, 400);
+        await env.LICENSES.put(SYNC_PREFIX + key.trim(), payload);
+        return json({ ok: true, at });
+      }
+
+      // ── Cloud sync: pull (requires a valid, licensed device) ───────────────
+      if (url.pathname === "/sync/pull" && request.method === "POST") {
+        const key = request.headers.get("X-License") || "";
+        const device = request.headers.get("X-Device") || "";
+        const rec = await getRecord(env, key);
+        if (!rec) return json({ ok: false, error: "Invalid or revoked key" }, 403);
+        if (isExpired(rec)) return json({ ok: false, error: "Key expired" }, 403);
+        const adm = requireActiveDevice(rec, device);
+        if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
+
+        const raw = await env.LICENSES.get(SYNC_PREFIX + key.trim());
+        if (raw == null) return json({ ok: false, error: "No synced data found for this key yet" }, 404);
+        let saved;
+        try { saved = JSON.parse(raw); } catch (_) { return json({ ok: false, error: "Corrupt sync data" }, 500); }
+        return json({ ok: true, data: saved.data, at: saved.at, device: saved.device });
+      }
+
       if (url.pathname === "/activate" && request.method === "POST") {
         const { key, device } = await request.json();
         const rec = await getRecord(env, key);
@@ -254,7 +303,7 @@ export default {
           const list = await env.LICENSES.list();
           const keys = [];
           for (const k of list.keys) {
-            if (k.name.startsWith(SHARE_PREFIX)) continue; // rule shares aren't license keys
+            if (k.name.startsWith(SHARE_PREFIX) || k.name.startsWith(SYNC_PREFIX)) continue; // not license keys
             const raw = await env.LICENSES.get(k.name);
             const revoked = String(raw || "").trim().toLowerCase() === "revoked";
             let rec = null;

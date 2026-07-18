@@ -57,7 +57,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const saveBtn = $("k-save"), cancelBtn = $("k-cancel"), msgEl = $("k-msg");
   const titleEl = $("k-form-title"), listEl = $("k-list"), countEl = $("k-count");
   const refreshBtn = $("k-refresh"), tabBtn = $("tab-keys");
+  const formSection = $("k-form-section"), addToggleBtn = $("k-add-toggle");
   if (!listEl) return;
+
+  // ── Show / hide the create/edit form behind the + button ──────
+  function showForm() {
+    if (formSection) formSection.style.display = "";
+    if (addToggleBtn) { addToggleBtn.classList.add("k-add-toggle-open"); addToggleBtn.title = "Hide form"; }
+  }
+  function hideForm() {
+    if (formSection) formSection.style.display = "none";
+    if (addToggleBtn) { addToggleBtn.classList.remove("k-add-toggle-open"); addToggleBtn.title = "Create a new key"; }
+  }
+  if (addToggleBtn) addToggleBtn.addEventListener("click", () => {
+    const open = formSection && formSection.style.display !== "none";
+    if (open) { hideForm(); resetForm(); } else { resetForm(); showForm(); }
+  });
 
   let editing = null;   // { key, devices, master, expires } when editing
   let loaded  = false;  // have we fetched the list yet?
@@ -112,10 +127,23 @@ document.addEventListener("DOMContentLoaded", () => {
   syncAll();
 
   // ── helpers ────────────────────────────────────────────────
-  function genKey() {
-    let h = "";
-    for (let i = 0; i < 8; i++) h += "0123456789ABCDEF"[Math.floor(Math.random() * 16)];
-    return "NUSK-" + h.slice(0, 4) + "-" + h.slice(4);
+  // 6-char alphanumeric tail, e.g. "A8B8C8" — used both for a fresh
+  // auto-generated key and appended to any custom key the admin types.
+  function randCode6() {
+    const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let s = "";
+    for (let i = 0; i < 6; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return s;
+  }
+  // Blank key field → NUSKO-<first word of customer name>-<random 6>.
+  function genKey(name) {
+    const firstWord = (name || "Customer").trim().split(/\s+/)[0].replace(/[^a-zA-Z0-9]/g, "").toUpperCase() || "CUSTOMER";
+    return `NUSKO-${firstWord}-${randCode6()}`;
+  }
+  // Custom key typed in → always gets -<random 6> appended, so two admins
+  // typing the same friendly name can never collide.
+  function withRandomSuffix(customKey) {
+    return `${customKey.trim().replace(/-+$/, "")}-${randCode6()}`;
   }
   // ── Validity: keep the Years/Months/Days boxes and the exact-date field in
   //    sync, both ways, live. The date field is the source of truth on save.
@@ -268,6 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── form actions ───────────────────────────────────────────
   function loadForEdit(k) {
+    showForm();
     editing = { key: k.key, devices: k.devices || [], master: !!k.master, expires: k.expires || "" };
     titleEl.textContent = "Edit key";
     saveBtn.textContent = "Save changes";
@@ -287,7 +316,8 @@ document.addEventListener("DOMContentLoaded", () => {
   async function save() {
     const name = nameEl.value.trim() || "Customer";
     let seats = parseInt(seatsEl.value, 10); if (!Number.isFinite(seats) || seats < 1) seats = 4;
-    const key = editing ? editing.key : (keyEl.value.trim() || genKey());
+    const typedKey = keyEl.value.trim();
+    const key = editing ? editing.key : (typedKey ? withRandomSuffix(typedKey) : genKey(name));
 
     const record = { name, seats, devices: editing ? editing.devices : [] };
     const features = selectedFeatures();
@@ -331,7 +361,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── wire up ────────────────────────────────────────────────
   saveBtn.addEventListener("click", save);
-  cancelBtn.addEventListener("click", resetForm);
+  cancelBtn.addEventListener("click", () => { resetForm(); hideForm(); });
   refreshBtn.addEventListener("click", refresh);
   if (tabBtn) tabBtn.addEventListener("click", () => { if (!loaded) refresh(); });
 

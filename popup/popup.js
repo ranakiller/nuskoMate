@@ -5,20 +5,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (verEl && chrome.runtime?.getManifest) verEl.textContent = "v" + chrome.runtime.getManifest().version;
 
   // ── Sidebar collapse / expand (remembered) ───────────────────
-  // No dedicated button: clicking anywhere on the sidebar BACKGROUND toggles
-  // it. Clicks on the tab buttons themselves still switch tabs as usual.
+  // No dedicated button: double-clicking any tab button toggles it (a single
+  // click on a tab still just switches to it, as usual, same as before).
   const layoutEl = document.querySelector(".layout");
   const tabbarEl = document.querySelector(".tabbar");
   if (layoutEl && tabbarEl) {
     chrome.storage.local.get(["uiSidebarCollapsed"], (r) => {
       if (r.uiSidebarCollapsed) layoutEl.classList.add("collapsed");
     });
-    tabbarEl.addEventListener("click", (e) => {
-      if (e.target.closest(".tab")) return;              // tab click = navigate
+    tabbarEl.addEventListener("dblclick", (e) => {
+      if (!e.target.closest(".tab")) return;              // only tab buttons trigger this
       const collapsed = layoutEl.classList.toggle("collapsed");
       chrome.storage.local.set({ uiSidebarCollapsed: collapsed });
     });
-    tabbarEl.title = "Click empty space to collapse / expand";
   }
 
   // ── Update check (GitHub releases) ───────────────────────────
@@ -47,8 +46,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!rel || !rel.tag_name) return;
         const latest = String(rel.tag_name).replace(/^v/i, "");
         if (cmpVer(latest, cur) <= 0) return; // already up to date
-        // Prefer the .zip asset; fall back to the release page.
-        const asset = (rel.assets || []).find((a) => /\.zip$/i.test(a.name));
+        // Prefer the obfuscated release .zip — NOT the "-raw" source zip
+        // (build.js's --raw output, published alongside it for AMO's source
+        // review requirement). Asset order from the GitHub API isn't
+        // guaranteed to match upload order, so this must exclude "-raw" by
+        // name rather than just grabbing the first .zip found.
+        const asset = (rel.assets || []).find((a) => /\.zip$/i.test(a.name) && !/-raw\.zip$/i.test(a.name));
         const url = (asset && asset.browser_download_url) || rel.html_url;
         text.textContent = `Update available — v${latest}`;
         btn.addEventListener("click", () => {
@@ -203,6 +206,77 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     refresh();
+  })();
+
+  // ── Cloud Sync (rules + settings, tied to your license key) ──
+  // One on/off switch. All the actual work (auto-push on every tracked
+  // change, and the one-time pull when you flip it on) lives in background.js
+  // so it keeps working even while this popup is closed — e.g. a workflow
+  // step picked straight on the page writes to storage with the popup
+  // already gone. This panel only displays status and flips the switch.
+  (function () {
+    const toggle     = document.getElementById("toggle-cloud-sync");
+    const dot         = document.getElementById("sync-dot");
+    const statusText  = document.getElementById("sync-status-text");
+    const infoBtn     = document.getElementById("sync-info-btn");
+    const infoPanel   = document.getElementById("sync-info-panel");
+    const banner      = document.getElementById("sync-banner");
+    if (!toggle) return;
+
+    function renderBanner(inProgress) {
+      if (banner) banner.style.display = inProgress ? "flex" : "none";
+    }
+    chrome.storage.local.get(["cloudSyncInProgress"], (res) => renderBanner(!!res.cloudSyncInProgress));
+
+    if (infoBtn && infoPanel) {
+      infoBtn.addEventListener("click", () => {
+        const open = infoPanel.style.display !== "none";
+        infoPanel.style.display = open ? "none" : "";
+        infoBtn.classList.toggle("info-btn-open", !open);
+      });
+    }
+
+    function render(res) {
+      const on = !!res.cloudSyncEnabled;
+      toggle.checked = on;
+      if (!on) { statusText.textContent = "Sync is off"; statusText.className = ""; dot.classList.remove("on"); return; }
+      if (res.cloudSyncLastError) {
+        statusText.textContent = "Sync error: " + res.cloudSyncLastError;
+        statusText.className = "err";
+        dot.classList.remove("on");
+      } else if (res.cloudSyncLastAt) {
+        statusText.textContent = "Synced " + new Date(res.cloudSyncLastAt).toLocaleString();
+        statusText.className = "";
+        dot.classList.add("on");
+      } else {
+        statusText.textContent = "On — waiting for the first change";
+        statusText.className = "";
+        dot.classList.add("on");
+      }
+    }
+
+    chrome.storage.local.get(["cloudSyncEnabled", "cloudSyncLastAt", "cloudSyncLastError"], render);
+    chrome.storage.onChanged.addListener((c, a) => {
+      if (a !== "local") return;
+      if (c.cloudSyncInProgress) renderBanner(!!c.cloudSyncInProgress.newValue);
+      // A pull can silently change things this popup only reads once at open
+      // time (module toggles, saved email/phone, OCR key…) — reload so
+      // everything reflects the freshly-pulled data instead of going stale.
+      if (c.cloudSyncPulledAt) { location.reload(); return; }
+      if (c.cloudSyncEnabled || c.cloudSyncLastAt || c.cloudSyncLastError) {
+        chrome.storage.local.get(["cloudSyncEnabled", "cloudSyncLastAt", "cloudSyncLastError"], render);
+      }
+    });
+
+    toggle.addEventListener("change", () => {
+      chrome.storage.local.set({ cloudSyncEnabled: toggle.checked, cloudSyncLastError: "" });
+    });
+
+    // Popup just opened — ask the background worker to check for remote
+    // changes right away, instead of waiting for the once-a-minute alarm.
+    chrome.storage.local.get(["cloudSyncEnabled"], (res) => {
+      if (res.cloudSyncEnabled) chrome.runtime.sendMessage({ type: "nkSyncPollNow" }, () => void chrome.runtime.lastError);
+    });
   })();
 
   // ── Theme ───────────────────────────────────────────────────
@@ -752,13 +826,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Scanning happens on the page (content script). This panel just shows the
   // details of the last passport scanned there, live-updated via storage.
 
-  // In licensed mode the OCR key lives on the server, so this field is useless —
-  // hide the whole section. It stays visible in dev mode.
-  if (window.NkLicense && window.NkLicense.enforced()) {
-    const ocrSection = document.getElementById("ocr-key-section");
-    if (ocrSection) ocrSection.style.display = "none";
-  } else {
-    const ocrApiKeyEl = document.getElementById("ocr-api-key");
+  // In licensed mode actual scans still run server-side (the server's own
+  // OCR_SPACE_KEY secret, never this value), so this field doesn't affect
+  // scanning there — but it stays visible/editable in both modes, since it's
+  // also the local fallback key used in dev mode and kept device-local by
+  // Cloud Sync on purpose (never pushed/pulled, so it's never silently
+  // overwritten by another device).
+  const ocrApiKeyEl = document.getElementById("ocr-api-key");
+  if (ocrApiKeyEl) {
     chrome.storage.local.get(["ocrApiKey"], (res) => {
       if (res.ocrApiKey) ocrApiKeyEl.value = res.ocrApiKey;
     });
