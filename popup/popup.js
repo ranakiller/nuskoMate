@@ -101,15 +101,40 @@ document.addEventListener("DOMContentLoaded", () => {
       return st.features === null || (Array.isArray(st.features) && st.features.includes(feat));
     }
 
+    // Passport OCR, Father Name, and Batch Passports also need the
+    // customer's own ocr.space key (Settings → OCR) — locked here too when
+    // it's missing, on top of the normal license check, with a description
+    // that explains why instead of the usual one-liner. Starts fail-closed
+    // (locked) like the license check itself, until the async read confirms
+    // otherwise, so there's no flash of "on" that then snaps to locked.
+    const OCR_GATED_DESC = {
+      "toggle-ocr": "Auto-scan passport on upload",
+      "toggle-father": "Fill names from OCR (off: keep Masar's)",
+      "toggle-batch": "Select many, auto-feed each",
+    };
+    let hasOcrKey = false;
+    function refreshOcrKeyGate() {
+      chrome.storage.local.get(["ocrApiKey"], (res) => {
+        hasOcrKey = !!(res.ocrApiKey && res.ocrApiKey.trim());
+        refresh();
+      });
+    }
+
     function applyLocks(st) {
       // Lock/unlock each premium module card by its specific tool entitlement
       Object.keys(TOGGLE_FEATURE).forEach((id) => {
         const el = document.getElementById(id);
         const card = el && el.closest(".module-card");
         if (!card) return;
-        const ok = has(st, TOGGLE_FEATURE[id]);
+        const licensed = has(st, TOGGLE_FEATURE[id]);
+        const needsOcrKey = id in OCR_GATED_DESC;
+        const ok = licensed && (!needsOcrKey || hasOcrKey);
         card.classList.toggle("module-locked", !ok);
         if (el) el.disabled = !ok;
+        if (needsOcrKey) {
+          const descEl = document.getElementById(id.replace("toggle-", "") + "-module-desc");
+          if (descEl) descEl.textContent = (licensed && !hasOcrKey) ? "Add your OCR key in Settings to turn this on" : OCR_GATED_DESC[id];
+        }
       });
       // Passport tab: upsell when not activated at all; otherwise show content.
       if (upsell)    upsell.style.display    = st.activated ? "none" : "block";
@@ -118,7 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now.
-      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"], ["fill-upsell", "fill-content", "fillrules"]].forEach(([up, ct, feat]) => {
+      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"], ["fill-upsell", "fill-content", "fillrules"], ["groups-upsell", "groups-content", "groups"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -198,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn", "us-upsell-btn", "fill-upsell-btn"].forEach((idb) => {
+    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn", "us-upsell-btn", "fill-upsell-btn", "groups-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -206,9 +231,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Keep the UI in sync if activation changes elsewhere
     chrome.storage.onChanged.addListener((c, a) => {
       if (a === "local" && c.licenseValid !== undefined) refresh();
+      if (a === "local" && c.ocrApiKey !== undefined) refreshOcrKeyGate();
     });
 
     refresh();
+    refreshOcrKeyGate();
   })();
 
   // ── Cloud Sync (rules + settings, tied to your license key) ──
@@ -829,26 +856,45 @@ document.addEventListener("DOMContentLoaded", () => {
   // Scanning happens on the page (content script). This panel just shows the
   // details of the last passport scanned there, live-updated via storage.
 
-  // In licensed mode actual scans still run server-side (the server's own
-  // OCR_SPACE_KEY secret, never this value), so this field doesn't affect
-  // scanning there — but it stays visible/editable in both modes, since it's
-  // also the local fallback key used in dev mode and kept device-local by
-  // Cloud Sync on purpose (never pushed/pulled, so it's never silently
-  // overwritten by another device).
-  const ocrApiKeyEl = document.getElementById("ocr-api-key");
-  const ocrKeyHintEl = document.getElementById("ocr-key-hint");
+  // OCR requires the customer's own ocr.space key (see utils/license.js's
+  // scan()) — kept device-local by Cloud Sync on purpose, never pushed/pulled,
+  // so it's never silently overwritten by another device. Shown masked with
+  // an Edit button once saved, same idea as a saved password; the plain
+  // input only appears while actively entering/changing it.
+  const ocrApiKeyEl   = document.getElementById("ocr-api-key");
+  const ocrKeyHintEl  = document.getElementById("ocr-key-hint");
+  const ocrKeyViewEl  = document.getElementById("ocr-key-view");
+  const ocrKeyMaskedEl = document.getElementById("ocr-key-masked");
+  const ocrKeyEditBtn = document.getElementById("ocr-key-edit-btn");
   if (ocrApiKeyEl) {
-    // No key saved yet (fresh install) → show the "get a free key" link.
-    // Once one's saved, the link just adds clutter next to the key itself.
-    const syncHint = () => { if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : ""; };
+    const maskKey = (k) => k.length <= 7 ? "•".repeat(k.length) : k.slice(0, 3) + "•".repeat(Math.max(4, k.length - 6)) + k.slice(-3);
+
+    function showKeyView(key) {
+      if (ocrKeyViewEl) { ocrKeyViewEl.style.display = "flex"; if (ocrKeyMaskedEl) ocrKeyMaskedEl.textContent = maskKey(key); }
+      ocrApiKeyEl.style.display = "none";
+      if (ocrKeyHintEl) ocrKeyHintEl.style.display = "none";
+    }
+    function showKeyEdit() {
+      if (ocrKeyViewEl) ocrKeyViewEl.style.display = "none";
+      ocrApiKeyEl.style.display = "";
+      if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : "";
+      ocrApiKeyEl.focus();
+    }
+
     chrome.storage.local.get(["ocrApiKey"], (res) => {
-      if (res.ocrApiKey) ocrApiKeyEl.value = res.ocrApiKey;
-      syncHint();
+      ocrApiKeyEl.value = res.ocrApiKey || "";
+      if (res.ocrApiKey) showKeyView(res.ocrApiKey); else showKeyEdit();
     });
     ocrApiKeyEl.addEventListener("input", () => {
       chrome.storage.local.set({ ocrApiKey: ocrApiKeyEl.value.trim() });
-      syncHint();
+      if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : "";
     });
+    ocrApiKeyEl.addEventListener("blur", () => {
+      const v = ocrApiKeyEl.value.trim();
+      if (v) showKeyView(v);
+    });
+    ocrApiKeyEl.addEventListener("keydown", (e) => { if (e.key === "Enter") ocrApiKeyEl.blur(); });
+    if (ocrKeyEditBtn) ocrKeyEditBtn.addEventListener("click", showKeyEdit);
   }
 
   const ocrEmptyEl = document.getElementById("ocr-empty");

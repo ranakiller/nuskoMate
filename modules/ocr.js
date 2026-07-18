@@ -177,7 +177,7 @@
         // ── Dev mode: OCR + parse locally ──
         const apiKey = await getApiKey();
         if (!apiKey) {
-          toast("✗ Add your own free ocr.space API key in Settings to use OCR", "err");
+          toast("✗ Please add your ocr.space API key in Settings to use OCR", "err");
           log.warn("[Nuskomate OCR] no local API key set — scan refused");
           return;
         }

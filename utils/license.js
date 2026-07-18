@@ -19,7 +19,7 @@
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
 
   // Canonical list of per-key tool ids (kept in sync with the popup + modules).
-  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift"];
+  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms
@@ -272,7 +272,7 @@
     if (!key) return { ok: false, error: "Not activated" };
     const device = await getDevice();
     const ocrApiKey = (await read(["ocrApiKey"])).ocrApiKey || "";
-    if (!ocrApiKey.trim()) return { ok: false, error: "Add your own free ocr.space API key in Settings to use OCR" };
+    if (!ocrApiKey.trim()) return { ok: false, error: "Please add your ocr.space API key in Settings to use OCR" };
 
     const sized = await shrinkImage(file); // fit OCR.space's 1 MB free-tier limit
     let fileB64;

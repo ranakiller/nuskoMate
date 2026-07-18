@@ -76,6 +76,10 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
             <span>Redirect</span>
           </button>
+          <button class="tab" data-tab="groups" title="Groups Export">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+            <span>Groups</span>
+          </button>
           <button class="tab" data-tab="passport" title="Passport">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
@@ -233,7 +237,7 @@
           </div>
           <div class="module-info">
             <div class="module-name">Passport OCR</div>
-            <div class="module-desc">Auto-scan passport on upload</div>
+            <div class="module-desc" id="ocr-module-desc">Auto-scan passport on upload</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-ocr" />
@@ -250,7 +254,7 @@
           </div>
           <div class="module-info">
             <div class="module-name">Father Name</div>
-            <div class="module-desc">Fill names from OCR (off: keep Masar's)</div>
+            <div class="module-desc" id="father-module-desc">Fill names from OCR (off: keep Masar's)</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-father" />
@@ -267,7 +271,7 @@
           </div>
           <div class="module-info">
             <div class="module-name">Batch Passports</div>
-            <div class="module-desc">Select many, auto-feed each</div>
+            <div class="module-desc" id="batch-module-desc">Select many, auto-feed each</div>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-batch" />
@@ -484,10 +488,16 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           OCR API key (required)
         </label>
+        <div class="ocr-key-view" id="ocr-key-view" style="display:none;">
+          <span class="ocr-key-masked" id="ocr-key-masked"></span>
+          <button type="button" id="ocr-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
         <input type="text" id="ocr-api-key" class="field-input"
-          placeholder="Required — paste your own ocr.space API key" autocomplete="off" />
+          placeholder="Paste your own ocr.space API key" autocomplete="off" />
         <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener noreferrer" id="ocr-key-hint" class="ocr-key-hint">Don't have one? Get a free key at ocr.space →</a>
-        <div class="k-hint">Passport OCR, Father Name, and Bulk Parser need your own free key — each install uses its own, so one busy customer can't use up everyone else's scans.</div>
+        <div class="k-hint">Required for Passport OCR, Father Name, and Bulk Parser.</div>
       </div>
     </div>
     </div><!-- /panel-settings -->
@@ -902,6 +912,67 @@
     </div><!-- /us-content -->
     </div><!-- /panel-urlshift -->
 
+    <!-- Panel: Groups Export -->
+    <div class="tab-panel" id="panel-groups">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Groups Export <button id="groups-info-btn" class="info-btn" type="button" title="How Groups Export works" aria-label="How Groups Export works">i</button></div>
+            <div class="module-desc">Pull Masar's Groups List into a formatted Excel report</div>
+          </div>
+        </div>
+        <ul class="info-panel" id="groups-info-panel" style="display:none;">
+          <li>Open the <b>Groups List</b> page in Masar (any filter tab — Sub-Agents, Main-Agents, etc.), then click <b>Fetch from Masar</b> below — it pages through every row on its own.</li>
+          <li>Edit any cell, add rows, or add your own columns before exporting — nothing is sent anywhere, it's all local to this popup until you export.</li>
+          <li><b>Export Excel</b> groups rows by Arrival date with a subtotal per date, plus a grand total at the end.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="groups-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Groups Export is a premium tool</div>
+      <div class="premium-upsell-text">Pull your Groups List from Masar into an editable, exportable Excel report. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="groups-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="groups-content">
+    <div class="section">
+      <div class="bulk-actions" style="display:flex;">
+        <button id="groups-fetch" class="bulk-btn bulk-btn-primary">Fetch from Masar</button>
+        <button id="groups-add-row" class="bulk-btn bulk-btn-soft">+ Row</button>
+        <button id="groups-add-col" class="bulk-btn bulk-btn-soft">+ Column</button>
+      </div>
+
+      <div id="groups-progress" class="bulk-progress" style="display:none;">
+        <div class="bulk-bar"><div id="groups-bar-fill" class="bulk-bar-fill"></div></div>
+        <span id="groups-progress-text"></span>
+      </div>
+      <div id="groups-error" class="k-hint" style="display:none; color:var(--overlay-fg);"></div>
+
+      <div id="groups-grid-wrap" class="groups-grid-wrap" style="display:none;">
+        <table id="groups-grid" class="groups-grid">
+          <thead><tr id="groups-grid-head"></tr></thead>
+          <tbody id="groups-grid-body"></tbody>
+        </table>
+      </div>
+      <div id="groups-empty" class="logs-empty">No groups fetched yet — open Masar's Groups List and click Fetch from Masar.</div>
+
+      <div id="groups-actions" class="bulk-actions" style="display:none;">
+        <button id="groups-export-btn" class="bulk-btn bulk-btn-primary">Export Excel</button>
+        <button id="groups-clear" class="bulk-btn bulk-btn-danger">Clear</button>
+      </div>
+    </div>
+    </div><!-- /groups-content -->
+    </div><!-- /panel-groups -->
+
     <!-- Panel: Keys (admin — only shown when the master key is active) -->
     <div class="tab-panel" id="panel-keys">
 
@@ -968,5 +1039,6 @@
     <script src="bulk.js"></script>
     <script src="keys-admin.js"></script>
     <script src="auto-clicker.js"></script>
+    <script src="groups.js"></script>
   </body>
 </html>

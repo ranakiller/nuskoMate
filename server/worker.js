@@ -370,7 +370,7 @@ export default {
         const adm = requireActiveDevice(rec, device);
         if (!adm.ok) return json({ ok: false, error: adm.error }, 403);
         if (!featureAllowed(rec, feature)) return json({ ok: false, error: "This key does not include this feature" }, 403);
-        if (!ocrKey) return json({ ok: false, error: "Add your own free ocr.space API key in Settings to use OCR" }, 400);
+        if (!ocrKey) return json({ ok: false, error: "Please add your ocr.space API key in Settings to use OCR" }, 400);
 
         const form = await request.formData();
         const file = form.get("file");

@@ -521,6 +521,13 @@ input:checked + .slider::before {
 }
 .ocr-key-hint:hover { text-decoration: underline; }
 
+.ocr-key-view {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 7px 9px;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-xs);
+}
+.ocr-key-masked { font-size: 12.5px; font-family: Consolas, monospace; color: var(--text); }
+
 .field-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -933,6 +940,37 @@ input:checked + .slider::before {
   color: var(--text-sub);
 }
 .bulk-btn-danger:hover { background: var(--overlay-bg); color: var(--overlay-fg); border-color: var(--overlay-fg); }
+
+/* ── Groups Export — editable grid ──────────────────────────── */
+.groups-grid-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  margin: 8px 0;
+}
+.groups-grid { border-collapse: collapse; font-size: 11px; }
+.groups-grid th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface2); color: var(--text-sub); font-weight: 700;
+  padding: 5px 4px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+  white-space: nowrap; text-align: left;
+}
+.groups-grid td {
+  padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.groups-grid input {
+  width: 92px; box-sizing: border-box; display: block; border: none; background: transparent;
+  color: var(--text); font-size: 11px; font-family: inherit; padding: 5px 6px; outline: none;
+}
+.groups-grid input:focus { background: var(--accent-soft); }
+.groups-grid td.groups-col-narrow input { width: 46px; }
+.groups-grid-del-btn {
+  border: none; background: transparent; color: var(--text-sub); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 4px 6px;
+}
+.groups-grid-del-btn:hover { color: var(--overlay-fg); }
+.groups-grid-colhead { display: flex; align-items: center; gap: 4px; }
 
 /* ── Passport OCR (read-only viewer) ───────── */
 .ocr-card {

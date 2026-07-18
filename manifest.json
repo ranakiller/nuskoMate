@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "3.4.4",
+  "version": "3.4.5",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite", "sidePanel", "alarms"],
   "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*", "https://*.workers.dev/*", "https://api.github.com/*"],
@@ -64,7 +64,8 @@
         "modules/ocr.js",
         "modules/batch-passport.js",
         "modules/auto-clicker.js",
-        "modules/url-shifter.js"
+        "modules/url-shifter.js",
+        "modules/groups-export.js"
       ],
       "run_at": "document_idle"
     }

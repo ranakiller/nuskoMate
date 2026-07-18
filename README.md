@@ -19,6 +19,7 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | **Batch Passports** | Select many passport images at once; the extension feeds them through the form one at a time — needs the same OCR key |
 | **Auto Reload** | Reloads the tab after a configurable idle period — skips the tab while it's active, so it never interrupts you mid-edit |
 | **Disable Overlay** | Removes Masar's blocking loading spinner so the page stays interactive |
+| **Groups Export** | Fetches every page of Masar's Groups List (any filter tab), shows it as an editable grid (add/edit rows and columns), then exports a formatted `.xlsx` — clustered by Arrival date with a live `=SUM()` subtotal per date, a grand total, and a per-row Stay formula |
 
 > **OCR requires your own free ocr.space API key.** Every OCR-dependent feature (Passport OCR, Father Name, Batch Passports) sends that key to the license server with each scan, which uses it to call ocr.space on your behalf — there's no shared/fallback key. This is deliberate: with potentially thousands of installs, one shared key would hit ocr.space's free-tier rate limit for everyone at once. Add yours in Settings → OCR (a "get a free key" link is shown until one's saved); nothing OCR-related runs without it.
 
@@ -97,19 +98,21 @@ nuskoMate/
 │   ├── popup.html / popup.css / popup.js   # Shell UI, tabs, settings, Cloud Sync, update check
 │   ├── auto-clicker.js              # Click/Fill/Select rules, Workflows, URL Shifter UI
 │   ├── bulk.js                      # Bulk passport parser panel
+│   ├── groups.js                    # Groups Export editable grid + formatted .xlsx export
 │   └── keys-admin.js                # License Keys admin tab
 ├── modules/                         # Content-script feature modules (one per toggle)
 │   ├── autofill.js, auto-reload.js, translation.js, issue-date-calc.js,
 │   │   vaccine-upload.js, disable-loading-overlay.js, ocr.js, batch-passport.js
 │   ├── auto-clicker.js              # Executes click/fill/select rules + workflows
-│   └── url-shifter.js               # Executes URL/element-trigger redirect rules
+│   ├── url-shifter.js               # Executes URL/element-trigger redirect rules
+│   └── groups-export.js             # Scrapes Masar's Groups List table across every page
 ├── utils/
 │   ├── license.js                   # Client licensing API (activate, sync, share links, heartbeat)
 │   ├── route-watcher.js             # SPA route-change detection
 │   ├── angular-simulator.js         # Angular-compatible input events
 │   ├── dropdown-helper.js           # PrimeNG dropdown handler
 │   ├── element-type-detector.js, inspector.js, countries.js, passport-parser.js,
-│   │   logger.js, xlsx-mini.js
+│   │   logger.js, xlsx-mini.js      # xlsx-mini.js: dependency-free .xlsx writer
 └── server/
     ├── worker.js                    # Cloudflare Worker — licensing, OCR proxy, share links, Cloud Sync
     └── wrangler.toml
@@ -142,4 +145,4 @@ nuskoMate/
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.4.3** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.4.5** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.

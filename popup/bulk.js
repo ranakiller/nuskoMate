@@ -105,7 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const apiKey = await getApiKey();
     if (!(window.NkLicense && window.NkLicense.enforced()) && !apiKey) {
       bulkLog("Bulk parse refused — no local ocr.space API key set (Settings → OCR)", "warn");
-      alert("Add your own free ocr.space API key in Settings to use Bulk Parser.");
+      alert("Please add your ocr.space API key in Settings to use Bulk Parser.");
       progress.style.display = "none";
       fileInput.disabled = false;
       return;
