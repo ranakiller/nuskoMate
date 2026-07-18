@@ -836,12 +836,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // Cloud Sync on purpose (never pushed/pulled, so it's never silently
   // overwritten by another device).
   const ocrApiKeyEl = document.getElementById("ocr-api-key");
+  const ocrKeyHintEl = document.getElementById("ocr-key-hint");
   if (ocrApiKeyEl) {
+    // No key saved yet (fresh install) → show the "get a free key" link.
+    // Once one's saved, the link just adds clutter next to the key itself.
+    const syncHint = () => { if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : ""; };
     chrome.storage.local.get(["ocrApiKey"], (res) => {
       if (res.ocrApiKey) ocrApiKeyEl.value = res.ocrApiKey;
+      syncHint();
     });
     ocrApiKeyEl.addEventListener("input", () => {
       chrome.storage.local.set({ ocrApiKey: ocrApiKeyEl.value.trim() });
+      syncHint();
     });
   }
 

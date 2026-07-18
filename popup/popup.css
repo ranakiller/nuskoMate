@@ -516,6 +516,11 @@ input:checked + .slider::before {
 
 .field-input::placeholder { color: var(--text-sub); }
 
+.ocr-key-hint {
+  font-size: 10.5px; color: var(--accent); text-decoration: none; margin-top: 1px;
+}
+.ocr-key-hint:hover { text-decoration: underline; }
+
 .field-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
