@@ -17,6 +17,10 @@
 
   function store(obj) { return new Promise((r) => chrome.storage.local.set(obj, r)); }
   function read(keys)  { return new Promise((r) => chrome.storage.local.get(keys, r)); }
+  // storage.sync mirrors of store/read — best-effort only (not signed into
+  // Chrome sync, or sync disabled, both just no-op instead of throwing).
+  function storeSync(obj) { return new Promise((r) => { try { chrome.storage.sync.set(obj, () => r()); } catch (_) { r(); } }); }
+  function readSync(keys) { return new Promise((r) => { try { chrome.storage.sync.get(keys, (x) => r(chrome.runtime.lastError ? {} : (x || {}))); } catch (_) { r({}); } }); }
 
   // Canonical list of per-key tool ids (kept in sync with the popup + modules).
   const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups"];
@@ -117,15 +121,62 @@
     });
   }
 
+  // Optional native-messaging helper (see native-host/) — a small local
+  // program that reads this PC's actual Windows machine id, something no
+  // browser extension can access on its own. Chrome and Edge each have
+  // completely separate storage, so without this every browser mints its
+  // own random device id even on the same computer; the helper is the only
+  // way to give them a SHARED one. Most customers won't have it installed —
+  // this must never throw or hang activation, just resolve to null so the
+  // caller falls back to the per-browser id.
+  const NATIVE_HOST_NAME = "com.nuskomate.devicehost";
+  function getNativeMachineId() {
+    return new Promise((resolve) => {
+      if (!chrome.runtime || !chrome.runtime.sendNativeMessage) return resolve(null);
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      const timer = setTimeout(() => finish(null), 1500); // the helper answers in ms; never hang on it
+      try {
+        chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {}, (resp) => {
+          clearTimeout(timer);
+          if (chrome.runtime.lastError || !resp || !resp.ok || !resp.machineId) return finish(null);
+          finish("native:" + resp.machineId);
+        });
+      } catch (_) {
+        clearTimeout(timer);
+        finish(null);
+      }
+    });
+  }
+
   // A stable per-install id so a key can be bound to a limited number of
-  // devices. Generated once and kept in local storage.
+  // devices. Cached in LOCAL storage (fast, always available), but the
+  // canonical copy also lives in SYNC storage — which is tied to the
+  // signed-in Chrome/Edge profile, not the install, and survives an
+  // uninstall/reinstall. So reinstalling in the same signed-in profile
+  // recovers the SAME device id instead of minting a new random one and
+  // quietly burning another seat. If sync isn't available (not signed in,
+  // sync disabled), this degrades to the old local-only behavior.
+  // An EXISTING cached id (local or sync) always wins over the native helper
+  // — installing the helper later must never silently change an already-
+  // activated device's id and burn a fresh seat. The native machine id is
+  // only used to MINT a brand-new id, on a fresh activation, when nothing is
+  // cached yet — that's the one case where using it is strictly better than
+  // a random per-browser UUID, since it's the same value in every browser.
   async function getDevice() {
-    const x = await read(["licenseDevice"]);
-    if (x.licenseDevice) return x.licenseDevice;
-    const id = (self.crypto && crypto.randomUUID)
+    const local = await read(["licenseDevice"]);
+    if (local.licenseDevice) return local.licenseDevice;
+    const synced = await readSync(["licenseDevice"]);
+    if (synced.licenseDevice) {
+      await store({ licenseDevice: synced.licenseDevice }); // re-cache locally
+      return synced.licenseDevice;
+    }
+    const native = await getNativeMachineId();
+    const id = native || ((self.crypto && crypto.randomUUID)
       ? crypto.randomUUID()
-      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2));
     await store({ licenseDevice: id });
+    storeSync({ licenseDevice: id }); // best-effort, don't block activation on it
     return id;
   }
 

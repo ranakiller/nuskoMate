@@ -26,6 +26,7 @@ const EXCLUDE = new Set([
   "build.js", "package.json", "package-lock.json",
   "README.md", "LICENSE", "RELEASE_NOTES.md", ".gitignore", "smoke.js",
   "logo.png", // branding asset — not used by the extension itself
+  "native-host", // customer-run installer scripts — served from /install, not bundled into the extension
 ]);
 
 // Files shipped as harmless stubs in OBFUSCATED (release) builds only.

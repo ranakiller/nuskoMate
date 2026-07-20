@@ -2,6 +2,13 @@ name = "nuskomate-license"
 main = "worker.js"
 compatibility_date = "2024-09-01"
 
+# Serve the native-host installer scripts straight from source (imported as
+# plain text below) instead of duplicating their content into worker.js.
+[[rules]]
+type = "Text"
+globs = ["**/*.ps1"]
+fallthrough = true
+
 # KV namespace holding your activation keys.
 # Create it once:  npx wrangler kv namespace create LICENSES
 # then paste the printed id below.

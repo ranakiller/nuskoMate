@@ -45,8 +45,9 @@ Every rule/step/redirect-rule list shares the same tooling:
 
 | Feature | What it does |
 |---|---|
-| **Activation** | Per-device license key activation against a Cloudflare Worker; each key can gate specific tools, a device-seat limit, and an expiry date |
+| **Activation** | Per-device license key activation against a Cloudflare Worker; each key can gate specific tools, a device-seat limit, and an expiry date. The device id is cached in `chrome.storage.sync` as well as `local`, so reinstalling the extension in the same signed-in browser profile reuses the same id instead of burning a fresh seat |
 | **Heartbeat** | Re-validates the key every few minutes while the page is open — a revoked/expired/edited key locks out mid-session, no popup reopen needed |
+| **Native device helper** (optional, Windows) | A small local helper ([setup instructions](https://nuskomate-license.ranakiller-59.workers.dev/install)) that lets Chrome and Edge on the *same PC* share one device slot instead of two, by reading the machine's own stable Windows id — something no browser extension can do on its own. Falls back to the normal per-browser id if it isn't installed |
 | **Cloud Sync** | One on/off toggle — while on, any rule/workflow/setting change auto-pushes to the server under your license key (debounced); changes from other devices are pulled on popup open and roughly once a minute in the background. Off = completely inert, no upload or download |
 | **Keys admin** (master key only) | Create/edit/revoke/delete license keys, reset device seats, set per-key tool entitlements and expiry — the create/edit form lives behind a **+** button |
 
@@ -113,8 +114,11 @@ nuskoMate/
 │   ├── dropdown-helper.js           # PrimeNG dropdown handler
 │   ├── element-type-detector.js, inspector.js, countries.js, passport-parser.js,
 │   │   logger.js, xlsx-mini.js      # xlsx-mini.js: dependency-free .xlsx writer
+├── native-host/
+│   ├── nuskomate-host.ps1            # Native Messaging host — reads this PC's Windows machine id
+│   └── install.ps1                  # Customer-run installer (see /install on the license server)
 └── server/
-    ├── worker.js                    # Cloudflare Worker — licensing, OCR proxy, share links, Cloud Sync
+    ├── worker.js                    # Cloudflare Worker — licensing, OCR proxy, share links, Cloud Sync, /install page
     └── wrangler.toml
 ```
 
@@ -130,6 +134,7 @@ nuskoMate/
 | `clipboardWrite` | Copy the calculated issue date to clipboard |
 | `sidePanel` | Optional docked side-panel UI mode |
 | `alarms` | Once-a-minute Cloud Sync poll for changes made on other devices |
+| `nativeMessaging` | Optional — talks to the native device helper (native-host/), if installed, to read a shared machine id across browsers |
 | `https://translate.googleapis.com/*` | Arabic name transliteration |
 | `https://api.ocr.space/*` | Passport OCR (dev-mode fallback only; production scans route through the license server) |
 | `https://*.workers.dev/*` | License server — activation, heartbeat, OCR proxy (using each customer's own ocr.space key), rule sharing, Cloud Sync |
@@ -141,8 +146,9 @@ nuskoMate/
 
 - **Obfuscation**: production builds run every JS file through `javascript-obfuscator`; `utils/passport-parser.js` is replaced with a harmless stub in obfuscated builds — the real parsing logic runs server-side only.
 - **This repo is private.** The public [nuskomate-releases](https://github.com/ranakiller/nuskomate-releases) repo hosts only built zips, no source — that split exists because GitHub exposes a full source archive per tag on any *public* repo regardless of what's in Releases.
-- **License server**: `server/worker.js`, a Cloudflare Worker backed by a KV namespace. Endpoints: `/activate`, `/status` (heartbeat), `/scan` (OCR), `/share` + `/share/CODE` (rule links), `/sync/push` + `/sync/pull` (Cloud Sync), `/admin/*` (master-key-gated key management).
+- **License server**: `server/worker.js`, a Cloudflare Worker backed by a KV namespace. Endpoints: `/activate`, `/status` (heartbeat), `/scan` (OCR), `/share` + `/share/CODE` (rule links), `/sync/push` + `/sync/pull` (Cloud Sync), `/admin/*` (master-key-gated key management), `/install` + `/install/*.ps1` (native device helper setup page + downloads).
+- **Stable extension id**: `manifest.json` carries a fixed `"key"` so every install (any folder, any machine) resolves to the same extension id — required for the native host's `allowed_origins` whitelist to work at all. Changing this key again would break native messaging for existing installs the same way introducing it did (see the v3.4.6 note below).
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.4.5** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.4.6** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.

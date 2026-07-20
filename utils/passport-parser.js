@@ -560,30 +560,29 @@
   }
 
   // CONSTANT name distributor — identical for every country, with or without a
-  // father name. Takes a flat list of name words and fills the 4 boxes by
-  // priority box1 & box4 first, then box2, then box3:
-  //   • front half (first ceil(n/2) words) → box1, overflow → box2
-  //   • back  half (last  floor(n/2) words) → box4, overflow → box3
-  // Each box holds ≤15 chars and never splits a word. So the last component
-  // (surname / father) lands in box4, the first name in box1, and longer names
-  // spill into boxes 2 then 3. Examples (15-char rule):
-  //   [A B]        → [A, , , B]
-  //   [A B C]      → [A B, , , C]   (if "A B"≤15)  else [A, B, , C]
-  //   [A B C D]    → [A B, , , C D] (if both ≤15)  else split into 2/3
+  // father name. Strict left-to-right sequential fill, box1 → box2 → box3 →
+  // box4, ≤15 chars/box, never splitting a word — EXCEPT the very last word,
+  // which is never allowed to compete for space in boxes 1-3 (even if it
+  // would fit there) and is instead reserved for box4: everything else packs
+  // normally across all 4 boxes first (so box4 can already hold overflow from
+  // box3), then the reserved last word tries to tack onto whatever's in box4,
+  // and is dropped if it doesn't fit. This guarantees box4 is never empty
+  // (single-word names repeat into it) while still preferring to keep the
+  // family/father name visible over the last word specifically. Examples:
+  //   [A]              → [A, , , A]              (repeated — nothing else to show)
+  //   [A B]            → [A, , , B]               (B reserved, never merges with A)
+  //   [A B C]          → [A B, , , C]  (if "A B"≤15) else [A, B, , C]
+  //   [A B C D E F]    → box1..3 pack A,B,C normally; D,E spill into box4;
+  //                       reserved F tries to join box4 too, dropped if it
+  //                       still doesn't fit within 15 chars
   function nameToBoxes(tokens) {
-    const boxes = ["", "", "", ""];
     const n = tokens.length;
-    if (!n) return boxes;
-    const backCount = Math.floor(n / 2);          // 0,1,1,2,2,3… for n=1,2,3,4,5,6…
-    const front = tokens.slice(0, n - backCount); // first ceil(n/2) words
-    const back  = tokens.slice(n - backCount);    // last  floor(n/2) words
-    const [f0, f1] = distributeWords(front, 2, 15);
-    boxes[0] = f0; boxes[1] = f1;
-    if (back.length) {
-      const [p0, p1] = distributeWords(back, 2, 15);
-      if (p1) { boxes[2] = p0; boxes[3] = p1; } // overflow: box3=earlier, box4=last
-      else    { boxes[3] = p0; }                // fits: all in box4
-    }
+    if (!n) return ["", "", "", ""];
+    if (n === 1) return [tokens[0], "", "", tokens[0]]; // nothing else to show — repeat it
+    const last  = tokens[n - 1];
+    const boxes = distributeWords(tokens.slice(0, -1), 4, 15); // everything but the last word
+    const candidate = boxes[3] ? boxes[3] + " " + last : last;
+    if (candidate.length <= 15) boxes[3] = candidate; // else: last word dropped, box4 unchanged
     return boxes;
   }
 
