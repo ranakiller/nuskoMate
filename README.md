@@ -151,4 +151,4 @@ nuskoMate/
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.4.6** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.4.7** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.

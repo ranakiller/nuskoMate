@@ -130,20 +130,40 @@
   // this must never throw or hang activation, just resolve to null so the
   // caller falls back to the per-browser id.
   const NATIVE_HOST_NAME = "com.nuskomate.devicehost";
+  // Defensive — window.nkLog only exists on the Masar content-script page
+  // (utils/logger.js), NOT in the popup (popup.html never loads it).
+  const nlog = (...a) => (window.nkLog ? window.nkLog(...a) : console.log(...a));
   function getNativeMachineId() {
     return new Promise((resolve) => {
       if (!chrome.runtime || !chrome.runtime.sendNativeMessage) return resolve(null);
       let done = false;
       const finish = (v) => { if (!done) { done = true; resolve(v); } };
-      const timer = setTimeout(() => finish(null), 1500); // the helper answers in ms; never hang on it
+      // A cold powershell.exe launch (first run, possibly AV-scanned) can take
+      // a couple of seconds — too short a timeout here silently falls back to
+      // a per-browser id even when the helper IS installed correctly, with no
+      // sign anything went wrong. 4s is generous but this only ever runs once,
+      // on a fresh activation.
+      const timer = setTimeout(() => {
+        nlog("[Nuskomate License] native device helper: timed out (not installed, or slow to respond) — using per-browser id");
+        finish(null);
+      }, 4000);
       try {
         chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {}, (resp) => {
           clearTimeout(timer);
-          if (chrome.runtime.lastError || !resp || !resp.ok || !resp.machineId) return finish(null);
+          if (chrome.runtime.lastError) {
+            nlog("[Nuskomate License] native device helper: not found —", chrome.runtime.lastError.message || "unknown error");
+            return finish(null);
+          }
+          if (!resp || !resp.ok || !resp.machineId) {
+            nlog("[Nuskomate License] native device helper: responded but no machine id —", JSON.stringify(resp));
+            return finish(null);
+          }
+          nlog("[Nuskomate License] native device helper: connected, using shared machine id");
           finish("native:" + resp.machineId);
         });
-      } catch (_) {
+      } catch (err) {
         clearTimeout(timer);
+        nlog("[Nuskomate License] native device helper: call failed —", err && err.message);
         finish(null);
       }
     });
