@@ -1,6 +1,6 @@
 {
   "name": "nuskomate",
-  "version": "3.4.7",
+  "version": "3.4.8",
   "private": true,
   "description": "Build tooling for the Nuskomate browser extension",
   "scripts": {
