@@ -25,8 +25,17 @@
  *   LICENSES   KV namespace   key → customer name ("revoked" disables it)
  */
 import NkPassport from "../utils/passport-parser.js";
+import NkZip from "../utils/zip-mini.js";
 import NATIVE_HOST_SCRIPT from "../native-host/nuskomate-host.ps1";
 import NATIVE_HOST_INSTALLER from "../native-host/install.ps1";
+
+// Built once at module load (both source files are static text imports, not
+// per-request data) — the zip customers download from /install so they never
+// have to juggle two separate files landing in the same folder themselves.
+const NATIVE_HOST_ZIP = NkZip.zip([
+  { name: "install.ps1", data: new TextEncoder().encode(NATIVE_HOST_INSTALLER) },
+  { name: "nuskomate-host.ps1", data: new TextEncoder().encode(NATIVE_HOST_SCRIPT) },
+]);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -163,18 +172,17 @@ function installPage() {
 <title>Nuskomate — Device Helper Setup</title>
 <body style="font-family:system-ui;max-width:560px;margin:40px auto;padding:0 20px;color:#222;line-height:1.5">
 <h2>Nuskomate Device Helper</h2>
-<p>Install this once so Chrome and Edge on this computer share <b>one</b> activation slot instead of two. It only takes a couple of minutes and doesn't need admin rights.</p>
+<p>Install this once so Chrome, Edge, and Opera on this computer share <b>one</b> activation slot instead of a separate one each. It only takes a couple of minutes and doesn't need admin rights.</p>
 
-<h3>Step 1 — Download both files</h3>
-<p>Save both into the <b>same new folder</b> (e.g. create a folder called <code>Nuskomate</code> on your Desktop):</p>
+<h3>Step 1 — Download and unzip</h3>
 <p>
-<a href="/install/nuskomate-host.ps1" download style="display:inline-block;background:#2563eb;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;margin:4px 8px 4px 0">Download nuskomate-host.ps1</a>
-<a href="/install/install.ps1" download style="display:inline-block;background:#2563eb;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;margin:4px 0">Download install.ps1</a>
+<a href="/install/nuskomate-device-helper.zip" download style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;margin:4px 0;font-weight:600">Download Nuskomate-DeviceHelper.zip</a>
 </p>
+<p>Right-click the downloaded zip → <b>Extract All</b> (or your browser's "show in folder" then extract) to get a <code>Nuskomate-DeviceHelper</code> folder with two files inside.</p>
 
 <h3>Step 2 — Run the installer</h3>
 <ol>
-<li>Open the <b>Nuskomate</b> folder you just saved the files into.</li>
+<li>Open the extracted <b>Nuskomate-DeviceHelper</b> folder.</li>
 <li>Click the address bar at the top of the folder window, type <code>powershell</code>, and press Enter — this opens a PowerShell window already in that folder.</li>
 <li>Paste this command and press Enter:<br>
 <code style="background:#f1f1f1;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">powershell -ExecutionPolicy Bypass -File .\\install.ps1</code></li>
@@ -182,18 +190,18 @@ function installPage() {
 </ol>
 
 <h3>Step 3 — Restart and reactivate</h3>
-<p>Fully close Chrome and Edge (not just the window — quit them completely), reopen them, open the Nuskomate extension, and re-enter your activation key if it asks.</p>
+<p>Fully close Chrome, Edge, and Opera (not just the window — quit them completely), reopen them, open the Nuskomate extension, and re-enter your activation key if it asks.</p>
 
 <h3>Is this safe?</h3>
-<p style="color:#555;font-size:14px">The installer copies two small, readable script files into your own user folder and registers them with Chrome/Edge — no admin rights, no internet access needed to run, nothing installed system-wide. It only ever reports one value back to the extension: your Windows installation's existing machine id (a value Windows itself already has — nothing new is created or collected).</p>
+<p style="color:#555;font-size:14px">The installer copies two small, readable script files into your own user folder and registers them with your browsers — no admin rights, no internet access needed to run, nothing installed system-wide. It only ever reports one value back to the extension: your Windows installation's existing machine id (a value Windows itself already has — nothing new is created or collected).</p>
 </body>`,
     { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
 }
 
-function scriptDownload(content, filename) {
-  return new Response(content, {
+function zipDownload(bytes, filename) {
+  return new Response(bytes, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${filename}"`,
       ...CORS,
     },
@@ -239,11 +247,8 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/install") return installPage();
-    if (request.method === "GET" && url.pathname === "/install/nuskomate-host.ps1") {
-      return scriptDownload(NATIVE_HOST_SCRIPT, "nuskomate-host.ps1");
-    }
-    if (request.method === "GET" && url.pathname === "/install/install.ps1") {
-      return scriptDownload(NATIVE_HOST_INSTALLER, "install.ps1");
+    if (request.method === "GET" && url.pathname === "/install/nuskomate-device-helper.zip") {
+      return zipDownload(NATIVE_HOST_ZIP, "Nuskomate-DeviceHelper.zip");
     }
 
     try {
