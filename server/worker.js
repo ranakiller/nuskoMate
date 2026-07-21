@@ -25,17 +25,6 @@
  *   LICENSES   KV namespace   key → customer name ("revoked" disables it)
  */
 import NkPassport from "../utils/passport-parser.js";
-import NkZip from "../utils/zip-mini.js";
-import NATIVE_HOST_SCRIPT from "../native-host/nuskomate-host.ps1";
-import NATIVE_HOST_INSTALLER from "../native-host/install.ps1";
-
-// Built once at module load (both source files are static text imports, not
-// per-request data) — the zip customers download from /install so they never
-// have to juggle two separate files landing in the same folder themselves.
-const NATIVE_HOST_ZIP = NkZip.zip([
-  { name: "install.ps1", data: new TextEncoder().encode(NATIVE_HOST_INSTALLER) },
-  { name: "nuskomate-host.ps1", data: new TextEncoder().encode(NATIVE_HOST_SCRIPT) },
-]);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -172,40 +161,49 @@ function installPage() {
 <title>Nuskomate — Device Helper Setup</title>
 <body style="font-family:system-ui;max-width:560px;margin:40px auto;padding:0 20px;color:#222;line-height:1.5">
 <h2>Nuskomate Device Helper</h2>
-<p>Install this once so Chrome, Edge, and Opera on this computer share <b>one</b> activation slot instead of a separate one each. It only takes a couple of minutes and doesn't need admin rights.</p>
+<p>Install this once so Chrome, Edge, and Opera on this computer share <b>one</b> activation slot instead of a separate one each. It only takes a minute.</p>
 
 <h3>Step 1 — Download and unzip</h3>
 <p>
-<a href="/install/nuskomate-device-helper.zip" download style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;margin:4px 0;font-weight:600">Download Nuskomate-DeviceHelper.zip</a>
+<a id="dl-btn" href="https://github.com/ranakiller/nuskomate-releases/releases/latest" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;margin:4px 0;font-weight:600">Download Nuskomate</a>
 </p>
-<p>Right-click the downloaded zip → <b>Extract All</b> (or your browser's "show in folder" then extract) to get a <code>Nuskomate-DeviceHelper</code> folder with two files inside.</p>
+<p>(This is the same zip used to install the extension itself — if you already have it downloaded, you can reuse that copy instead.) Right-click the zip → <b>Extract All</b>.</p>
 
 <h3>Step 2 — Run the installer</h3>
 <ol>
-<li>Open the extracted <b>Nuskomate-DeviceHelper</b> folder.</li>
-<li>Click the address bar at the top of the folder window, type <code>powershell</code>, and press Enter — this opens a PowerShell window already in that folder.</li>
-<li>Paste this command and press Enter:<br>
-<code style="background:#f1f1f1;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">powershell -ExecutionPolicy Bypass -File .\\install.ps1</code></li>
-<li>You should see a green <b>"Nuskomate device helper installed"</b> message. If Windows shows a security warning first, click <b>More info → Run anyway</b> — this is expected for a script downloaded from the internet.</li>
+<li>Open the extracted folder, then open the <b>native-host</b> folder inside it.</li>
+<li>Double-click <b>Install-DeviceHelper.bat</b>.</li>
+<li>Click <b>Yes</b> if Windows asks for permission. If it shows a blue "Windows protected your PC" warning first, click <b>More info → Run anyway</b> — expected for a file downloaded from the internet.</li>
+<li>A window will show <b>"Nuskomate device helper installed"</b> — press any key to close it.</li>
 </ol>
 
 <h3>Step 3 — Restart and reactivate</h3>
 <p>Fully close Chrome, Edge, and Opera (not just the window — quit them completely), reopen them, open the Nuskomate extension, and re-enter your activation key if it asks.</p>
 
+<p style="color:#777;font-size:13px">Having trouble with the double-click launcher? You can also open a PowerShell window inside the <code>native-host</code> folder and run: <code style="background:#f1f1f1;padding:2px 6px;border-radius:4px">powershell -ExecutionPolicy Bypass -File .\\install.ps1</code></p>
+
 <h3>Is this safe?</h3>
-<p style="color:#555;font-size:14px">The installer copies two small, readable script files into your own user folder and registers them with your browsers — no admin rights, no internet access needed to run, nothing installed system-wide. It only ever reports one value back to the extension: your Windows installation's existing machine id (a value Windows itself already has — nothing new is created or collected).</p>
+<p style="color:#555;font-size:14px">The installer copies two small, readable script files into your own user folder and registers them with your browsers. It may ask for administrator permission to run, but only ever writes to your own user account — nothing system-wide, no internet access needed. It only ever reports one value back to the extension: your Windows installation's existing machine id (a value Windows itself already has — nothing new is created or collected).</p>
+
+<script>
+// The release zip's filename changes every version, so resolve it at load
+// time instead of hardcoding a link that goes stale the next release —
+// same lookup the extension's own update checker already does.
+fetch("https://api.github.com/repos/ranakiller/nuskomate-releases/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+  .then(function (r) { return r.ok ? r.json() : null; })
+  .then(function (rel) {
+    if (!rel || !rel.assets) return;
+    var asset = rel.assets.find(function (a) { return /\\.zip$/i.test(a.name) && !/-raw\\.zip$/i.test(a.name); });
+    if (asset) {
+      var btn = document.getElementById("dl-btn");
+      btn.href = asset.browser_download_url;
+      btn.setAttribute("download", "");
+    }
+  })
+  .catch(function () {});
+</script>
 </body>`,
     { headers: { "Content-Type": "text/html; charset=utf-8", ...CORS } });
-}
-
-function zipDownload(bytes, filename) {
-  return new Response(bytes, {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      ...CORS,
-    },
-  });
 }
 
 // ── Cross-device sync (rules + settings), one slot per license key ──────────
@@ -247,9 +245,6 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/install") return installPage();
-    if (request.method === "GET" && url.pathname === "/install/nuskomate-device-helper.zip") {
-      return zipDownload(NATIVE_HOST_ZIP, "Nuskomate-DeviceHelper.zip");
-    }
 
     try {
       // ── Fetch a shared rule set (no license needed — the code is the secret) ─
