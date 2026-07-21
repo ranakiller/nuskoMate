@@ -48,9 +48,15 @@ $manifestObj = [ordered]@{
 }
 $manifestObj | ConvertTo-Json | Set-Content -Path $manifestPath -Encoding UTF8
 
+# Every Chromium-based browser keeps its OWN native-messaging-host registry
+# namespace — none of them read Chrome's entries, even though they share the
+# same underlying engine. So each one needs its own registration pointing at
+# the same manifest file. A key for a browser that isn't installed is
+# harmless — it just sits there unused.
 foreach ($browserKey in @(
     "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$HostName",
-    "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$HostName"
+    "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$HostName",
+    "HKCU:\Software\Opera Software\NativeMessagingHosts\$HostName"
 )) {
     New-Item -Path $browserKey -Force | Out-Null
     Set-ItemProperty -Path $browserKey -Name "(default)" -Value $manifestPath
