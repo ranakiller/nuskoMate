@@ -19,7 +19,9 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | **Batch Passports** | Select many passport images at once; the extension feeds them through the form one at a time — needs the same OCR key |
 | **Auto Reload** | Reloads the tab after a configurable idle period — skips the tab while it's active, so it never interrupts you mid-edit |
 | **Disable Overlay** | Removes Masar's blocking loading spinner so the page stays interactive |
-| **Groups Export** | Fetches every page of Masar's Groups List (any filter tab), shows it as an editable grid (add/edit rows and columns), then exports a formatted `.xlsx` — clustered by Arrival date with a live `=SUM()` subtotal per date, a grand total, and a per-row Stay formula |
+| **Totals** | Running Mutamer/Voucher total + visible row count injected next to the paginator, on whichever pages you list |
+| **Groups Export** | One click — fetches every page of Masar's Groups List (any filter tab) and immediately downloads a formatted `.xlsx`, clustered by Arrival date with a live `=SUM()` subtotal per date, a grand total, and a per-row Stay formula |
+| **Copy** | Adds a one-click copy button (plus a fully configurable keyboard shortcut) on the Hotel Agreement, Mutamers List, Groups List, and Agreements pages — copies a clean, paste-ready summary to your clipboard. Every line of every format can be turned on/off individually in Settings |
 
 > **OCR requires your own free ocr.space API key.** Every OCR-dependent feature (Passport OCR, Father Name, Batch Passports) sends that key to the license server with each scan, which uses it to call ocr.space on your behalf — there's no shared/fallback key. This is deliberate: with potentially thousands of installs, one shared key would hit ocr.space's free-tier rate limit for everyone at once. Add yours in Settings → OCR (a "get a free key" link is shown until one's saved); nothing OCR-related runs without it.
 
@@ -27,11 +29,11 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 
 | Tab | What it does |
 |---|---|
-| **Autofill (Fill Rules)** | Reactive rules that fill input fields when a page/selector condition matches |
-| **Auto Clicker** | Reactive rules that click buttons — run/stop/delay actions, repeat, human-like jitter |
-| **Auto Select** | Reactive rules that pick a dropdown value by matching on value or visible text |
+| **Automation Rules** | Reactive rules that click, fill, or select — one tab covers what used to be three separate ones (Autofill/Auto Clicker/Auto Select) |
 | **Workflows** | Programmable step sequences — clicks, fills, waits, loops, if/else conditions, CSV data-driven runs, hotkeys, and an on-page recorder that turns your own clicks/typing into steps |
+| **Translation Rules** | Field-to-field translation, or auto-detect-and-translate any foreign text on a page — either replaces the text in place, or (new) leaves it untouched and shows the translation in an instant hover tooltip with a one-key commit if you want it copied into the page after all |
 | **URL Shifter** | Redirects to a target URL either when the current URL matches a condition, or when a chosen element appears anywhere on the page (even dynamically inserted ones) |
+| **BRN Request** | A hotkey-driven hotel search bar with auto-captured hotel IDs and agreement auto-fill |
 
 Every rule/step/redirect-rule list shares the same tooling:
 - **Pick** an element on the live page via the on-page inspector, then **Highlight** it to confirm, all through one consistent button pair everywhere a selector is needed
@@ -97,16 +99,22 @@ nuskoMate/
 ├── images/
 ├── popup/
 │   ├── popup.html / popup.css / popup.js   # Shell UI, tabs, settings, Cloud Sync, update check
-│   ├── auto-clicker.js              # Click/Fill/Select rules, Workflows, URL Shifter UI
+│   ├── auto-clicker.js              # Automation Rules, Workflows, Translation Rules, URL Shifter UI
 │   ├── bulk.js                      # Bulk passport parser panel
-│   ├── groups.js                    # Groups Export editable grid + formatted .xlsx export
+│   ├── groups.js                    # Groups Export — one-click fetch + formatted .xlsx download
+│   ├── mv-totals.js                 # Totals module settings (page list)
+│   ├── brn-request.js               # BRN Request tab (hotkey + hotel list)
+│   ├── talab-copy.js                # Copy tool settings (per-line toggles + hotkey)
 │   └── keys-admin.js                # License Keys admin tab
 ├── modules/                         # Content-script feature modules (one per toggle)
 │   ├── autofill.js, auto-reload.js, translation.js, issue-date-calc.js,
 │   │   vaccine-upload.js, disable-loading-overlay.js, ocr.js, batch-passport.js
-│   ├── auto-clicker.js              # Executes click/fill/select rules + workflows
+│   ├── auto-clicker.js              # Executes click/fill/select/translate rules + workflows
 │   ├── url-shifter.js               # Executes URL/element-trigger redirect rules
-│   └── groups-export.js             # Scrapes Masar's Groups List table across every page
+│   ├── groups-export.js             # Scrapes Masar's Groups List table across every page
+│   ├── mv-totals.js                 # Injects the running Mutamer/Voucher/Rows total
+│   ├── brn-request.js               # Hotel search bar + auto-capture + agreement autofill
+│   └── talab-copy.js                # Injects the Copy button/hotkey on 4 Masar pages
 ├── utils/
 │   ├── license.js                   # Client licensing API (activate, sync, share links, heartbeat)
 │   ├── route-watcher.js             # SPA route-change detection
@@ -132,7 +140,8 @@ nuskoMate/
 | `storage` / `unlimitedStorage` | Save rules, settings, and Cloud Sync snapshots |
 | `activeTab` | Read the current tab's URL to know which modules to activate |
 | `scripting` | Inject content scripts into the page |
-| `clipboardWrite` | Copy the calculated issue date to clipboard |
+| `clipboardWrite` | Copy the calculated issue date, and the Copy tool's formatted summaries, to clipboard |
+| `downloads` | Reliable Excel downloads (Groups Export) via the extension's own download API, instead of a synthetic link click |
 | `sidePanel` | Optional docked side-panel UI mode |
 | `alarms` | Once-a-minute Cloud Sync poll for changes made on other devices |
 | `nativeMessaging` | Optional — talks to the native device helper (native-host/), if installed, to read a shared machine id across browsers |
@@ -152,4 +161,4 @@ nuskoMate/
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.4.9** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.5.0** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
