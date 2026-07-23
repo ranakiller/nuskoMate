@@ -41,10 +41,6 @@
       <button id="update-btn" class="update-btn">Get update</button>
     </div>
 
-    <!-- Sync banner (shown while Cloud Sync is pushing/pulling; auto-hides when done) -->
-    <div id="sync-banner" class="update-banner sync-banner" style="display:none;">
-      <span id="sync-banner-text">Syncing with cloud…</span>
-    </div>
 
     <!-- App layout: left sidebar + content -->
     <div class="layout">
@@ -56,17 +52,13 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
             <span>Modules</span>
           </button>
-          <button class="tab" data-tab="autofill" title="Autofill">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            <span>Autofill</span>
+          <button class="tab" data-tab="autorules" title="Automation (click / fill / select rules)">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 9 2"/></svg>
+            <span>Automation</span>
           </button>
-          <button class="tab" data-tab="autoclick" title="Auto Clicker">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v2M5 9H3m4-4L5.5 5.5"/><path d="M9 12l9 4-4 2-2 4-3-10z"/></svg>
-            <span>Clicker</span>
-          </button>
-          <button class="tab" data-tab="autoselect" title="Auto Select">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 10 12 14 16 10"/></svg>
-            <span>Select</span>
+          <button class="tab" data-tab="translate" title="Translation Rules">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="currentColor" stroke="none"><text x="1" y="15" font-size="14" font-weight="700" font-family="sans-serif">文</text><text x="13" y="21" font-size="11" font-weight="700" font-family="sans-serif">A</text></svg>
+            <span>Translate</span>
           </button>
           <button class="tab" data-tab="workflows" title="Workflows">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
@@ -76,24 +68,27 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
             <span>Redirect</span>
           </button>
-          <button class="tab" data-tab="groups" title="Groups Export">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
-            <span>Groups</span>
+          <button class="tab" data-tab="brnrequest" title="BRN Request">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="9" y1="15" x2="9" y2="15.01"/></svg>
+            <span>BRN</span>
           </button>
           <button class="tab" data-tab="passport" title="Passport">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
           </button>
-          <button class="tab" data-tab="keys" id="tab-keys" title="Keys" style="display:none;">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-            <span>Keys</span>
-          </button>
-        </div>
-
-        <div class="side-foot">
+          <!-- Any future tab goes here, right before Logs — Logs always
+               stays the last item in this scrollable group. -->
           <button class="tab" data-tab="logs" title="Logs">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             <span>Logs</span><span class="tab-badge" id="tab-log-count"></span>
+          </button>
+        </div>
+
+        <!-- Fixed footer: exactly Keys (master-key only) → Settings. -->
+        <div class="side-foot">
+          <button class="tab" data-tab="keys" id="tab-keys" title="Keys" style="display:none;">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <span>Keys</span>
           </button>
           <button class="tab" data-tab="settings" title="Settings">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -112,7 +107,8 @@
     <div class="section">
       <div class="section-title">Passport Form</div>
 
-      <!-- Mutamer Details Autofill (+ its email / phone config, indented below) -->
+      <!-- Mutamer Details Autofill (+ its email / phone config, nested inside
+           the same card and gear-toggled, matching Totals' pattern) -->
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon autofill-icon">
@@ -122,58 +118,54 @@
             <div class="module-name">Mutamer Details Autofill</div>
             <div class="module-desc">Auto-fill the Passport Entry form</div>
           </div>
+          <button id="af-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-autofill" />
             <span class="slider"></span>
           </label>
         </div>
-      </div>
-      <div class="module-sub">
-        <div class="af-summary">
-          <div class="af-sum-lines">
-            <div class="af-sum-row">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-              <span id="af-email-sum" class="af-sum-val">No email saved</span>
-              <span class="af-sum-tag" id="af-email-tag" style="display:none;">selected</span>
-            </div>
-            <div class="af-sum-row">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-              <span id="af-phone-sum" class="af-sum-val">No phone saved</span>
-              <span class="af-sum-tag" id="af-phone-tag" style="display:none;">saved</span>
+        <!-- Always-visible one-line summary, right below the description —
+             no tags/Edit button here anymore, the gear above opens the
+             editor directly (same behavior as Totals' gear). -->
+        <div class="af-quick-summary">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          <span id="af-email-sum" class="af-sum-val">No email saved</span>
+        </div>
+        <!-- Nested INSIDE the card (same as Totals' module-extra) so the
+             expanded card is one seamless box, not two disconnected pieces. -->
+        <div class="module-extra" id="af-module-sub" style="display:none;">
+          <div class="af-editor-title-row">
+            <div class="af-editor-title" style="margin-bottom:0;">Emails — click one to select it</div>
+            <div class="email-io-row">
+              <button class="email-io-btn" id="export-emails" title="Export emails as CSV">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <label class="email-io-btn" title="Import emails from CSV">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <input type="file" id="import-emails" accept=".csv" style="display:none;" />
+              </label>
             </div>
           </div>
-          <button id="af-edit" class="af-edit-btn" type="button" title="Edit saved emails and phone">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span id="af-edit-label">Edit</span>
-          </button>
-        </div>
-
-        <div class="af-editor" id="af-editor" style="display:none;">
-          <div class="af-editor-title">Emails — click one to select it</div>
+          <input type="text" id="email-label-input" class="email-label-input" placeholder="Label (optional) — whose email is this?" autocomplete="off" style="display:none;" />
           <div class="email-add-bar">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="search" id="email-input" class="email-input" placeholder="Search emails…" autocomplete="off" />
-            <button id="email-save" class="email-save-btn">+ Add new</button>
+            <button id="email-save" class="email-save-btn" style="display:none;">+ Add new</button>
           </div>
           <div class="email-list" id="email-list"></div>
-          <div class="email-io-row">
-            <button class="email-io-btn" id="export-emails" title="Export emails as CSV">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </button>
-            <label class="email-io-btn" title="Import emails from CSV">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <input type="file" id="import-emails" accept=".csv" style="display:none;" />
-            </label>
-          </div>
           <div class="af-editor-title" style="margin-top:10px;">Contact phone</div>
-          <div class="fields-grid">
-            <div class="field-group">
-              <label class="field-label" for="field-mobile">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                Mobile
-              </label>
-              <input type="text" id="field-mobile" placeholder="03001234567" class="field-input" />
-            </div>
+          <div class="email-item email-item-static" id="mobile-row">
+            <span class="phone-icon">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            </span>
+            <span class="email-text">
+              <span class="email-addr" id="mobile-display">No phone saved</span>
+            </span>
+            <button class="email-edit" id="mobile-edit-btn" type="button" title="Edit">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
           </div>
         </div>
       </div>
@@ -273,12 +265,15 @@
             <div class="module-name">Batch Passports</div>
             <div class="module-desc" id="batch-module-desc">Select many, auto-feed each</div>
           </div>
+          <button id="batch-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-batch" />
             <span class="slider"></span>
           </label>
         </div>
-        <div class="module-extra">
+        <div class="module-extra" id="batch-module-extra" style="display:none;">
           <div class="delay-row">
             <span class="delay-label">Delay before next</span>
             <div class="delay-input-wrap">
@@ -305,12 +300,15 @@
             <div class="module-name">Auto Reload</div>
             <div class="module-desc">Reload tab when inactive</div>
           </div>
+          <button id="reload-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-reload" />
             <span class="slider"></span>
           </label>
         </div>
-        <div class="module-extra">
+        <div class="module-extra" id="reload-module-extra" style="display:none;">
           <div class="delay-row">
             <span class="delay-label">Interval</span>
             <div class="delay-input-wrap">
@@ -338,78 +336,157 @@
         </div>
       </div>
 
-    </div>
-    </div><!-- /panel-modules -->
-
-    <!-- Panel: Autofill (fill rules; the Mutamer Details toggle + email/phone
-         config live in the Modules tab under Passport Form) -->
-    <div class="tab-panel" id="panel-autofill">
-
-    <!-- Fill Rules: reactive rules that fill input fields -->
-    <div class="section">
+      <!-- Mutamer/Voucher Totals — runs only on the pages listed below -->
       <div class="module-card">
         <div class="module-header">
-          <div class="module-icon autofill-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <div class="module-icon reload-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Fill Rules <button id="fill-info-btn" class="info-btn" type="button" title="How fill rules work" aria-label="How fill rules work">i</button></div>
-            <div class="module-desc">Reactive rules that fill input fields</div>
+            <div class="module-name">Totals <button id="mv-info-btn" class="info-btn" type="button" title="How this works" aria-label="How this works">i</button></div>
+            <div class="module-desc">Running total + row count next to the paginator</div>
           </div>
+          <button id="mv-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
-            <input type="checkbox" id="toggle-autofill-rules" />
+            <input type="checkbox" id="toggle-mvtotals" />
             <span class="slider"></span>
           </label>
         </div>
-        <ul class="info-panel" id="fill-info-panel" style="display:none;">
-          <li>Click <b>+</b>, then click an <b>input field</b> on the Masar page to capture it.</li>
-          <li>Rules are grouped by page URL.</li>
-          <li>Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.</li>
+        <ul class="info-panel" id="mv-info-panel" style="display:none;">
+          <li>Add one or more pages below — a piece of the URL is enough (e.g. <code>/umrah/mutamer-group/group-list</code>), or click <b>Use current</b> to grab whatever page you're on right now.</li>
+          <li>Shows <b>Rows</b> (how many rows are currently visible), <b>Mutamer Total</b> (sum of mutamer counts), and <b>Voucher Total</b> (sum of voucher amounts — expired vouchers excluded from both).</li>
+          <li>Injected right next to the page's own paginator — works with both the old and new Masar table layouts.</li>
         </ul>
+        <div class="module-extra" id="mv-module-extra" style="display:none;">
+          <div class="email-add-bar">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="search" id="mv-url-input" class="email-input" placeholder="Search pages…" autocomplete="off" />
+            <button id="mv-add-current" type="button" class="email-io-btn" title="Add Current URL" aria-label="Add Current URL">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </button>
+            <button id="mv-export" type="button" class="email-io-btn" title="Export pages">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <label class="email-io-btn" title="Import pages">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <input type="file" id="mv-import" accept=".txt" style="display:none;" />
+            </label>
+          </div>
+          <div class="email-list" id="mv-url-list"></div>
+        </div>
       </div>
-    </div>
 
-    <div id="fill-upsell" class="premium-upsell" style="display:none;">
-      <div class="premium-upsell-icon">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <!-- Groups Export — one click: fetch the Groups List table from Masar
+           (paginating through every page on its own) and download a
+           formatted Excel report. No settings panel — the button next to
+           the toggle IS the action, same spot Totals' gear sits in. -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon reload-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Groups Export</div>
+            <div class="module-desc">Fetch the Groups List and download a formatted Excel report</div>
+          </div>
+          <button id="groups-download-btn" class="module-gear-btn" type="button" title="Download Excel" aria-label="Download Excel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-groups" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="af-quick-summary" id="groups-status-row" style="display:none;">
+          <span id="groups-status-text" class="af-sum-val"></span>
+        </div>
       </div>
-      <div class="premium-upsell-title">Fill Rules is a premium tool</div>
-      <div class="premium-upsell-text">Reactive rules that auto-fill input fields on chosen pages. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="fill-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
-    </div>
 
-    <div id="fill-content">
-    <div class="section">
-      <div class="ac-toolbar-compact">
-        <input type="search" id="fill-search" class="logs-search" placeholder="Search fill rules…" autocomplete="off" />
-        <button id="fill-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add fill rule" aria-label="Add fill rule">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-        <button id="fill-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button id="fill-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
-        <button id="fill-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        </button>
-        <button id="fill-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button id="fill-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </button>
-        <button id="fill-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all fill rules" aria-label="Delete all fill rules">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-        <input id="fill-import-file" type="file" accept=".json" style="display:none;" />
+      <!-- Talab Copy — a small "⧉ Copy" button injected on 3 Masar pages
+           (Hotel Agreement Details, Group Details > Mutamers List, Groups
+           List) that copies a page-specific formatted summary straight to
+           the clipboard. Settings let you include/exclude each individual
+           line of every format, per page. -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon reload-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Copy <button id="talabcopy-info-btn" class="info-btn" type="button" title="How this works" aria-label="How this works">i</button></div>
+            <div class="module-desc">Adds a Copy button on Agreement, Group, Groups List and Agreements pages</div>
+          </div>
+          <button id="talabcopy-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-talabcopy" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="talabcopy-info-panel" style="display:none;">
+          <li><b>Hotel Agreement Details</b> page — copies agreement number, hotel name + city, dates + days + beds, and the shirka (company) name.</li>
+          <li><b>Mutamers List</b> page — copies group number, group name (+ trip length), a numbered passport + name list, and the shirka name.</li>
+          <li><b>Groups List</b> page — copies a numbered list of visible groups as <code>N. GroupNumber xMutamers (State)</code>, a totals line, and the shirka name.</li>
+          <li><b>Agreements</b> list page — copies a 3-line block per agreement (number, hotel name + city, dates + days + rooms) and the shirka name.</li>
+          <li>Press the keyboard shortcut below (default <b>Alt+Shift+C</b>, changeable) on any of these pages to copy without clicking the button.</li>
+          <li>Untick a line below to leave it out of that page's copied text from now on.</li>
+        </ul>
+        <div class="module-extra" id="talabcopy-module-extra" style="display:none;">
+          <div class="rule-field full" style="margin-bottom:10px;">
+            <label>Keyboard shortcut — click box, press combo</label>
+            <div id="talabcopy-hotkey-row"></div>
+          </div>
+          <div class="k-tools" id="talabcopy-fields">
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Hotel Agreement Details</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.agreementNumber" checked /> Agreement number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.hotelName" checked /> Hotel name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.city" checked /> City</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.startDate" checked /> Start date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.endDate" checked /> End date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.days" checked /> Days</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.beds" checked /> Beds</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.shirkaName" checked /> Shirka name</label>
+            </div>
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Mutamers List</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupNumber" checked /> Group number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupName" checked /> Group name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.sr" checked /> Sr. number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.passport" checked /> Passport</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.name" checked /> Name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.shirkaName" checked /> Shirka name</label>
+            </div>
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Groups List</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.groupNumber" checked /> Group number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.mutamerCount" checked /> Mutamer count</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.state" checked /> State</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.totals" checked /> Totals line</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.shirkaName" checked /> Shirka name</label>
+            </div>
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Agreements List</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.agreementNumber" checked /> Agreement number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.hotelName" checked /> Hotel name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.city" checked /> City</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.startDate" checked /> Start date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.endDate" checked /> End date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.days" checked /> Days</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.rooms" checked /> Rooms</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementsList.shirkaName" checked /> Shirka name</label>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="fill-list" class="ac-list"><div class="logs-empty">No fill rules yet</div></div>
-    </div>
-    </div><!-- /fill-content -->
 
-    </div><!-- /panel-autofill -->
+    </div>
+    </div><!-- /panel-modules -->
+
+    <!-- panel-autofill (fill rules) merged into panel-autorules below -->
 
     <!-- Panel: Settings (theme, activation, OCR key) -->
     <div class="tab-panel" id="panel-settings">
@@ -454,10 +531,15 @@
           <span class="act-dot" id="sync-dot"></span>
           <span id="sync-status-text">Sync is off</span>
         </span>
-        <label class="toggle-switch" title="Enable / disable cloud sync">
-          <input type="checkbox" id="toggle-cloud-sync" />
-          <span class="slider"></span>
-        </label>
+        <span class="sync-status-right">
+          <button id="sync-now-btn" class="logs-btn" type="button" title="Sync now" aria-label="Sync now" style="display:none;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <label class="toggle-switch" title="Enable / disable cloud sync">
+            <input type="checkbox" id="toggle-cloud-sync" />
+            <span class="slider"></span>
+          </label>
+        </span>
       </div>
     </div>
 
@@ -478,6 +560,35 @@
           <span>Dark</span>
         </button>
       </div>
+    </div>
+
+    <!-- Section: Extension language (Translation Rules' default target language) -->
+    <div class="section">
+      <div class="section-title">Extension language</div>
+      <select id="nk-language" class="field-input">
+        <option value="system">Match system language</option>
+        <option value="en">English</option>
+        <option value="ar">Arabic</option>
+        <option value="ur">Urdu</option>
+        <option value="hi">Hindi</option>
+        <option value="bn">Bengali</option>
+        <option value="id">Indonesian</option>
+        <option value="ms">Malay</option>
+        <option value="tl">Filipino (Tagalog)</option>
+        <option value="tr">Turkish</option>
+        <option value="fa">Persian (Farsi)</option>
+        <option value="ps">Pashto</option>
+        <option value="sw">Swahili</option>
+        <option value="fr">French</option>
+        <option value="es">Spanish</option>
+        <option value="pt">Portuguese</option>
+        <option value="de">German</option>
+        <option value="ru">Russian</option>
+        <option value="zh-CN">Chinese (Simplified)</option>
+        <option value="ta">Tamil</option>
+        <option value="ml">Malayalam</option>
+      </select>
+      <div class="k-hint">Used as the default target language for new "Auto-detect" translation rules, and by "Pick element to translate."</div>
     </div>
 
     <!-- Section: OCR -->
@@ -643,138 +754,143 @@
     </div>
     </div><!-- /panel-logs -->
 
-    <!-- Panel: Auto Clicker (reactive rules) -->
-    <div class="tab-panel" id="panel-autoclick">
+    <!-- Panel: Automation (click + fill + select rules, merged from 3 tabs
+         into one — Translate stays its own separate tab, see panel-translate) -->
+    <div class="tab-panel" id="panel-autorules">
 
     <div class="section">
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon clicker-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 3v2M5 9H3m4-4L5.5 5.5M9 12l9 4-4 2-2 4-3-10z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 9 2"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Clicker <button id="ac-info-btn" class="info-btn" type="button" title="How click rules work" aria-label="How click rules work">i</button></div>
-            <div class="module-desc">Reactive rules that click buttons</div>
+            <div class="module-name">Automation <button id="ar-info-btn" class="info-btn" type="button" title="How rules work" aria-label="How rules work">i</button></div>
+            <div class="module-desc">Reactive rules that click, fill, or select on the page</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="toggle-autoclicker" />
+            <input type="checkbox" id="toggle-autorules" />
             <span class="slider"></span>
           </label>
         </div>
-        <ul class="info-panel" id="ac-info-panel" style="display:none;">
-          <li>Click <b>+</b>, then click a <b>button</b> on the Masar page to capture it.</li>
-          <li>Rules are grouped by page URL — expand a rule to add conditions or timing.</li>
+        <ul class="info-panel" id="ar-info-panel" style="display:none;">
+          <li>Click <b>+</b>, then click a <b>button</b>, <b>input field</b>, or <b>dropdown</b> on the Masar page — the rule type is detected automatically from what you pick.</li>
+          <li>Rules are grouped by page URL — expand a rule to add conditions, timing, or a fill/select value.</li>
           <li>Selectors accept CSS, <b>xpath=</b>…, <b>text=</b>Exact / <b>text*=</b>Contains, and <b>a || b</b> fallback chains.</li>
         </ul>
       </div>
     </div>
 
-    <div id="ac-upsell" class="premium-upsell" style="display:none;">
+    <div id="ar-upsell" class="premium-upsell" style="display:none;">
       <div class="premium-upsell-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </div>
-      <div class="premium-upsell-title">Auto Clicker is a premium tool</div>
+      <div class="premium-upsell-title">Automation is a premium tool</div>
       <div class="premium-upsell-text">Record buttons, inputs and dropdowns on the page and replay them automatically. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="ac-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      <button id="ar-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
     </div>
 
-    <div id="ac-content">
+    <div id="ar-content">
     <div class="section">
       <div class="ac-toolbar-compact">
-        <input type="search" id="ac-search" class="logs-search" placeholder="Search click rules…" autocomplete="off" />
-        <button id="ac-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add click rule" aria-label="Add click rule">
+        <input type="search" id="ar-search" class="logs-search" placeholder="Search rules…" autocomplete="off" />
+        <button id="ar-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add rule" aria-label="Add rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
-        <button id="ac-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+        <button id="ar-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button id="ac-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+        <button id="ar-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
-        <button id="ac-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+        <button id="ar-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
         </button>
-        <button id="ac-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+        <button id="ar-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
-        <button id="ac-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+        <button id="ar-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </button>
-        <button id="ac-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all click rules" aria-label="Delete all click rules">
+        <button id="ar-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all rules" aria-label="Delete all rules">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
-        <input id="ac-import-file" type="file" accept=".json" style="display:none;" />
+        <input id="ar-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-      <div id="ac-list" class="ac-list"><div class="logs-empty">No click rules yet</div></div>
+      <div id="ar-list" class="ac-list"><div class="logs-empty">No rules yet</div></div>
     </div>
-    </div><!-- /ac-content -->
-    </div><!-- /panel-autoclick -->
+    </div><!-- /ar-content -->
+    </div><!-- /panel-autorules -->
 
-    <!-- Panel: Auto Select (dropdown rules) -->
-    <div class="tab-panel" id="panel-autoselect">
+    <!-- Panel: Translation Rules -->
+    <div class="tab-panel" id="panel-translate">
 
     <div class="section">
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon fill-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 10 12 14 16 10"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><text x="1" y="15" font-size="14" font-weight="700" font-family="sans-serif">文</text><text x="13" y="21" font-size="11" font-weight="700" font-family="sans-serif">A</text></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Auto Select <button id="as-info-btn" class="info-btn" type="button" title="How select rules work" aria-label="How select rules work">i</button></div>
-            <div class="module-desc">Reactive rules that pick dropdown values</div>
+            <div class="module-name">Translation Rules <button id="tr-info-btn" class="info-btn" type="button" title="How translation rules work" aria-label="How translation rules work">i</button></div>
+            <div class="module-desc">Field-to-field auto-translate, or auto-detect &amp; translate any foreign text</div>
           </div>
           <label class="toggle-switch">
-            <input type="checkbox" id="toggle-autoselect" />
+            <input type="checkbox" id="toggle-translaterules" />
             <span class="slider"></span>
           </label>
         </div>
-        <ul class="info-panel" id="as-info-panel" style="display:none;">
-          <li>Click <b>+</b>, then click a <b>dropdown</b> on the Masar page to capture it.</li>
-          <li>Set the value you want it to pick, and how to match it (by value or by visible text).</li>
+        <ul class="info-panel" id="tr-info-panel" style="display:none;">
+          <li><b>Field to field</b> — pick a source element and a target element, choose the languages, and whenever the source changes it's translated into the target automatically.</li>
+          <li><b>Auto-detect</b> — pick (or type) a selector that may match many elements (e.g. a whole column of rows), or clear the selector entirely to scan the <b>whole page</b>; whenever foreign text appears there, it's detected and translated in place. Add more than one target language and it duplicates a translated row for each extra one.</li>
+          <li><b>Pick element to translate</b> (button below) fixes one piece of text on the page right now, using your Settings &gt; Extension language — nothing is saved.</li>
         </ul>
       </div>
     </div>
 
-    <div id="as-upsell" class="premium-upsell" style="display:none;">
+    <div id="tr-upsell" class="premium-upsell" style="display:none;">
       <div class="premium-upsell-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </div>
-      <div class="premium-upsell-title">Auto Select is a premium tool</div>
-      <div class="premium-upsell-text">Auto-pick values in dropdowns on chosen pages. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="as-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      <div class="premium-upsell-title">Translation Rules is a premium tool</div>
+      <div class="premium-upsell-text">Configurable field-to-field auto-translate, plus auto-detect-and-translate for any foreign text on the page. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="tr-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
     </div>
 
-    <div id="as-content">
+    <div id="tr-content">
     <div class="section">
       <div class="ac-toolbar-compact">
-        <input type="search" id="as-search" class="logs-search" placeholder="Search select rules…" autocomplete="off" />
-        <button id="as-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add select rule" aria-label="Add select rule">
+        <input type="search" id="tr-search" class="logs-search" placeholder="Search translation rules…" autocomplete="off" />
+        <button id="tr-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add translation rule" aria-label="Add translation rule">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
-        <button id="as-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+        <button id="tr-quick-translate" class="ac-icon-btn" type="button" title="Pick element to translate (one-time, not saved)" aria-label="Pick element to translate">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><text x="1" y="15" font-size="14" font-weight="700" font-family="sans-serif">文</text><text x="13" y="21" font-size="11" font-weight="700" font-family="sans-serif">A</text></svg>
+        </button>
+        <button id="tr-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button id="as-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+        <button id="tr-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
-        <button id="as-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+        <button id="tr-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
         </button>
-        <button id="as-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+        <button id="tr-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
-        <button id="as-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+        <button id="tr-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </button>
-        <button id="as-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all select rules" aria-label="Delete all select rules">
+        <button id="tr-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all translation rules" aria-label="Delete all translation rules">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
-        <input id="as-import-file" type="file" accept=".json" style="display:none;" />
+        <input id="tr-import-file" type="file" accept=".json" style="display:none;" />
       </div>
-      <div id="as-list" class="ac-list"><div class="logs-empty">No select rules yet</div></div>
+      <div id="tr-list" class="ac-list"><div class="logs-empty">No translation rules yet</div></div>
     </div>
-    </div><!-- /as-content -->
-    </div><!-- /panel-autoselect -->
+    </div><!-- /tr-content -->
+    </div><!-- /panel-translate -->
 
     <!-- Panel: Workflows -->
     <div class="tab-panel" id="panel-workflows">
@@ -912,82 +1028,106 @@
     </div><!-- /us-content -->
     </div><!-- /panel-urlshift -->
 
-    <!-- Panel: Groups Export -->
-    <div class="tab-panel" id="panel-groups">
+    <!-- panel-groups removed — Groups Export is now a one-click module card
+         in Modules > Utilities, see above. -->
+
+    <!-- Panel: BRN Request -->
+    <div class="tab-panel" id="panel-brnrequest">
 
     <div class="section">
       <div class="module-card">
         <div class="module-header">
           <div class="module-icon clicker-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="9" y1="15" x2="9" y2="15.01"/></svg>
           </div>
           <div class="module-info">
-            <div class="module-name">Groups Export <button id="groups-info-btn" class="info-btn" type="button" title="How Groups Export works" aria-label="How Groups Export works">i</button></div>
-            <div class="module-desc">Pull Masar's Groups List into a formatted Excel report</div>
+            <div class="module-name">BRN Request <button id="brn-info-btn" class="info-btn" type="button" title="How BRN Request works" aria-label="How BRN Request works">i</button></div>
+            <div class="module-desc">Quick hotel search bar + auto-fill on agreement pages</div>
           </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-brnrequest" />
+            <span class="slider"></span>
+          </label>
         </div>
-        <ul class="info-panel" id="groups-info-panel" style="display:none;">
-          <li>Open the <b>Groups List</b> page in Masar (any filter tab — Sub-Agents, Main-Agents, etc.), then click <b>Fetch from Masar</b> below — it pages through every row on its own.</li>
-          <li>Edit any cell, add rows, or add your own columns before exporting — nothing is sent anywhere, it's all local to this popup until you export.</li>
-          <li><b>Export Excel</b> groups rows by Arrival date with a subtotal per date, plus a grand total at the end.</li>
+        <ul class="info-panel" id="brn-info-panel" style="display:none;">
+          <li>Press the hotkey below on any Masar page to open a floating search bar: type a hotel name (autocomplete from the list below), a date shorthand, tick <b>Full Talab</b> if needed, and press Enter to jump straight to the right agreement page.</li>
+          <li>Date shorthand: a single number (<code>28</code>) means a 3-night stay starting there; <code>22+5</code> means start day 22 for 5 nights; <code>28 05</code> is an explicit start/end day.</li>
+          <li>The hotel list fills itself in — just visit any hotel's page on Masar once and it's captured automatically (name + ID). Edit or bulk-replace it below if you ever need to.</li>
+          <li>On a Create Agreement page, the price field and regulations checkbox are filled in automatically.</li>
         </ul>
       </div>
     </div>
 
-    <div id="groups-upsell" class="premium-upsell" style="display:none;">
+    <div id="brn-upsell" class="premium-upsell" style="display:none;">
       <div class="premium-upsell-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       </div>
-      <div class="premium-upsell-title">Groups Export is a premium tool</div>
-      <div class="premium-upsell-text">Pull your Groups List from Masar into an editable, exportable Excel report. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="groups-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      <div class="premium-upsell-title">BRN Request is a premium tool</div>
+      <div class="premium-upsell-text">A hotkey-driven hotel search bar with auto-captured hotel IDs and agreement auto-fill. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="brn-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
     </div>
 
-    <div id="groups-content">
-    <div class="section">
-      <div class="bulk-actions" style="display:flex;">
-        <button id="groups-fetch" class="bulk-btn bulk-btn-primary">Fetch from Masar</button>
-        <button id="groups-add-row" class="bulk-btn bulk-btn-soft">+ Row</button>
-        <button id="groups-add-col" class="bulk-btn bulk-btn-soft">+ Column</button>
+    <div id="brn-content">
+      <div class="section">
+        <div class="section-title">Hotkey &amp; Defaults</div>
+        <div class="k-row">
+          <div style="flex:1; min-width:0;">
+            <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotkey</label>
+            <div id="brn-hotkey-row"></div>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <label class="k-mini-label" title="Auto-filled into the price field on Create Agreement pages">Default price</label>
+            <input type="text" id="brn-default-price" class="field-input" placeholder="1" autocomplete="off" />
+          </div>
+          <div style="flex:1; min-width:0;">
+            <label class="k-mini-label" title='Nights added when only a single date is entered, e.g. "28" → 28 + N nights'>Default nights</label>
+            <input type="number" id="brn-default-nights" class="field-input" min="1" placeholder="3" autocomplete="off" />
+          </div>
+        </div>
       </div>
 
-      <div id="groups-progress" class="bulk-progress" style="display:none;">
-        <div class="bulk-bar"><div id="groups-bar-fill" class="bulk-bar-fill"></div></div>
-        <span id="groups-progress-text"></span>
+      <div class="section">
+        <div class="section-title">Hotel List <span class="k-count-inline" id="brn-count">(0)</span></div>
+        <div class="ac-toolbar-compact">
+          <input type="search" id="brn-search" class="logs-search" placeholder="Search hotels (name or ID)…" autocomplete="off" />
+          <button id="brn-bulk-toggle" class="ac-icon-btn" type="button" title="Bulk edit as JSON" aria-label="Bulk edit as JSON">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </button>
+        </div>
       </div>
-      <div id="groups-error" class="k-hint" style="display:none; color:var(--overlay-fg);"></div>
 
-      <div id="groups-grid-wrap" class="groups-grid-wrap" style="display:none;">
-        <table id="groups-grid" class="groups-grid">
-          <thead><tr id="groups-grid-head"></tr></thead>
-          <tbody id="groups-grid-body"></tbody>
-        </table>
+      <div class="section" id="brn-bulk-section" style="display:none;">
+        <div class="section-title">Bulk edit (JSON) <span id="brn-bulk-count" style="font-weight:400; opacity:.7;"></span></div>
+        <textarea id="brn-bulk-textarea" class="field-input" spellcheck="false" rows="10" style="font-family:Consolas,monospace; font-size:12.5px; resize:vertical;"></textarea>
+        <div id="brn-bulk-error" class="k-hint" style="display:none; color:var(--overlay-fg);"></div>
+        <div class="k-actions">
+          <button id="brn-bulk-save" class="bulk-btn bulk-btn-primary">Save</button>
+          <button id="brn-bulk-cancel" class="bulk-btn bulk-btn-soft">Cancel</button>
+        </div>
       </div>
-      <div id="groups-empty" class="logs-empty">No groups fetched yet — open Masar's Groups List and click Fetch from Masar.</div>
 
-      <div id="groups-actions" class="bulk-actions" style="display:none;">
-        <button id="groups-export-btn" class="bulk-btn bulk-btn-primary">Export Excel</button>
-        <button id="groups-clear" class="bulk-btn bulk-btn-danger">Clear</button>
+      <div class="section">
+        <div id="brn-list" class="k-list"><div class="logs-empty">No hotels captured yet — visit any hotel's page on Masar once to capture it automatically.</div></div>
       </div>
-    </div>
-    </div><!-- /groups-content -->
-    </div><!-- /panel-groups -->
+    </div><!-- /brn-content -->
+    </div><!-- /panel-brnrequest -->
+
+    <!-- panel-mvtotals removed — Mutamer/Voucher Totals is now a module
+         card in Modules > Utilities, see below. -->
 
     <!-- Panel: Keys (admin — only shown when the master key is active) -->
     <div class="tab-panel" id="panel-keys">
 
       <div class="section">
-        <div class="logs-header">
-          <div class="section-title" style="margin-bottom:0;">License Keys</div>
-          <div class="logs-actions">
-            <span class="logs-count" id="k-count">0</span>
-            <button class="logs-btn" id="k-refresh" title="Refresh">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            </button>
-            <button id="k-add-toggle" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Create a new key" aria-label="Create a new key">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-          </div>
+        <div class="section-title">License Keys <span class="k-count-inline" id="k-count">(0)</span></div>
+        <div class="ac-toolbar-compact">
+          <input type="search" id="k-search" class="logs-search" placeholder="Search keys (key or name)…" autocomplete="off" />
+          <button class="logs-btn" id="k-refresh" title="Refresh">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <button id="k-add-toggle" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Create a new key" aria-label="Create a new key">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
         </div>
       </div>
 
@@ -1029,6 +1169,18 @@
 
     </div><!-- /panel-keys -->
 
+    <!-- Sync banner (shown while Cloud Sync is pushing/pulling; auto-hides
+         when done) — last child of .content, AFTER every tab-panel, so it's
+         the true last thing in normal flow on whichever tab is active
+         (hidden panels take no space) — that's what makes position:sticky;
+         bottom:0 act as a proper sticky footer instead of creating an empty
+         gap up where its flow slot used to be. Lives inside .content (not
+         position:fixed on the whole popup) so it's clipped to the content
+         area's own width and never overlaps the sidebar. -->
+    <div id="sync-banner" class="update-banner sync-banner" style="display:none;">
+      <span id="sync-banner-text">Syncing with cloud…</span>
+    </div>
+
       </div><!-- /content -->
     </div><!-- /layout -->
 
@@ -1041,5 +1193,8 @@
     <script src="keys-admin.js"></script>
     <script src="auto-clicker.js"></script>
     <script src="groups.js"></script>
+    <script src="brn-request.js"></script>
+    <script src="mv-totals.js"></script>
+    <script src="talab-copy.js"></script>
   </body>
 </html>

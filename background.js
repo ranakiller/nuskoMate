@@ -18,6 +18,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     pollPull(false).finally(() => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === "nkSyncNow") {                  // "Sync now" button — push whatever's pending, then pull
+    clearTimeout(pushDebounce);                    // don't also fire the debounced auto-push a moment later
+    autoPushIfEnabled().then(() => pollPull(false)).finally(() => sendResponse({ ok: true }));
+    return true;
+  }
   if (msg.type !== "nkLicense") return;            // not for us
   handle(msg)
     .then(sendResponse)
@@ -162,20 +167,27 @@ const SYNC_ALARM = "nkCloudSyncPoll";
 
 // Explicit allowlist — rules + the settings that define behavior. Deliberately
 // EXCLUDES: license/device identity (pulling another device's snapshot must
-// never touch THIS device's own activation), ephemeral run/log state
-// (acRunStatus, nkLogs, bulkResults, ocrScanned), per-device UI cosmetics
-// (uiTab, uiSidebarCollapsed, uiTheme, the popup's own ac*Collapsed*/
-// acSearch_* view-state keys, and cloudSyncEnabled itself), and ocrApiKey —
-// a credential that one device silently overwriting another's was surprising
-// in practice, so it stays local-only like the license key does.
+// never touch THIS device's own activation), ephemeral run/log/scan state
+// (acRunStatus, nkLogs, bulkResults, ocrScanned, ocrDisplay — the last
+// scanned passport's data, which must NEVER travel to another device/
+// customer over sync), per-device UI cosmetics (uiTab, uiSidebarCollapsed,
+// uiTheme, the popup's own ac*Collapsed*/acSearch_* view-state keys, and
+// cloudSyncEnabled itself), and ocrApiKey — a credential that one device
+// silently overwriting another's was surprising in practice, so it stays
+// local-only like the license key does.
 const SYNC_KEYS = [
   "autoClickRules", "autoWorkflows", "autoUrlShiftRules",
   "moduleReload", "moduleDisableOverlay", "moduleAutofill", "moduleTranslate",
   "moduleIssueDateCalc", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
-  "moduleBatchUpload", "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect",
-  "moduleWorkflows", "moduleUrlShift", "extensionEnabled",
-  "reloadInterval", "batchDelay", "batchFieldSelector", "ocrDisplay",
+  "moduleBatchUpload", "moduleAutoRules",
+  // Old per-category toggles kept syncing too (read by the one-time
+  // moduleAutoRules migration in popup.js) — harmless once migrated.
+  "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect",
+  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "extensionEnabled",
+  "reloadInterval", "batchDelay", "batchFieldSelector",
   "emailList", "activeEmailId", "email", "mobile",
+  "brnHotelList", "brnLastUsed", "brnHotkey", "brnDefaultPrice", "brnDefaultNights",
+  "nkLanguage", "mvTotalsUrls",
 ];
 
 // True only while WE are writing a just-pulled snapshot back to storage, so

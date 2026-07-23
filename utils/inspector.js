@@ -243,13 +243,23 @@
       //     these only exist while the user is interacting / the field has a
       //     value, so a selector built from them works when captured but
       //     fails the moment the page is reloaded fresh
+      //   • Bootstrap-family "currently open" toggle classes (show / open /
+      //     in — the exact class name has changed across Bootstrap versions,
+      //     all mean the same thing) on dropdowns/collapses/modals — picking
+      //     an item FROM an open dropdown menu bakes in "and the menu must
+      //     currently be open" as part of the selector, which is exactly
+      //     backwards for something meant to open (or click inside) that
+      //     same menu on demand. Deliberately NOT filtering "active" — far
+      //     too often a legitimate, stable selector target (active tab,
+      //     active list item), not a transient toggle like these are.
       const classes = [...element.classList].filter(
         (cls) => Boolean(cls)
           && !/^ng-(dirty|pristine|valid|invalid|touched|untouched|pending|submitted|star-inserted|star-removed|animating)$/.test(cls)
           && !/^ng-tns-/.test(cls)
           && !/^ng-trigger/.test(cls)
           && !/^ng-animate/.test(cls)
-          && !/^p-(focus|filled|highlight|placeholder|overlay-open|inputwrapper-focus|inputwrapper-filled|dropdown-open)$/.test(cls),
+          && !/^p-(focus|filled|highlight|placeholder|overlay-open|inputwrapper-focus|inputwrapper-filled|dropdown-open)$/.test(cls)
+          && !/^(show|open|in)$/.test(cls),
       );
       if (!classes.length) return "";
 

@@ -262,8 +262,23 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // "ParsedPassports-DDMMYY-hh.mm.ss" — same local-time format as the Groups
+  // Export download.
+  function exportFileName() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    const DD = p(d.getDate()), MM = p(d.getMonth() + 1), YY = p(d.getFullYear() % 100);
+    const hh = p(d.getHours()), mm = p(d.getMinutes()), ss = p(d.getSeconds());
+    return `ParsedPassports-${DD}${MM}${YY}-${hh}.${mm}.${ss}`;
+  }
+
   document.getElementById("bulk-dl-excel").addEventListener("click", () => {
-    if (results.length) download(window.NkXlsx.blob(HEADERS, excelRows(), DATE_COLS, NUM_COLS), "passports.xlsx");
+    if (results.length) {
+      download(
+        window.NkXlsx.blob(HEADERS, excelRows(), DATE_COLS, NUM_COLS, undefined, undefined, undefined, "Passports"),
+        `${exportFileName()}.xlsx`,
+      );
+    }
   });
   document.getElementById("bulk-dl-raw").addEventListener("click", () => {
     if (results.length) download(new Blob([rawText()], { type: "text/plain" }), "passports-raw.txt");

@@ -169,6 +169,16 @@
       `${colsXml}<sheetData>${body}</sheetData></worksheet>`;
   }
 
+  // Sheet tab name (the label shown at the bottom of Excel) — kept out of
+  // FILES_BASE (which is otherwise identical for every export) since it's
+  // the one part of the workbook that's caller-specific.
+  function workbookXml(sheetName) {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+      `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+      `<sheets><sheet name="${xmlEscape(sheetName || "Sheet1")}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  }
+
   const FILES_BASE = {
     "[Content_Types].xml":
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
@@ -184,11 +194,6 @@
       `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
       `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
       `</Relationships>`,
-    "xl/workbook.xml":
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-      `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
-      `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
-      `<sheets><sheet name="Passports" sheetId="1" r:id="rId1"/></sheets></workbook>`,
     "xl/_rels/workbook.xml.rels":
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
       `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
@@ -294,9 +299,11 @@
   //             of centered (only meaningful alongside rowKinds).
   //   bigFontCols: OPTIONAL, column indices rendered at size 16 instead of 10
   //             (only meaningful alongside rowKinds).
-  function blob(headers, rows, dateCols, numCols, rowKinds, leftAlignCols, bigFontCols) {
+  //   sheetName: OPTIONAL, the workbook's sheet-tab name (defaults to "Sheet1").
+  function blob(headers, rows, dateCols, numCols, rowKinds, leftAlignCols, bigFontCols, sheetName) {
     const aoa = [headers, ...rows];
     const files = Object.entries(FILES_BASE).map(([name, xml]) => ({ name, data: enc(xml) }));
+    files.push({ name: "xl/workbook.xml", data: enc(workbookXml(sheetName)) });
     files.push({ name: "xl/worksheets/sheet1.xml", data: enc(sheetXml(aoa, dateCols, numCols, rowKinds, leftAlignCols, bigFontCols)) });
     const bytes = zip(files);
     return new Blob([bytes], {

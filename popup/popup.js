@@ -90,15 +90,27 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
-      "toggle-autoclicker": "autoclick", "toggle-workflows": "workflows",
-      "toggle-autofill-rules": "fillrules", "toggle-autoselect": "autoselect",
+      "toggle-workflows": "workflows",
+      "toggle-autorules": ["autorules", "autoclick", "fillrules", "autoselect"],
       "toggle-urlshift": "urlshift",
+      "toggle-brnrequest": "brnrequest",
+      "toggle-mvtotals": "mvtotals",
+      "toggle-translaterules": "translaterules",
+      "toggle-groups": "groups",
+      "toggle-talabcopy": "talabcopy",
     };
 
-    // Is a given tool unlocked for the current key? (features null = all tools)
+    // Is a given tool unlocked for the current key? (features null = all
+    // tools). `feat` can be a single id or an array of acceptable ids — used
+    // for autorules, which accepts its own new id OR any of the 3 old ones
+    // (autoclick/fillrules/autoselect) it replaced, so already-issued keys
+    // keep working without needing to be reissued.
     function has(st, feat) {
       if (!st.activated) return false;
-      return st.features === null || (Array.isArray(st.features) && st.features.includes(feat));
+      if (st.features === null) return true;
+      if (!Array.isArray(st.features)) return false;
+      const feats = Array.isArray(feat) ? feat : [feat];
+      return feats.some((f) => st.features.includes(f));
     }
 
     // Passport OCR, Father Name, and Batch Passports also need the
@@ -142,8 +154,9 @@ document.addEventListener("DOMContentLoaded", () => {
       // The Bulk Parser section needs the "bulk" tool specifically.
       const bulkSection = document.getElementById("bulk-section");
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
-      // Automation tabs: each has its own tool id now.
-      [["ac-upsell", "ac-content", "autoclick"], ["wf-upsell", "wf-content", "workflows"], ["as-upsell", "as-content", "autoselect"], ["us-upsell", "us-content", "urlshift"], ["fill-upsell", "fill-content", "fillrules"], ["groups-upsell", "groups-content", "groups"]].forEach(([up, ct, feat]) => {
+      // Automation tabs: each has its own tool id now (autorules also
+      // accepts the 3 old ids it replaced — see has() above).
+      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -223,7 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ac-upsell-btn", "wf-upsell-btn", "as-upsell-btn", "us-upsell-btn", "fill-upsell-btn", "groups-upsell-btn"].forEach((idb) => {
+    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -251,12 +264,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const infoBtn     = document.getElementById("sync-info-btn");
     const infoPanel   = document.getElementById("sync-info-panel");
     const banner      = document.getElementById("sync-banner");
+    const syncNowBtn  = document.getElementById("sync-now-btn");
     if (!toggle) return;
 
     function renderBanner(inProgress) {
       if (banner) banner.style.display = inProgress ? "flex" : "none";
+      if (syncNowBtn) {
+        syncNowBtn.classList.toggle("spinning", inProgress);
+        syncNowBtn.disabled = inProgress;
+      }
     }
     chrome.storage.local.get(["cloudSyncInProgress"], (res) => renderBanner(!!res.cloudSyncInProgress));
+
+    if (syncNowBtn) {
+      syncNowBtn.addEventListener("click", () => {
+        chrome.runtime.sendMessage({ type: "nkSyncNow" }, () => void chrome.runtime.lastError);
+      });
+    }
 
     if (infoBtn && infoPanel) {
       infoBtn.addEventListener("click", () => {
@@ -269,6 +293,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function render(res) {
       const on = !!res.cloudSyncEnabled;
       toggle.checked = on;
+      if (syncNowBtn) syncNowBtn.style.display = on ? "" : "none";
       if (!on) { statusText.textContent = "Sync is off"; statusText.className = ""; dot.classList.remove("on"); return; }
       if (res.cloudSyncLastError) {
         statusText.textContent = "Sync error: " + res.cloudSyncLastError;
@@ -338,6 +363,15 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // ── Extension language (default target language for Translation Rules) ──
+  const LANG_KEY = "nkLanguage";
+  const langSelect = document.getElementById("nk-language");
+  if (langSelect) {
+    chrome.storage.local.get([LANG_KEY], (res) => { langSelect.value = res[LANG_KEY] || "system"; });
+    langSelect.addEventListener("change", (e) => {
+      chrome.storage.local.set({ [LANG_KEY]: e.target.value });
+    });
+  }
 
   // ── Master Toggle ───────────────────────────────────────────
   const masterEl     = document.getElementById("toggle-master");
@@ -418,13 +452,16 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-ocr",       key: "moduleOcr"            },
     { id: "toggle-father",    key: "moduleFatherName"     },
     { id: "toggle-batch",     key: "moduleBatchUpload"    },
-    // The 4 automation-tab toggles show "(Module off)" inline in their own
+    // The automation-tab toggles show "(Module off)" inline in their own
     // module-name instead of a separate pill elsewhere on the tab.
-    { id: "toggle-autoclicker", key: "moduleAutoClicker", offLabel: true  },
-    { id: "toggle-autofill-rules", key: "moduleAutoFillRules", offLabel: true },
-    { id: "toggle-autoselect",  key: "moduleAutoSelect", offLabel: true   },
+    { id: "toggle-autorules",  key: "moduleAutoRules", offLabel: true    },
     { id: "toggle-workflows",   key: "moduleWorkflows", offLabel: true    },
     { id: "toggle-urlshift",    key: "moduleUrlShift", offLabel: true     },
+    { id: "toggle-brnrequest",  key: "moduleBrnRequest", offLabel: true   },
+    { id: "toggle-mvtotals",    key: "moduleMvTotals"                    },
+    { id: "toggle-translaterules", key: "moduleTranslateRules", offLabel: true },
+    { id: "toggle-groups",      key: "moduleGroupsExport"                },
+    { id: "toggle-talabcopy",   key: "moduleTalabCopy"                   },
   ];
 
   // ALL modules default ON for new installs (key never set = treat as true).
@@ -455,21 +492,54 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  toggles.forEach(({ id, key, offLabel }) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    chrome.storage.local.get([key], (res) => {
-      const val = key in res ? res[key] : (defaultOnKeys.has(key) ? true : false);
-      el.checked = !!val;
-      // Persist the default so the content script reads it correctly on next load
-      if (!(key in res) && defaultOnKeys.has(key)) chrome.storage.local.set({ [key]: true });
-      if (offLabel) reflectModuleOffLabel(el);
+  function initToggles() {
+    toggles.forEach(({ id, key, offLabel }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      chrome.storage.local.get([key], (res) => {
+        const val = key in res ? res[key] : (defaultOnKeys.has(key) ? true : false);
+        el.checked = !!val;
+        // Persist the default so the content script reads it correctly on next load
+        if (!(key in res) && defaultOnKeys.has(key)) chrome.storage.local.set({ [key]: true });
+        if (offLabel) reflectModuleOffLabel(el);
+      });
+      el.addEventListener("change", () => {
+        chrome.storage.local.set({ [key]: el.checked });
+        if (offLabel) reflectModuleOffLabel(el);
+      });
     });
-    el.addEventListener("change", () => {
-      chrome.storage.local.set({ [key]: el.checked });
-      if (offLabel) reflectModuleOffLabel(el);
-    });
+  }
+
+  // One-time migration: moduleAutoRules replaces the 3 old separately-
+  // licensed toggles (moduleAutoClicker/moduleAutoFillRules/moduleAutoSelect).
+  // Runs BEFORE initToggles() so its own read of moduleAutoRules never races
+  // the generic "default to true" write above. Inherits "on" if ANY of the 3
+  // old toggles were on, rather than the generic default silently deciding
+  // for an install that already had an explicit preference.
+  chrome.storage.local.get(["moduleAutoRules", "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect"], (res) => {
+    if ("moduleAutoRules" in res) { initToggles(); return; }
+    const hadOldKeys = ("moduleAutoClicker" in res) || ("moduleAutoFillRules" in res) || ("moduleAutoSelect" in res);
+    const migrated = hadOldKeys
+      ? (res.moduleAutoClicker !== false || res.moduleAutoFillRules !== false || res.moduleAutoSelect !== false)
+      : true; // brand-new install, no history — same "default on" as everything else
+    chrome.storage.local.set({ moduleAutoRules: migrated }, initToggles);
   });
+
+
+  // ── Gear buttons — expand/collapse a module-card's settings, collapsed
+  // by default so the card doesn't show its interval permanently. ──
+  function wireGearToggle(gearId, extraId) {
+    const gear = document.getElementById(gearId);
+    const extra = document.getElementById(extraId);
+    if (!gear || !extra) return;
+    gear.addEventListener("click", () => {
+      const open = extra.style.display !== "none";
+      extra.style.display = open ? "none" : "";
+      gear.classList.toggle("module-gear-open", !open);
+    });
+  }
+  wireGearToggle("batch-settings-btn", "batch-module-extra");
+  wireGearToggle("reload-settings-btn", "reload-module-extra");
 
 
   // ── Reload Interval ─────────────────────────────────────────
@@ -502,15 +572,73 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 
-  // ── Other Autofill Fields ───────────────────────────────────
-  [
-    { id: "field-mobile", key: "mobile" },
-  ].forEach(({ id, key }) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    chrome.storage.local.get([key], (res) => { el.value = res[key] || ""; });
-    el.addEventListener("input", () => chrome.storage.local.set({ [key]: el.value }));
-  });
+  // ── Contact phone ───────────────────────────────────────────
+  // Shown as a single row (icon + number + edit pencil), same compact
+  // inline-edit interaction as the email/Totals lists: click the pencil,
+  // the number becomes a small editable field right in place — Enter
+  // saves, Esc cancels, click-away cancels.
+  (function () {
+    const KEY = "mobile";
+    const display = document.getElementById("mobile-display");
+    const editBtn = document.getElementById("mobile-edit-btn");
+    if (!display || !editBtn) return;
+
+    let value = "";
+    let editing = false;
+
+    function render() {
+      display.textContent = value || "No phone saved";
+      display.classList.toggle("af-sum-empty", !value);
+    }
+
+    function startEdit() {
+      editing = true;
+      display.style.display = "none";
+
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "inline-text-input inline-addr-input";
+      inp.value = value;
+      inp.placeholder = "03001234567";
+      inp.title = "Enter to save · Esc to cancel";
+
+      const doSave = () => {
+        value = inp.value.trim();
+        chrome.storage.local.set({ [KEY]: value });
+        editing = false;
+        inp.remove();
+        display.style.display = "";
+        render();
+      };
+      const doCancel = () => {
+        editing = false;
+        inp.remove();
+        display.style.display = "";
+      };
+
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); doSave(); }
+        if (e.key === "Escape") { e.preventDefault(); doCancel(); }
+      });
+      inp.addEventListener("focusout", () => {
+        setTimeout(() => { if (editing) doCancel(); }, 0);
+      });
+
+      display.insertAdjacentElement("afterend", inp);
+      inp.focus();
+      inp.select();
+    }
+
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!editing) startEdit();
+    });
+
+    chrome.storage.local.get([KEY], (res) => {
+      value = res[KEY] || "";
+      render();
+    });
+  })();
 
 
   // ── Toast helper ────────────────────────────────────────────
@@ -633,6 +761,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const emailInput = document.getElementById("email-input");
   const emailSave  = document.getElementById("email-save");
   const emailListEl = document.getElementById("email-list");
+  const emailLabelInput = document.getElementById("email-label-input");
 
   let emailList     = [];
   let activeEmailId = null;
@@ -649,63 +778,89 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ── Compact summary under the Mutamer Details module card ──
-  // Shows just the selected email + saved phone; the full editor (email list,
-  // add bar, CSV, mobile input) stays hidden behind the ⚙ Edit button.
+  // Just the selected email, always visible right below the description —
+  // the full editor (email list, add bar, CSV, mobile input) stays hidden
+  // behind the ⚙ gear button instead of a separate Edit button.
   function renderAfSummary() {
     const emailSum = document.getElementById("af-email-sum");
-    const emailTag = document.getElementById("af-email-tag");
-    const phoneSum = document.getElementById("af-phone-sum");
-    const phoneTag = document.getElementById("af-phone-tag");
     if (!emailSum) return;
     const active = emailList.find(e => e.id === activeEmailId);
-    emailSum.textContent = active ? active.email : "No email saved";
+    emailSum.textContent = active ? (active.label ? `${active.label} — ${active.email}` : active.email) : "No email saved";
     emailSum.classList.toggle("af-sum-empty", !active);
-    if (emailTag) emailTag.style.display = active ? "" : "none";
-    chrome.storage.local.get(["mobile"], (res) => {
-      const mob = (res.mobile || "").trim();
-      phoneSum.textContent = mob || "No phone saved";
-      phoneSum.classList.toggle("af-sum-empty", !mob);
-      if (phoneTag) phoneTag.style.display = mob ? "" : "none";
+  }
+
+  // Gear button — the ONLY toggle now, expands/collapses the whole editor
+  // (email search/add/list + phone field, nested inside the card like
+  // Totals' own module-extra), collapsed by default so the card doesn't
+  // show its settings permanently.
+  const afSettingsBtn = document.getElementById("af-settings-btn");
+  const afModuleSub = document.getElementById("af-module-sub");
+  if (afSettingsBtn && afModuleSub) {
+    afSettingsBtn.addEventListener("click", () => {
+      const open = afModuleSub.style.display !== "none";
+      afModuleSub.style.display = open ? "none" : "";
+      afSettingsBtn.classList.toggle("module-gear-open", !open);
+      // Closing — drop out of any unsaved add/edit form state so reopening
+      // later starts clean; setEmailMode("search") also refreshes the
+      // summary (via renderList → renderAfSummary) to reflect any edits.
+      if (open) setEmailMode("search");
     });
   }
 
-  const afEditBtn = document.getElementById("af-edit");
-  const afEditor = document.getElementById("af-editor");
-  if (afEditBtn && afEditor) {
-    afEditBtn.addEventListener("click", () => {
-      const open = afEditor.style.display !== "none";
-      afEditor.style.display = open ? "none" : "";
-      const lbl = document.getElementById("af-edit-label");
-      if (lbl) lbl.textContent = open ? "Edit" : "Done";
-      afEditBtn.classList.toggle("af-edit-open", !open);
-      if (open) renderAfSummary(); // closing → reflect any edits in the summary
-    });
-  }
-  const mobileField = document.getElementById("field-mobile");
-  if (mobileField) mobileField.addEventListener("input", () => renderAfSummary());
-
-  // The bar has two modes:
+  // The top bar has two modes:
   //   search (default) — typing live-filters the list below
   //   add              — typing an email + Enter/Save adds it to the list
+  // Editing an existing entry happens INLINE, right in that entry's own row
+  // (editingEmailId below) — not through this shared bar, so editing a row
+  // near the bottom of a long list doesn't jump you back to the top.
   let emailMode = "search";
   let emailFilter = "";
+  let editingEmailId = null;
 
-  function setEmailMode(mode) {
+  function setEmailMode(mode, prefill) {
     emailMode = mode;
     emailFilter = "";
-    emailInput.value = "";
     emailInput.classList.remove("email-input-error");
+    editingEmailId = null; // the add-bar and inline row-editing are mutually exclusive
     if (mode === "add") {
       emailInput.type = "email";
+      emailInput.value = prefill || "";
       emailInput.placeholder = "Type email, Enter to save (Esc = cancel)";
       emailSave.textContent = "Save";
+      emailSave.style.display = ""; // always visible while actually adding
+      if (emailLabelInput) { emailLabelInput.style.display = ""; emailLabelInput.value = ""; }
       emailInput.focus();
     } else {
+      emailInput.value = "";
       emailInput.type = "search";
       emailInput.placeholder = "Search emails…";
       emailSave.textContent = "+ Add new";
+      if (emailLabelInput) emailLabelInput.style.display = "none";
     }
     renderList();
+  }
+
+  // Shared validate+save logic for editing an existing entry in place —
+  // used by the inline row-edit form. Handles the same "editing to an email
+  // that collides with a different saved entry" merge as the add flow.
+  function saveEmailChanges(entry, newEmail, newLabel, onError) {
+    newEmail = newEmail.trim();
+    if (!newEmail) { onError("Email can't be empty"); return false; }
+    if (!isValidEmail(newEmail)) { onError("Enter a valid email"); return false; }
+    const collision = emailList.find(e => e.id !== entry.id && e.email.toLowerCase() === newEmail.toLowerCase());
+    if (collision) {
+      emailList = emailList.filter(e => e.id !== entry.id);
+      if (newLabel) collision.label = newLabel;
+      if (activeEmailId === entry.id) activeEmailId = collision.id;
+      saveEmails();
+      showToast("✓ Merged with the existing entry for that email");
+      return true;
+    }
+    entry.email = newEmail;
+    entry.label = newLabel;
+    saveEmails();
+    showToast("✓ Changes saved");
+    return true;
   }
 
   function renderList() {
@@ -713,7 +868,14 @@ document.addEventListener("DOMContentLoaded", () => {
     emailListEl.innerHTML = "";
 
     const q = emailFilter.trim().toLowerCase();
-    const shown = q ? emailList.filter(e => e.email.toLowerCase().includes(q)) : emailList;
+    const shown = q
+      ? emailList.filter(e => e.email.toLowerCase().includes(q) || (e.label || "").toLowerCase().includes(q))
+      : emailList;
+
+    // "+ Add new" only shows once you've searched for something that isn't
+    // there — keeps the bar looking like a plain search box the rest of the
+    // time instead of always offering to add.
+    if (emailMode === "search") emailSave.style.display = (q && !shown.length) ? "" : "none";
 
     if (!shown.length) {
       const empty = document.createElement("div");
@@ -728,16 +890,96 @@ document.addEventListener("DOMContentLoaded", () => {
       const row = document.createElement("div");
       row.className = "email-item" + (isActive ? " active" : "");
 
+      // ── Inline edit mode: the row's own label/address text becomes small
+      // editable fields right where they already sit — no separate box,
+      // no Save/Cancel buttons. Enter saves, Esc cancels, click-away cancels. ──
+      if (entry.id === editingEmailId) {
+        row.classList.add("email-item-editing");
+
+        const check = document.createElement("span");
+        check.className = "email-check";
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "email-text";
+
+        const labelInp = document.createElement("input");
+        labelInp.type = "text"; labelInp.className = "inline-text-input inline-label-input";
+        labelInp.value = entry.label || ""; labelInp.placeholder = "Label";
+        labelInp.title = "Enter to save · Esc to cancel";
+
+        const emailInp = document.createElement("input");
+        emailInp.type = "email"; emailInp.className = "inline-text-input inline-addr-input";
+        emailInp.value = entry.email;
+        emailInp.title = "Enter to save · Esc to cancel";
+
+        const errEl = document.createElement("div");
+        errEl.className = "inline-edit-error";
+
+        const doSave = () => {
+          const ok = saveEmailChanges(entry, emailInp.value, labelInp.value.trim(), (msg) => {
+            emailInp.classList.add("email-input-error");
+            errEl.textContent = msg;
+            errEl.style.display = "";
+          });
+          if (ok) { editingEmailId = null; renderList(); }
+        };
+        const doCancel = () => { editingEmailId = null; renderList(); };
+
+        [labelInp, emailInp].forEach((inp) => {
+          inp.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); doSave(); }
+            if (e.key === "Escape") { e.preventDefault(); doCancel(); }
+          });
+        });
+        emailInp.addEventListener("input", () => {
+          emailInp.classList.remove("email-input-error");
+          errEl.style.display = "none";
+        });
+
+        // Click away from the row (without Enter/Esc) cancels — never leaves
+        // the row silently "stuck" in edit mode.
+        row.addEventListener("focusout", () => {
+          setTimeout(() => {
+            if (editingEmailId === entry.id && !row.contains(document.activeElement)) doCancel();
+          }, 0);
+        });
+
+        textWrap.append(labelInp, emailInp, errEl);
+        row.append(check, textWrap);
+        emailListEl.appendChild(row);
+        emailInp.focus();
+        emailInp.select();
+        return;
+      }
+
       const check = document.createElement("span");
       check.className = "email-check";
       check.innerHTML = isActive
         ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
         : "";
 
+      // Label (who this belongs to) stacks above the address when set — same
+      // "identifier below, human name above" idea as the Keys admin list.
+      const textWrap = document.createElement("span");
+      textWrap.className = "email-text";
+
       const addr = document.createElement("span");
       addr.className = "email-addr";
       addr.textContent = entry.email;
       addr.title = isActive ? "Active email" : "Click to set active";
+      textWrap.appendChild(addr);
+
+      if (entry.label) {
+        const label = document.createElement("span");
+        label.className = "email-label";
+        label.textContent = entry.label;
+        textWrap.prepend(label);
+      }
+
+      const editBtn = document.createElement("button");
+      editBtn.className = "email-edit";
+      editBtn.title = "Edit";
+      editBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
 
       const del = document.createElement("button");
       del.className = "email-del";
@@ -746,9 +988,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Click row → set active
       row.addEventListener("click", (e) => {
-        if (e.target.closest(".email-del")) return;
+        if (e.target.closest(".email-del") || e.target.closest(".email-edit")) return;
         activeEmailId = entry.id;
         saveEmails();
+        renderList();
+      });
+
+      // Edit — turns THIS row into an inline form (closes the add-bar first
+      // if it was open, since the two are mutually exclusive)
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (emailMode !== "search") setEmailMode("search");
+        editingEmailId = entry.id;
         renderList();
       });
 
@@ -761,12 +1012,12 @@ document.addEventListener("DOMContentLoaded", () => {
         renderList();
       });
 
-      row.append(check, addr, del);
+      row.append(check, textWrap, editBtn, del);
       emailListEl.appendChild(row);
     });
   }
 
-  function addEmail() {
+  function submitEmailForm() {
     const val = emailInput.value.trim();
     if (!val) return;
 
@@ -776,11 +1027,15 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     emailInput.classList.remove("email-input-error");
+    const label = emailLabelInput ? emailLabelInput.value.trim() : "";
 
     // Duplicate (case-insensitive) → never added twice; just make it active
+    // (and pick up a newly-typed label, so re-adding an old un-labeled entry
+    // is also a valid way to label it, not just the pencil icon).
     const existing = emailList.find(e => e.email.toLowerCase() === val.toLowerCase());
     if (existing) {
       activeEmailId = existing.id;
+      if (label) existing.label = label;
       saveEmails();
       setEmailMode("search");
       showToast("✓ Already saved — set as active");
@@ -788,22 +1043,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const id = "em_" + Date.now();
-    emailList.push({ id, email: val });
+    emailList.push({ id, email: val, label });
     activeEmailId = id; // newest becomes active
     saveEmails();
     setEmailMode("search");
     showToast("✓ Email saved & set as active");
   }
 
-  // Button: search mode → switch to add; add mode → save the typed email.
+  // Button: search mode (only shown when the search found nothing) →
+  // switch to add, prefilled with whatever was searched; add/edit mode →
+  // submit the form.
   emailSave.addEventListener("click", () => {
-    if (emailMode === "search") setEmailMode("add");
-    else addEmail();
+    if (emailMode === "search") setEmailMode("add", emailFilter.trim());
+    else submitEmailForm();
   });
   emailInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && emailMode === "add") { e.preventDefault(); addEmail(); }
-    if (e.key === "Escape" && emailMode === "add") { e.preventDefault(); setEmailMode("search"); }
+    if (e.key === "Enter" && emailMode !== "search") { e.preventDefault(); submitEmailForm(); }
+    if (e.key === "Escape" && emailMode !== "search") { e.preventDefault(); setEmailMode("search"); }
   });
+  if (emailLabelInput) {
+    emailLabelInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submitEmailForm(); }
+      if (e.key === "Escape") { e.preventDefault(); setEmailMode("search"); }
+    });
+  }
   emailInput.addEventListener("input", () => {
     emailInput.classList.remove("email-input-error");
     if (emailMode === "search") { emailFilter = emailInput.value; renderList(); }
@@ -812,7 +1075,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ── Export CSV ──────────────────────────────────────────────
   document.getElementById("export-emails").addEventListener("click", () => {
     if (!emailList.length) { showToast("No emails to export"); return; }
-    const rows = [["Email"], ...emailList.map(e => [e.email])];
+    const rows = [["Label", "Email"], ...emailList.map(e => [e.label || "", e.email])];
     const csv  = rows.map(r => r.map(v => `"${v.replace(/"/g,'""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url  = URL.createObjectURL(blob);
@@ -834,12 +1097,15 @@ document.addEventListener("DOMContentLoaded", () => {
       let added = 0, skipped = 0;
       lines.forEach((line, i) => {
         if (i === 0 && line.toLowerCase().includes("email") && !line.includes("@")) return; // header
-        // Take the last column that contains an @ (handles old Label,Email CSVs)
+        // The column with an @ is the email; whatever else is on the line
+        // (any column order — Label,Email or Email,Label) is the label.
         const cols  = line.split(",").map(v => v.replace(/^"|"$/g, "").trim());
         const email = cols.find(c => c.includes("@"));
+        const label = cols.filter(c => c && !c.includes("@")).join(" ").trim();
         if (!email || !isValidEmail(email)) { skipped++; return; }
-        if (emailList.some(en => en.email.toLowerCase() === email.toLowerCase())) { skipped++; return; }
-        emailList.push({ id: "em_" + Date.now() + "_" + i, email });
+        const existing = emailList.find(en => en.email.toLowerCase() === email.toLowerCase());
+        if (existing) { if (label && !existing.label) existing.label = label; skipped++; return; }
+        emailList.push({ id: "em_" + Date.now() + "_" + i, email, label });
         added++;
       });
       if (!activeEmailId && emailList.length) activeEmailId = emailList[0].id;

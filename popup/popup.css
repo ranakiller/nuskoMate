@@ -280,6 +280,7 @@ body {
   margin-bottom: 8px;
   padding-left: 2px;
 }
+.k-count-inline { font-weight: 500; opacity: .7; }
 
 /* ── Module Cards ─────────────────────────────────────────── */
 .module-card {
@@ -350,6 +351,19 @@ body {
   margin-top: 1px;
 }
 
+/* Small gear button in a module-card's header, right before the on/off
+   toggle — expands/collapses that module's own settings block below
+   (Mutamer Details' email/phone, Totals' page list) instead of showing
+   them permanently, so the card stays compact until you actually need it. */
+.module-gear-btn {
+  flex-shrink: 0; width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2); color: var(--text-muted); cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.module-gear-btn:hover, .module-gear-btn.module-gear-open { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
 /* ── Toggle Switch ────────────────────────────────────────── */
 .toggle-switch {
   position: relative;
@@ -402,39 +416,22 @@ input:checked + .slider::before {
   border-top: 1px solid var(--border);
 }
 
-/* Indented config block under a module card (Mutamer Details email/phone) */
-.module-sub {
-  margin: -4px 0 10px 26px;
-  padding: 9px 10px;
-  border-left: 2px solid var(--border);
-  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
-  background: var(--surface2);
+/* Always-visible one-line summary right below the module description —
+   aligned under module-info's text (icon width 30 + header gap 10 = 40px). */
+.af-quick-summary {
+  display: flex; align-items: center; gap: 6px;
+  margin: 5px 0 0 40px; color: var(--text-muted);
 }
-.af-summary { display: flex; align-items: center; gap: 8px; }
-.af-sum-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.af-sum-row { display: flex; align-items: center; gap: 7px; color: var(--text-muted); }
 .af-sum-val {
   font-size: 11.5px; font-weight: 600; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .af-sum-val.af-sum-empty { color: var(--text-sub); font-weight: 500; font-style: italic; }
-.af-sum-tag {
-  flex-shrink: 0; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
-  color: var(--fill-fg); background: var(--fill-bg); border-radius: 999px; padding: 1px 7px;
-}
-.af-edit-btn {
-  flex-shrink: 0; display: flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 600; cursor: pointer;
-  padding: 5px 10px; border-radius: var(--radius-xs);
-  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
-}
-.af-edit-btn:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-.af-edit-btn.af-edit-open { border-color: var(--accent); color: var(--accent); }
-.af-editor { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .af-editor-title {
   font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
   color: var(--text-sub); margin-bottom: 7px;
 }
+.af-editor-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
 
 .delay-row {
   display: flex;
@@ -535,6 +532,24 @@ input:checked + .slider::before {
 
 /* ── Email Manager ────────────────────────────────────────── */
 /* Add bar: type email + Save */
+.email-label-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.email-label-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.email-label-input::placeholder { color: var(--text-sub); }
+
 .email-add-bar {
   display: flex;
   align-items: center;
@@ -631,8 +646,38 @@ input:checked + .slider::before {
   color: var(--accent2);
 }
 
-.email-addr {
+/* Contact phone row — same visual language as an email-item row, but a
+   single static value (no click-to-select, no active state). */
+.phone-icon {
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sub);
+}
+.email-item-static { cursor: default; }
+
+.email-text {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.email-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-sub);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-addr {
   font-size: 12px;
   color: var(--text-muted);
   overflow: hidden;
@@ -642,7 +687,7 @@ input:checked + .slider::before {
 
 .email-item.active .email-addr { color: var(--text); font-weight: 600; }
 
-.email-del {
+.email-del, .email-edit {
   width: 22px; height: 22px;
   flex-shrink: 0;
   border: none;
@@ -657,8 +702,46 @@ input:checked + .slider::before {
   transition: all .12s;
 }
 
-.email-item:hover .email-del { opacity: 1; }
+.email-item:hover .email-del, .email-item:hover .email-edit { opacity: 1; }
 .email-del:hover { background: var(--overlay-bg); color: var(--overlay-fg); }
+.email-edit:hover { background: var(--accent-soft); color: var(--accent); }
+
+.inline-edit-error { font-size: 11px; color: var(--overlay-fg); display: none; }
+
+/* Compact inline edit — used by the email list, the Totals URL list, and
+   the BRN hotel list: the row's own text becomes a small editable field
+   right in place, no separate box or Save/Cancel row. Enter saves, Esc
+   cancels (see the inputs' title tooltip); clicking away cancels too. Same
+   box treatment as the Automation Rules / Workflows name fields
+   (.rule-title-input/.wf-name) — transparent border at rest, border on
+   hover, accent border + surface2 background on focus — so every
+   inline-rename spot in the extension looks and behaves the same way. */
+.email-item-editing { cursor: default; }
+.inline-text-input {
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  box-sizing: border-box;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  padding: 3px 5px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+.inline-text-input:hover { border-color: var(--border); }
+.inline-text-input:focus { border-color: var(--accent); background: var(--surface2); }
+.inline-text-input::placeholder { color: var(--text-sub); }
+.inline-text-input.email-input-error { border-color: #e0245e; }
+.inline-label-input {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--text-sub);
+  margin-bottom: 1px;
+}
+.inline-addr-input { font-size: 12px; color: var(--text); }
 
 /* Export / Import — small icon buttons, right-aligned */
 .email-io-row {
@@ -767,6 +850,12 @@ input:checked + .slider::before {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.logs-btn:disabled {
+  opacity: .5;
+  cursor: default;
+  pointer-events: none;
 }
 
 .logs-btn-danger:hover {
@@ -941,36 +1030,11 @@ input:checked + .slider::before {
 }
 .bulk-btn-danger:hover { background: var(--overlay-bg); color: var(--overlay-fg); border-color: var(--overlay-fg); }
 
-/* ── Groups Export — editable grid ──────────────────────────── */
-.groups-grid-wrap {
-  max-height: 260px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  margin: 8px 0;
-}
-.groups-grid { border-collapse: collapse; font-size: 11px; }
-.groups-grid th {
-  position: sticky; top: 0; z-index: 1;
-  background: var(--surface2); color: var(--text-sub); font-weight: 700;
-  padding: 5px 4px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
-  white-space: nowrap; text-align: left;
-}
-.groups-grid td {
-  padding: 0; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
-}
-.groups-grid input {
-  width: 92px; box-sizing: border-box; display: block; border: none; background: transparent;
-  color: var(--text); font-size: 11px; font-family: inherit; padding: 5px 6px; outline: none;
-}
-.groups-grid input:focus { background: var(--accent-soft); }
-.groups-grid td.groups-col-narrow input { width: 46px; }
-.groups-grid-del-btn {
-  border: none; background: transparent; color: var(--text-sub); cursor: pointer;
-  font-size: 13px; line-height: 1; padding: 4px 6px;
-}
-.groups-grid-del-btn:hover { color: var(--overlay-fg); }
-.groups-grid-colhead { display: flex; align-items: center; gap: 4px; }
+/* ── Groups Export — busy state on the download button, and its inline
+   status line (errors only — a successful run just triggers the download,
+   no separate confirmation needed) ── */
+#groups-download-btn.busy svg { animation: sync-spin 0.8s linear infinite; }
+#groups-status-row.groups-status-error .af-sum-val { color: var(--overlay-fg); }
 
 /* ── Passport OCR (read-only viewer) ───────── */
 .ocr-card {
@@ -1138,6 +1202,9 @@ input:checked + .slider::before {
 
 .sync-status-row { justify-content: space-between; margin-bottom: 0; }
 .sync-status-left { display: flex; align-items: center; gap: 7px; }
+.sync-status-right { display: flex; align-items: center; gap: 8px; }
+#sync-now-btn.spinning svg { animation: sync-spin 0.8s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
 #sync-status-text.err { color: var(--overlay-fg); }
 
 /* ── Premium locks ─────────────────────────────────────────────────── */
@@ -1171,6 +1238,7 @@ input:checked + .slider::before {
 
 /* ── Keys admin tab ─────────────────────────────────────────────────── */
 .k-row { display: flex; gap: 6px; }
+.k-mini-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
 .k-seats { max-width: 70px; text-align: center; }
 #panel-keys .field-input { margin-bottom: 8px; }
 .k-sub { font-size: 11px; font-weight: 700; color: var(--text-muted); margin: 6px 0 5px; text-transform: uppercase; letter-spacing: .3px; }
@@ -1192,6 +1260,8 @@ input:checked + .slider::before {
 .k-item-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 3px; }
 .k-item-meta div { line-height: 1.5; }
 .k-item-btns { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+.k-item-editing { cursor: default; }
+.k-copy-done { border-color: var(--accent2) !important; color: var(--accent2) !important; }
 .k-mini {
   border: 1px solid var(--border); background: var(--surface2);
   color: var(--text); font-size: 10.5px; font-weight: 600;
@@ -1237,8 +1307,17 @@ input:checked + .slider::before {
 
 .sync-banner {
   justify-content: center;
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
+  /* Sticky to the BOTTOM of .content's own scrollport — stays put as a
+     floating footer while the list scrolls behind it, but (unlike the
+     earlier position:absolute/bottom:0 attempt, which anchored to
+     .content's computed box height and could land mid-list instead of the
+     true visible bottom) sticky positioning tracks the actual scrollport
+     directly, so it reliably sits at the bottom edge you're looking at
+     regardless of scroll position. Living inside .content (not
+     position:fixed on the whole popup) is what keeps it from ever
+     overlapping the sidebar. */
+  position: sticky;
+  bottom: 0;
   z-index: 20;
   border-bottom: none;
   border-top: 1px solid var(--border);
@@ -1351,7 +1430,7 @@ body { width: 500px; display: flex; flex-direction: column; }
 .tab-gear { padding: 9px 10px; }
 
 /* Content area scrolls on its own; sidebar stays put */
-.content { flex: 1; min-width: 0; overflow-y: auto; }
+.content { flex: 1; min-width: 0; overflow-y: auto; position: relative; }
 .content .section:last-child { padding-bottom: 16px; }
 
 /* Header tidy now that theme controls moved into Settings */
@@ -1475,8 +1554,24 @@ body { width: 500px; display: flex; flex-direction: column; }
 .rule-card.drag-over { border-style: dashed; border-color: var(--accent); background: var(--accent-soft); }
 
 .rule-head { display: flex; align-items: center; gap: 8px; }
-.rule-title { flex: 1; min-width: 0; font-weight: 700; font-size: 12px; color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Headline treatment — slightly bigger than the old plain row label, since
+   this is now the ONLY place the name shows (no separate "Rule name" field
+   in the body anymore). Same box (padding/border/radius) as the workflow
+   card's own name field (.wf-name/.wf-name-static) so collapsed↔expanded
+   looks and behaves identically between Automation Rules and Workflows —
+   just flex:1 instead of width:100%, since this one shares its row with the
+   toggle/drag-handle/badge instead of sitting alone on its own row. */
+.rule-title {
+  flex: 1; min-width: 0; box-sizing: border-box; font-weight: 700; font-size: 12px; color: var(--text);
+  padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Expanded state: same spot, now an editable input — renaming happens right
+   here instead of a separate field further down. */
+.rule-title-input { font-family: inherit; background: transparent; }
+.rule-title-input:hover { border-color: var(--border); }
+.rule-title-input:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
+.rule-title-input::placeholder { color: var(--text-muted); font-weight: 700; }
 /* Compact toggle switch — same component/behavior as the Settings/Modules
    toggle, smaller footprint for card headers that already pack several
    icon buttons (rule/workflow/redirect-rule cards). */
@@ -1489,10 +1584,19 @@ body { width: 500px; display: flex; flex-direction: column; }
   touch-action: none; /* let pointer events drive the drag instead of touch-scroll */
 }
 .drag-handle:active { cursor: grabbing; }
+/* Second row: summary text (left) + all the icon actions grouped together
+   at the far right, instead of the buttons crowding the headline row. */
+.rule-meta-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; margin-left: 26px; }
 .rule-summary {
-  margin: 6px 0 0 26px; font-size: 11px; color: var(--text-muted);
+  flex: 1; min-width: 0; font-size: 11px; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.rule-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Path match + Page path sharing one row (see createPathRow) */
+.path-row { display: flex; gap: 8px; }
+.path-row .path-row-match { flex: 0 0 100px; margin-bottom: 0; }
+.path-row .path-row-path { flex: 1; min-width: 0; margin-bottom: 0; }
 
 .rule-body { display: grid; grid-template-columns: 1fr 100px; gap: 8px; margin-top: 10px; }
 .rule-body.collapsed { display: none; }
@@ -1522,10 +1626,24 @@ body { width: 500px; display: flex; flex-direction: column; }
 .multi-selector-list { display: grid; gap: 6px; margin-top: 6px; }
 .multi-selector-row { display: flex; gap: 6px; align-items: center; }
 .multi-selector-row input { flex: 1; }
+.multi-selector-add {
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .15s;
+}
+.multi-selector-add:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 
 .check-row { display: flex; align-items: center; gap: 7px; margin-top: 6px; grid-column: 1 / -1; }
 .check-row input { margin: 0; accent-color: var(--accent); }
-.check-row label { margin: 0; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.check-row label, .check-row span { margin: 0; font-size: 11px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
 
 .secondary-btn, .collapse-rule, .delete-rule {
   border: 1px solid var(--border); background: var(--surface2); color: var(--text);
@@ -1554,11 +1672,15 @@ body { width: 500px; display: flex; flex-direction: column; }
 }
 .wf-card-running { border-color: var(--accent); box-shadow: var(--shadow-sm); }
 
-.wf-head { display: flex; align-items: center; gap: 6px; }
-.wf-name {
-  flex: 1; min-width: 0; font-weight: 700; font-size: 12px; color: var(--text);
-  padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent;
+.wf-head { display: flex; flex-direction: column; gap: 3px; }
+.wf-head-name-row { display: flex; align-items: center; }
+.wf-head-controls-row { display: flex; align-items: center; gap: 6px; }
+.wf-name, .wf-name-static {
+  width: 100%; box-sizing: border-box; font-weight: 700; font-size: 12px; color: var(--text);
+  padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.wf-name { background: transparent; }
 .wf-name:hover { border-color: var(--border); }
 .wf-name:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
 
@@ -1597,7 +1719,9 @@ body { width: 500px; display: flex; flex-direction: column; }
    visually to their opening marker, like a code-editor indent guide. */
 .wf-step-nested { border-left: 2px solid var(--accent-soft); }
 
-.wf-step-head { display: flex; align-items: center; gap: 6px; }
+.wf-step-head { display: flex; flex-direction: column; gap: 3px; }
+.wf-step-name-row { display: flex; align-items: center; gap: 6px; }
+.wf-step-controls-row { display: flex; align-items: center; gap: 6px; }
 .wf-step-drag { flex-shrink: 0; padding: 2px 5px; font-size: 10px; }
 .wf-step-num {
   flex-shrink: 0; width: 18px; height: 18px; line-height: 18px; text-align: center;
@@ -1654,6 +1778,8 @@ body { width: 500px; display: flex; flex-direction: column; }
 
 .type-badge--waitFor  { background: var(--reload-bg);   color: var(--reload-fg);   }
 .type-badge--waitGone { background: var(--overlay-bg);  color: var(--overlay-fg);  }
+.type-badge--waitCondition { background: var(--issuedate-bg); color: var(--issuedate-fg); }
+.type-badge--callWorkflow  { background: var(--fill-bg);      color: var(--fill-fg);      }
 .type-badge--wait, .type-badge--delay { background: var(--surface2); color: var(--text-muted); }
 
 /* ── Auto Clicker — Tier 2 (variables, blocks, data) ────────────────────── */

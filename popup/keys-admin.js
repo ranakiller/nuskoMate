@@ -12,42 +12,73 @@ document.addEventListener("DOMContentLoaded", () => {
     ocr: "Passport OCR (page scan)",
     father: "Father Name fill",
     batch: "Batch Passports",
-    fillrules: "Autofill (fill rules)",
-    autoclick: "Auto Clicker",
-    autoselect: "Auto Select",
+    // autoclick/fillrules/autoselect merged into one "autorules" tool — kept
+    // here (not shown in TOOL_GROUPS below) only so an old key's saved label
+    // still renders somewhere if ever inspected directly; new/edited keys
+    // should use "autorules" going forward.
+    autorules: "Automation Rules (click/fill/select)",
+    fillrules: "Autofill (fill rules) — legacy id",
+    autoclick: "Auto Clicker — legacy id",
+    autoselect: "Auto Select — legacy id",
     workflows: "Workflows",
     urlshift: "URL Shifter",
     groups: "Groups Export",
+    brnrequest: "BRN Request",
+    translaterules: "Translation Rules",
+    mvtotals: "Mutamer/Voucher Totals",
     bulk: "Bulk Parser",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
   };
   // Tools grouped the way they appear in the extension. Each group header is a
   // select-all checkbox: clicking it checks/unchecks every tool inside it.
+  // NOTE: editing and saving a key that still carries an old legacy id
+  // (autoclick/fillrules/autoselect) will replace it with "autorules" here —
+  // that's fine, the two are equivalent entitlements; see featOK("autorules")
+  // in modules/auto-clicker.js / popup.js for the read-side backward compat.
   const TOOL_GROUPS = [
     { name: "Mutamer Details Fill", tools: ["autofill", "translate", "issuedate", "vaccine", "ocr", "father", "batch"] },
-    { name: "Automation",           tools: ["fillrules", "autoclick", "autoselect", "workflows", "urlshift", "groups"] },
+    { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest", "translaterules"] },
     { name: "Passport Parser",      tools: ["bulk"] },
-    { name: "Utilities",            tools: ["reload", "overlay"] },
+    { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy"] },
   ];
 
   // Icon-only row buttons (Edit/Reset/Revoke/Del) — same visual language as
   // the automation tabs' icon toolbars, with a title tooltip standing in for
   // the label text that used to be printed on the button.
   const K_ICON = {
+    copy:   '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    check:  '<polyline points="20 6 9 17 4 12"/>',
     edit:   '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
     reset:  '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
     revoke: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
     trash:  '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   };
+  function kIconSvg(iconName) {
+    return `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">${K_ICON[iconName] || ""}</svg>`;
+  }
   function kIconBtn(iconName, title, fn, danger) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "k-mini k-icon-btn" + (danger ? " k-mini-danger" : "");
-    b.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">${K_ICON[iconName] || ""}</svg>`;
+    b.innerHTML = kIconSvg(iconName);
     b.title = title;
     b.setAttribute("aria-label", title);
     b.addEventListener("click", fn);
+    return b;
+  }
+  // Copies the key text, flashes a checkmark for a beat, then reverts —
+  // self-contained feedback since keys-admin.js is a separate script from
+  // popup.js's own toast helper (showToast), not worth wiring cross-file for
+  // one small confirmation.
+  function kCopyBtn(key) {
+    const b = kIconBtn("copy", "Copy key", () => {
+      navigator.clipboard.writeText(key).then(() => {
+        b.innerHTML = kIconSvg("check");
+        b.classList.add("k-copy-done");
+        setTimeout(() => { b.innerHTML = kIconSvg("copy"); b.classList.remove("k-copy-done"); }, 1200);
+      }).catch(() => {});
+    });
     return b;
   }
 
@@ -59,6 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const titleEl = $("k-form-title"), listEl = $("k-list"), countEl = $("k-count");
   const refreshBtn = $("k-refresh"), tabBtn = $("tab-keys");
   const formSection = $("k-form-section"), addToggleBtn = $("k-add-toggle");
+  const searchEl = $("k-search");
   if (!listEl) return;
 
   // ── Show / hide the create/edit form behind the + button ──────
@@ -77,6 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let editing = null;   // { key, devices, master, expires } when editing
   let loaded  = false;  // have we fetched the list yet?
+  let allKeys = [];     // full unfiltered list from the last /admin/list — k-search filters this client-side
 
   // ── tool checkboxes (grouped, with select-all group headers) ──
   TOOL_GROUPS.forEach((grp) => {
@@ -242,9 +275,12 @@ document.addEventListener("DOMContentLoaded", () => {
     feats.filter((f) => !knownTools.has(f)).forEach((f) => parts.push(TOOL_LABELS[f] || f));
     return parts.length ? parts : ["none"];
   }
-  function render(keys) {
-    countEl.textContent = keys.length;
-    if (!keys.length) { listEl.innerHTML = '<div class="logs-empty">No keys yet</div>'; return; }
+  function render(keys, searching) {
+    countEl.textContent = `(${keys.length})`;
+    if (!keys.length) {
+      listEl.innerHTML = `<div class="logs-empty">${searching ? "No keys match your search" : "No keys yet"}</div>`;
+      return;
+    }
     listEl.innerHTML = "";
     keys.forEach((k) => {
       const row = document.createElement("div");
@@ -265,6 +301,7 @@ document.addEventListener("DOMContentLoaded", () => {
           `<div class="k-item-meta">${metaLines.map((l) => `<div>${l}</div>`).join("")}</div>` +
         `</div><div class="k-item-btns"></div>`;
       const btns = row.querySelector(".k-item-btns");
+      btns.append(kCopyBtn(k.key));
       if (k.master) {
         const tag = document.createElement("span"); tag.className = "k-master-tag"; tag.textContent = "master";
         btns.appendChild(tag);
@@ -284,6 +321,32 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Filters the last-fetched list client-side by key text or customer name —
+  // matches how every other list in this popup (rules, workflows, logs)
+  // already searches, just against the two fields an admin actually
+  // recognizes a key by.
+  function applyFilter() {
+    const q = (searchEl && searchEl.value || "").trim().toLowerCase();
+    const filtered = q
+      ? allKeys.filter((k) => (k.key || "").toLowerCase().includes(q) || (k.name || "").toLowerCase().includes(q))
+      : allKeys;
+    render(filtered, !!q);
+  }
+  // Persisted across popup close/reopen, same as every other search box in
+  // this popup (Fill Rules, Click Rules, Logs, …) — restore it before the
+  // first render so reopening the popup doesn't silently drop the filter.
+  const SEARCH_STORAGE_KEY = "keysSearch";
+  if (searchEl) {
+    chrome.storage.local.get([SEARCH_STORAGE_KEY], (res) => {
+      searchEl.value = res[SEARCH_STORAGE_KEY] || "";
+      applyFilter();
+    });
+    searchEl.addEventListener("input", () => {
+      chrome.storage.local.set({ [SEARCH_STORAGE_KEY]: searchEl.value });
+      applyFilter();
+    });
+  }
+
   let loading = false;
   async function refresh() {
     if (loading) return;
@@ -291,7 +354,7 @@ document.addEventListener("DOMContentLoaded", () => {
     listEl.innerHTML = '<div class="logs-empty">Loading…</div>';
     const r = await window.NkLicense.adminList();
     loading = false;
-    if (r && r.ok) render(r.keys || []);
+    if (r && r.ok) { allKeys = r.keys || []; applyFilter(); }
     else listEl.innerHTML = `<div class="logs-empty">${esc((r && r.error) || "Failed to load")}</div>`;
   }
 

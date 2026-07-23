@@ -23,7 +23,10 @@
   function readSync(keys) { return new Promise((r) => { try { chrome.storage.sync.get(keys, (x) => r(chrome.runtime.lastError ? {} : (x || {}))); } catch (_) { r({}); } }); }
 
   // Canonical list of per-key tool ids (kept in sync with the popup + modules).
-  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups"];
+  // autoclick/fillrules/autoselect are the pre-merge ids for what's now the
+  // single "autorules" tool — kept in the list (not removed) since already-
+  // issued keys may still carry them; featOK("autorules") accepts all 4.
+  const FEATURES = ["ocr", "father", "bulk", "batch", "translate", "vaccine", "issuedate", "reload", "overlay", "autorules", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups", "brnrequest", "translaterules", "mvtotals", "talabcopy"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms

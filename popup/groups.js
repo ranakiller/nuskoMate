@@ -1,37 +1,24 @@
-// Groups Export tab — fetch Masar's Groups List (via modules/groups-export.js
-// on the page), show it as an editable grid, and export a grouped/formatted
-// Excel report from whatever's currently in that grid (fetched or hand-edited).
+// Groups Export — one click in Modules > Utilities: fetch Masar's Groups
+// List (via modules/groups-export.js, which pages through every row on its
+// own) and immediately download a formatted, grouped-by-arrival-date Excel
+// report. No editable grid anymore — the button next to the toggle IS the
+// whole action, same one-shot idea as Totals' "Add Current URL" button.
 document.addEventListener("DOMContentLoaded", () => {
-  const fetchBtn   = document.getElementById("groups-fetch");
-  const addRowBtn  = document.getElementById("groups-add-row");
-  const addColBtn  = document.getElementById("groups-add-col");
-  const exportBtn  = document.getElementById("groups-export-btn");
-  const clearBtn   = document.getElementById("groups-clear");
-  const progressEl = document.getElementById("groups-progress");
-  const barFillEl  = document.getElementById("groups-bar-fill");
-  const progressTextEl = document.getElementById("groups-progress-text");
-  const errorEl    = document.getElementById("groups-error");
-  const gridWrapEl = document.getElementById("groups-grid-wrap");
-  const gridHeadEl = document.getElementById("groups-grid-head");
-  const gridBodyEl = document.getElementById("groups-grid-body");
-  const emptyEl    = document.getElementById("groups-empty");
-  const actionsEl  = document.getElementById("groups-actions");
-  const infoBtn    = document.getElementById("groups-info-btn");
-  const infoPanel  = document.getElementById("groups-info-panel");
-  if (!fetchBtn) return;
+  const btn = document.getElementById("groups-download-btn");
+  if (!btn) return;
 
-  if (infoBtn && infoPanel) {
-    infoBtn.addEventListener("click", () => {
-      const open = infoPanel.style.display !== "none";
-      infoPanel.style.display = open ? "none" : "";
-      infoBtn.classList.toggle("info-btn-open", !open);
-    });
-  }
+  const STATUS_KEY = "groupsFetchStatus";
+  const RAW_KEY = "groupsRawRows";
+  const statusRow  = document.getElementById("groups-status-row");
+  const statusText = document.getElementById("groups-status-text");
 
-  const TABLE_KEY = "groupsTableData";     // { columns: [{key,label}], rows: [{...}] }
-  const STATUS_KEY = "groupsFetchStatus";  // written by modules/groups-export.js
+  // Flipping the toggle back on shouldn't leave a stale "turned off" error
+  // sitting there from a previous attempt — clear it the moment the toggle
+  // changes, in either direction.
+  const toggleEl = document.getElementById("toggle-groups");
+  if (toggleEl) toggleEl.addEventListener("change", () => showStatus(""));
 
-  const DEFAULT_COLUMNS = [
+  const COLUMNS = [
     { key: "groupNumber", label: "Group Number" },
     { key: "package",     label: "Package" },
     { key: "groupName",   label: "Group Name" },
@@ -44,8 +31,6 @@ document.addEventListener("DOMContentLoaded", () => {
     { key: "createdBy",   label: "Created By" },
     { key: "state",       label: "State" },
   ];
-
-  let table = { columns: DEFAULT_COLUMNS.map((c) => ({ ...c })), rows: [] };
 
   // ── Date parsing — Group Name carries the two flight dates, e.g.
   // "NEBRAS 20JUL 9AUG ISB JED UB" → arrival 20-Jul, departure 9-Aug. Year is
@@ -111,138 +96,25 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ── Persistence ─────────────────────────────────────────────
-  function save() { chrome.storage.local.set({ [TABLE_KEY]: table }); }
-  function load(cb) {
-    chrome.storage.local.get([TABLE_KEY], (res) => {
-      if (res[TABLE_KEY] && Array.isArray(res[TABLE_KEY].columns) && Array.isArray(res[TABLE_KEY].rows)) {
-        table = res[TABLE_KEY];
-      }
-      cb();
-    });
+  // ── Status line — errors only; a successful run just triggers the
+  // download, no separate confirmation needed. ──
+  let hideTimer = null;
+  function showStatus(msg, isError) {
+    clearTimeout(hideTimer);
+    statusText.textContent = msg || "";
+    statusRow.style.display = msg ? "" : "none";
+    statusRow.classList.toggle("groups-status-error", !!isError);
+  }
+  function flashError(msg) {
+    showStatus(msg, true);
+    hideTimer = setTimeout(() => showStatus(""), 5000);
   }
 
-  // ── Grid rendering ──────────────────────────────────────────
-  const NARROW = new Set(["package", "pax", "stay"]);
-
-  function render() {
-    const has = table.rows.length > 0;
-    gridWrapEl.style.display = has ? "" : "none";
-    emptyEl.style.display = has ? "none" : "";
-    actionsEl.style.display = has ? "flex" : "none";
-    if (!has) return;
-
-    gridHeadEl.textContent = "";
-    table.columns.forEach((col, ci) => {
-      const th = document.createElement("th");
-      const wrap = document.createElement("div"); wrap.className = "groups-grid-colhead";
-      const lbl = document.createElement("span"); lbl.textContent = col.label;
-      const del = document.createElement("button");
-      del.type = "button"; del.className = "groups-grid-del-btn"; del.textContent = "×";
-      del.title = "Remove this column";
-      del.addEventListener("click", () => {
-        if (!confirm(`Remove the "${col.label}" column?`)) return;
-        table.columns.splice(ci, 1);
-        save(); render();
-      });
-      wrap.append(lbl, del);
-      th.appendChild(wrap);
-      gridHeadEl.appendChild(th);
-    });
-    const thDel = document.createElement("th"); gridHeadEl.appendChild(thDel);
-
-    gridBodyEl.textContent = "";
-    table.rows.forEach((row, ri) => {
-      const tr = document.createElement("tr");
-      table.columns.forEach((col) => {
-        const td = document.createElement("td");
-        if (NARROW.has(col.key)) td.classList.add("groups-col-narrow");
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = row[col.key] ?? "";
-        input.addEventListener("input", (e) => { row[col.key] = e.target.value; save(); });
-        td.appendChild(input);
-        tr.appendChild(td);
-      });
-      const tdDel = document.createElement("td");
-      const del = document.createElement("button");
-      del.type = "button"; del.className = "groups-grid-del-btn"; del.textContent = "×";
-      del.title = "Delete this row";
-      del.addEventListener("click", () => { table.rows.splice(ri, 1); save(); render(); });
-      tdDel.appendChild(del);
-      tr.appendChild(tdDel);
-      gridBodyEl.appendChild(tr);
-    });
+  function setBusy(busy) {
+    btn.disabled = busy;
+    btn.classList.toggle("busy", busy);
   }
 
-  // ── Fetch from Masar ────────────────────────────────────────
-  function setProgress(status) {
-    if (!status || !status.running) { progressEl.style.display = "none"; return; }
-    progressEl.style.display = "flex";
-    barFillEl.style.width = "60%"; // page count is open-ended, so this is just an activity indicator
-    progressTextEl.textContent = `Fetching page ${status.page || 1}… ${status.rows || 0} group(s) so far`;
-  }
-
-  fetchBtn.addEventListener("click", () => {
-    errorEl.style.display = "none";
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0] || !tabs[0].id) return;
-      chrome.tabs.sendMessage(tabs[0].id, { action: "FETCH_GROUPS" }, () => {
-        if (chrome.runtime.lastError) {
-          errorEl.textContent = "Open the Groups List page in Masar and refresh it, then try again.";
-          errorEl.style.display = "";
-          return;
-        }
-        progressEl.style.display = "flex";
-        progressTextEl.textContent = "Starting…";
-      });
-    });
-  });
-
-  chrome.storage.local.get([STATUS_KEY], (res) => setProgress(res[STATUS_KEY]));
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
-    if (changes[STATUS_KEY]) {
-      const status = changes[STATUS_KEY].newValue;
-      setProgress(status);
-      if (status && status.done) {
-        if (status.error) {
-          errorEl.textContent = status.error;
-          errorEl.style.display = "";
-        } else {
-          chrome.storage.local.get(["groupsRawRows"], (res) => {
-            const raw = res.groupsRawRows || [];
-            table = { columns: DEFAULT_COLUMNS.map((c) => ({ ...c })), rows: deriveRows(raw) };
-            save(); render();
-          });
-        }
-      }
-    }
-  });
-
-  // ── Toolbar actions ─────────────────────────────────────────
-  addRowBtn.addEventListener("click", () => {
-    const blank = {}; table.columns.forEach((c) => { blank[c.key] = ""; });
-    table.rows.push(blank);
-    save(); render();
-  });
-
-  addColBtn.addEventListener("click", () => {
-    const label = window.prompt("New column name:");
-    if (!label || !label.trim()) return;
-    const key = "col_" + Date.now();
-    table.columns.push({ key, label: label.trim() });
-    table.rows.forEach((r) => { r[key] = ""; });
-    save(); render();
-  });
-
-  clearBtn.addEventListener("click", () => {
-    if (!confirm("Clear all fetched/edited groups data? This can't be undone.")) return;
-    table = { columns: DEFAULT_COLUMNS.map((c) => ({ ...c })), rows: [] };
-    save(); render();
-  });
-
-  // ── Export ──────────────────────────────────────────────────
   // "NuskoGroups-DDMMYY-hh.mm.ss" — local time, so it matches the clock the
   // export was actually made on rather than UTC.
   function exportFileName() {
@@ -253,11 +125,30 @@ document.addEventListener("DOMContentLoaded", () => {
     return `NuskoGroups-${DD}${MM}${YY}-${hh}.${mm}.${ss}`;
   }
 
+  // chrome.downloads.download() instead of an <a download> + synthetic
+  // click — the click fires from a storage.onChanged callback, well after
+  // the original button click's user-gesture context, which some browsers
+  // (Edge in particular) can silently refuse to honor. The extension API
+  // isn't gesture-gated the same way, so it downloads reliably either way.
+  // The blob URL is only revoked once the download actually finishes, since
+  // chrome.downloads needs it to stay alive while it reads the data.
   function download(blob, filename) {
     const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    chrome.downloads.download({ url, filename, saveAs: false }, (downloadId) => {
+      if (chrome.runtime.lastError || !downloadId) {
+        URL.revokeObjectURL(url);
+        flashError("Download didn't start — check your browser's download permission for this extension.");
+        return;
+      }
+      const onChanged = (delta) => {
+        if (delta.id !== downloadId || !delta.state) return;
+        if (delta.state.current === "complete" || delta.state.current === "interrupted") {
+          URL.revokeObjectURL(url);
+          chrome.downloads.onChanged.removeListener(onChanged);
+        }
+      };
+      chrome.downloads.onChanged.addListener(onChanged);
+    });
   }
 
   function colLetter(n) {
@@ -271,11 +162,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // the next date. Ends with a blank + a grand total. Subtotals and the grand
   // total are real =SUM(...) formulas (recalculate if you edit a Pax value
   // afterward in Excel) — the grand total sums the subtotal CELLS specifically
-  // (not the whole column), so it isn't double-counted against them. Whatever
-  // is currently in each cell (fetched or hand-edited) is used as-is.
-  exportBtn.addEventListener("click", () => {
-    if (!table.rows.length) return;
-    const cols = table.columns;
+  // (not the whole column), so it isn't double-counted against them.
+  function buildAndDownload(rawRows) {
+    const rows = deriveRows(rawRows);
+    if (!rows.length) { flashError("No groups found on that page."); return; }
+
+    const cols = COLUMNS;
     const arrivalIdx = cols.findIndex((c) => c.key === "arrival");
     const departureIdx = cols.findIndex((c) => c.key === "departure");
     const stayIdx = cols.findIndex((c) => c.key === "stay");
@@ -286,7 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const arrivalCol = arrivalIdx >= 0 ? colLetter(arrivalIdx) : null;
     const departureCol = departureIdx >= 0 ? colLetter(departureIdx) : null;
 
-    const withDate = table.rows.map((r, i) => ({
+    const withDate = rows.map((r, i) => ({
       r, i, d: arrivalIdx >= 0 ? Date.parse(r[cols[arrivalIdx].key]) : NaN,
     }));
     withDate.sort((a, b) => {
@@ -353,9 +245,53 @@ document.addEventListener("DOMContentLoaded", () => {
     const leftAlignCols = labelIdx >= 0 ? [labelIdx] : []; // Group Name stays left-aligned; everything else is centered
     const bigFontCols = paxIdx >= 0 ? [paxIdx] : []; // column D (Pax) at size 16
 
-    const blob = window.NkXlsx.blob(headers, outRows, dateCols, numCols, kinds, leftAlignCols, bigFontCols);
+    const blob = window.NkXlsx.blob(headers, outRows, dateCols, numCols, kinds, leftAlignCols, bigFontCols, "Groups");
     download(blob, `${exportFileName()}.xlsx`);
+  }
+
+  // ── Fetch from Masar, then export the moment it's done ──────
+  // Each fetch on the page side gets a unique runId (see groups-export.js).
+  // expectedRunId locks onto whichever run's status we see first after a
+  // click, so a leftover/duplicate status write from a DIFFERENT run can
+  // never be mistaken for this one. downloadedRunId is a second guard so
+  // even a duplicate "done" event for the SAME run can't trigger a second
+  // download.
+  let expectedRunId = null;
+  let downloadedRunId = null;
+
+  btn.addEventListener("click", () => {
+    if (btn.disabled) return;
+    setBusy(true);
+    showStatus("Fetching…");
+    expectedRunId = null;
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0] || !tabs[0].id) { setBusy(false); flashError("No active tab."); return; }
+      chrome.tabs.sendMessage(tabs[0].id, { action: "FETCH_GROUPS" }, () => {
+        if (chrome.runtime.lastError) {
+          setBusy(false);
+          flashError("Open the Groups List page in Masar and refresh it, then try again.");
+        }
+      });
+    });
   });
 
-  load(render);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (!changes[STATUS_KEY]) return;
+    const status = changes[STATUS_KEY].newValue;
+    if (!status) return;
+
+    if (expectedRunId === null) expectedRunId = status.runId;
+    if (status.runId !== expectedRunId) return; // stale write from a different run
+
+    if (status.running) { showStatus(`Fetching page ${status.page || 1}… ${status.rows || 0} group(s) so far`); return; }
+    if (status.done) {
+      setBusy(false);
+      if (status.error) { flashError(status.error); return; }
+      if (downloadedRunId === status.runId) return; // already handled this run
+      downloadedRunId = status.runId;
+      showStatus("");
+      chrome.storage.local.get([RAW_KEY], (res) => buildAndDownload(res[RAW_KEY] || []));
+    }
+  });
 });

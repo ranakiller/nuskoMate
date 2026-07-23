@@ -5,6 +5,11 @@
   let isEnabled = false;
   let reloadIntervalMinutes = 1.5;
 
+  // Only reloads when the tab is INACTIVE (backgrounded/hidden) — that's the
+  // whole point ("keep a long-running background tab fresh without
+  // interrupting whatever's actively on screen"). While you're actually
+  // looking at the tab, each tick just re-arms the timer instead of
+  // reloading — watching the tab continuously will never trigger a reload.
   function reloadIfInactive() {
     if (!isEnabled) return;
     if (document.hidden) {

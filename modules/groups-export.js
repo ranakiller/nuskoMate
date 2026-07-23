@@ -19,6 +19,15 @@
   const TAG = "[Nuskomate Groups]";
   const premiumOK = () => !window.NkLicense || window.NkLicense.featureOK("groups");
 
+  function moduleOn() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(["moduleGroupsExport", "extensionEnabled"], (res) => {
+        log.info(TAG, `gate check — extensionEnabled=${res.extensionEnabled}, moduleGroupsExport=${res.moduleGroupsExport}`);
+        resolve(res.extensionEnabled !== false && res.moduleGroupsExport !== false);
+      });
+    });
+  }
+
   // Header text (normalized: lowercase, punctuation stripped) → field name.
   // Matched by SUBSTRING, so "Mutamer's Number" vs "Mutamer Number" (or any
   // other small wording difference) still maps correctly.
@@ -148,29 +157,45 @@
     return false;
   }
 
-  function setStatus(patch) {
-    chrome.storage.local.get(["groupsFetchStatus"], (res) => {
-      chrome.storage.local.set({ groupsFetchStatus: { ...(res.groupsFetchStatus || {}), ...patch } });
-    });
-  }
-
   const MAX_PAGES = 400; // safety cap so a stuck paginator can't loop forever
 
   async function fetchAllGroups() {
+    // Each run gets its own status object + a unique runId, written directly
+    // with a single chrome.storage.local.set() every time — no read-then-
+    // merge round trip. The OLD setStatus() did get() then set(), and since
+    // that's two separate async hops, calling it once per page (often only
+    // milliseconds apart) let an in-flight get() from an EARLIER call land
+    // AFTER a later call's set(), reviving a stale `done:true` mid-fetch.
+    // The popup now downloads as soon as it sees done:true, so that stale
+    // revival showed up as extra downloads with only the first page's rows.
+    // runId also lets the popup ignore any status from a run that isn't the
+    // one it's currently watching.
+    const runId = Date.now();
+    const status = { runId, running: false, done: false, page: 0, rows: 0, error: "" };
+    function setStatus(patch) {
+      Object.assign(status, patch);
+      chrome.storage.local.set({ groupsFetchStatus: { ...status } });
+    }
+
+    log.info(TAG, `fetch requested — premiumOK=${premiumOK()}`);
     if (!premiumOK()) {
-      setStatus({ running: false, done: true, error: "Groups Export isn't included in your current license." });
+      setStatus({ done: true, error: "Groups Export isn't included in your current license." });
+      return;
+    }
+    if (!(await moduleOn())) {
+      setStatus({ done: true, error: "Groups Export is turned off — enable it in Modules > Utilities." });
       return;
     }
     const table = findGroupsTable();
     if (!table) {
       log.warn(TAG, "no Groups List table found on this page");
-      setStatus({ running: false, done: true, error: "Open the Groups List page in Masar first, then try again." });
+      setStatus({ done: true, error: "Open the Groups List page in Masar first, then try again." });
       return;
     }
     const colMap = mapColumns(table);
     log.info(TAG, "column map:", JSON.stringify(colMap));
     if (!("groupNumber" in colMap) || !("groupName" in colMap)) {
-      setStatus({ running: false, done: true, error: "Couldn't recognize the Groups List columns — the page layout may have changed." });
+      setStatus({ done: true, error: "Couldn't recognize the Groups List columns — the page layout may have changed." });
       return;
     }
 

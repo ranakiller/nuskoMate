@@ -4,10 +4,13 @@
   const RULES_KEY = "autoClickRules";
   const LEGACY_KEY = "autoButtons";
 
-  let moduleEnabled = false;    // reactive rules (moduleAutoClicker)
-  let fillEnabled = false;      // input-fill rules (moduleAutoFillRules)
-  let selectEnabled = false;    // dropdown-select rules (moduleAutoSelect)
+  // Click/fill/select rules used to be 3 separately-licensed categories —
+  // merged into one "Rules" tab/toggle/tool-id (autorules). featOK("autorules")
+  // also accepts the 3 old tool ids so already-issued keys keep working
+  // without needing to be reissued immediately (see refreshEnabled below).
+  let autoRulesEnabled = false; // click/input/dropdown rules (moduleAutoRules)
   let workflowsEnabled = false; // workflows run/hotkeys (moduleWorkflows)
+  let translateRulesEnabled = false; // translation rules (moduleTranslateRules)
   let rules = [];
   let inspectorDefaults = {};
   const executedRules = new Set();
@@ -45,7 +48,16 @@
   }
 
   const TEXT_SCAN = "button, a, [role='button'], input[type='button'], input[type='submit'], label, li, span, td, th, p-dropdown, div";
-  function findByText(txt, exact) {
+  // includeHidden: skip the visibility filter — for hotkey-fired rules only
+  // (see fireRuleHotkey). Menu items in a closed PrimeNG/Angular dropdown are
+  // usually still IN the DOM, just hidden via CSS, and calling .click() on
+  // them still works (a real click handler doesn't care about visibility) —
+  // matching how a hand-written querySelectorAll+.click() script behaves.
+  // Every OTHER caller (auto-scan rules, workflow steps, waitUntil, …) keeps
+  // the strict default (includeHidden left undefined/false) since firing on
+  // a hidden match unattended is exactly the kind of mistake that gate exists
+  // to prevent.
+  function findByText(txt, exact, includeHidden) {
     const want = String(txt || "").trim().toLowerCase();
     if (!want) return null;
     let best = null, bestLen = Infinity;
@@ -53,20 +65,20 @@
       const t = (el.innerText || el.textContent || "").trim().toLowerCase();
       if (!t || t.length > want.length + 120) continue;   // skip big containers early
       if (exact ? t !== want : !t.includes(want)) continue;
-      if (!isVisible(el)) continue;
+      if (!includeHidden && !isVisible(el)) continue;
       // Tightest (shortest-text) match wins → the actual button, not its wrapper.
       if (t.length < bestLen) { best = el; bestLen = t.length; }
     }
     return best;
   }
 
-  function resolveOne(sel) {
+  function resolveOne(sel, includeHidden) {
     sel = String(sel || "").trim();
     if (!sel) return null;
     if (/^xpath=/i.test(sel)) return findByXPath(sel.slice(6));
     if (sel[0] === "/" || sel[0] === "(") return findByXPath(sel);
-    if (/^text\*=/i.test(sel)) return findByText(sel.slice(6), false);
-    if (/^text=/i.test(sel))   return findByText(sel.slice(5), true);
+    if (/^text\*=/i.test(sel)) return findByText(sel.slice(6), false, includeHidden);
+    if (/^text=/i.test(sel))   return findByText(sel.slice(5), true, includeHidden);
     try {
       return document.querySelector(sel);
     } catch (err) {
@@ -75,15 +87,76 @@
     }
   }
 
-  function getElement(selector) {
+  function getElement(selector, includeHidden) {
     if (!selector) return null;
     // Fallback chain: try each "||"-separated alternative in order.
     const parts = String(selector).split("||");
     for (const p of parts) {
-      const el = resolveOne(p);
+      const el = resolveOne(p, includeHidden);
       if (el) return el;
     }
     return null;
+  }
+
+  // Plural counterpart to getElement() — same selector syntax (CSS, xpath=,
+  // text=, text*=, "a || b" fallback chains), returns every VISIBLE match
+  // instead of just the first. Powers the "For each match" workflow repeat
+  // mode (iterate every row/button matching a selector, one at a time).
+  function findAllByXPath(xp) {
+    try {
+      const r = document.evaluate(xp, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      const out = [];
+      for (let i = 0; i < r.snapshotLength; i++) out.push(r.snapshotItem(i));
+      return out;
+    } catch (_) { return []; }
+  }
+  // includeHidden: same idea as findByText's — a "For each match" workflow
+  // is an explicit, deliberate bulk action the user configured, and (like a
+  // hotkey rule) is exactly the case where a still-in-the-DOM-but-hidden
+  // batch of matches (e.g. every row's own hidden dropdown-menu item) is
+  // the whole point, not a mistake to guard against.
+  function findAllByText(txt, exact, includeHidden) {
+    const want = String(txt || "").trim().toLowerCase();
+    if (!want) return [];
+    const found = [];
+    for (const el of document.querySelectorAll(TEXT_SCAN)) {
+      const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+      if (!t || t.length > want.length + 120) continue;
+      if (exact ? t !== want : !t.includes(want)) continue;
+      if (!includeHidden && !isVisible(el)) continue;
+      found.push(el);
+    }
+    // Leaf-most wins: drop any match that CONTAINS another match (e.g. a
+    // wrapping <div> around the actual <button>) — same tightest-match
+    // principle as findByText's shortest-text tiebreak, generalized to a list.
+    return found.filter((el) => !found.some((other) => other !== el && el.contains(other)));
+  }
+  function resolveAll(sel, includeHidden) {
+    sel = String(sel || "").trim();
+    if (!sel) return [];
+    if (/^xpath=/i.test(sel)) return findAllByXPath(sel.slice(6));
+    if (sel[0] === "/" || sel[0] === "(") return findAllByXPath(sel);
+    if (/^text\*=/i.test(sel)) return findAllByText(sel.slice(6), false, includeHidden);
+    if (/^text=/i.test(sel))   return findAllByText(sel.slice(5), true, includeHidden);
+    try {
+      const all = [...document.querySelectorAll(sel)];
+      return includeHidden ? all : all.filter(isVisible);
+    } catch (err) {
+      console.warn("Invalid selector skipped:", sel, err);
+      return [];
+    }
+  }
+  // "For each match" always passes includeHidden=true (see runWorkflow) —
+  // every other caller of getAllElements (none yet, but keep this default
+  // strict for anything added later) gets the safe, visibility-filtered
+  // behavior unless it explicitly asks otherwise.
+  function getAllElements(selector, includeHidden) {
+    const parts = String(selector || "").split("||");
+    for (const p of parts) {
+      const found = resolveAll(p, includeHidden);
+      if (found.length) return found;
+    }
+    return [];
   }
 
   // ── Path / condition matching ─────────────────────────────────────────────
@@ -96,7 +169,11 @@
     return mode === "includes" ? pathname.includes(rulePath) : pathname === rulePath;
   }
 
-  function conditionsPass(rule) {
+  // includeHidden: passed as true only from fireRuleHotkey — lets a hotkey
+  // rule match/click a menu item that's still in the DOM but visually hidden
+  // inside a closed dropdown (see findByText's comment above). Auto-scanned
+  // rules never pass this, so their behavior is unchanged.
+  function conditionsPass(rule, includeHidden) {
     if (!rule.enabled || !pathMatches(rule)) return false;
 
     const requiredSelectors = Array.isArray(rule.requiredElements)
@@ -107,8 +184,8 @@
 
     if (!requiredSelectors.length) return false;
 
-    const requiredElements = requiredSelectors.map(getElement);
-    if (requiredElements.some((el) => !isVisible(el))) return false;
+    const requiredElements = requiredSelectors.map((s) => getElement(s, includeHidden));
+    if (requiredElements.some((el) => !el || (!includeHidden && !isVisible(el)))) return false;
 
     const forbiddenSelectors = Array.isArray(rule.forbiddenElements)
       ? rule.forbiddenElements
@@ -147,13 +224,17 @@
 
   // ── Action executors ──────────────────────────────────────────────────────
 
-  function clickElement(element) {
-    const isDisabled =
+  function isElementDisabled(element) {
+    return !!(
       element.disabled ||
       element.getAttribute("disabled") === "true" ||
       element.getAttribute("aria-disabled") === "true" ||
-      element.classList.contains("disabled");
-    if (isDisabled) return;
+      element.classList.contains("disabled")
+    );
+  }
+
+  function clickElement(element) {
+    if (isElementDisabled(element)) return;
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     element.click();
@@ -304,6 +385,27 @@
     }, delayMs);
   }
 
+  // Fires a rule immediately on its hotkey — separate from executeRule()
+  // because none of its dedup/cooldown state applies here: a hotkey press is
+  // an explicit ask, so it should always attempt to fire, not just once per
+  // page (executedRules) or throttled to repeatIntervalMs. Still re-validates
+  // conditions (path/required/forbidden/text) right before acting, and still
+  // applies jitter for human-like timing.
+  function fireRuleHotkey(rule) {
+    // includeHidden=true: a hotkey press is explicit and deliberate, so
+    // match even a menu item sitting hidden inside a closed dropdown — same
+    // as a hand-written querySelectorAll+.click() script would.
+    const element = conditionsPass(rule, true);
+    if (!element) { wlog(`hotkey rule "${rule.name}" — conditions not met, nothing to do`); return; }
+    const jitter = Math.max(Number(rule.jitterMs) || 0, 0);
+    const delayMs = jitter ? Math.floor(Math.random() * jitter) : 0;
+    setTimeout(() => {
+      const freshElement = conditionsPass(rule, true);
+      if (!freshElement) return;
+      executeAction(rule, freshElement);
+    }, delayMs);
+  }
+
   // ── Normalization ─────────────────────────────────────────────────────────
 
   function normalizeSelectorArray(value) {
@@ -360,6 +462,11 @@
       repeat: normalizeRepeat(rule),
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
       jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
+      // "auto" (default) = today's behavior, fires as soon as conditions
+      // pass. "hotkey" = never auto-fires from the scan loop — only runs
+      // when its keyboard combo is pressed (see the Hotkey triggers section).
+      triggerMode: rule.triggerMode === "hotkey" ? "hotkey" : "auto",
+      hotkey: rule.hotkey || "",
       fillValue: rule.fillValue || "",
       valueMode: rule.valueMode === "date" ? "date" : "text",
       dateFormat: rule.dateFormat || "YYYY-MM-DD",
@@ -371,24 +478,39 @@
       selectValue: rule.selectValue || "",
       selectMatchBy: rule.selectMatchBy || "value",
       targetState: rule.targetState || "checked",
+      // Translation rules: "fieldToField" reads a separate source element and
+      // writes its translation into requiredElements[0]; "autoDetect" scans
+      // requiredElements[0] (which may match many elements) for foreign text
+      // and translates it in place, duplicating a row per extra target language.
+      mode: rule.mode === "autoDetect" ? "autoDetect" : "fieldToField",
+      sourceSelector: rule.sourceSelector || "",
+      sourceLang: rule.sourceLang || "en",
+      targetLang: rule.targetLang || "ar",
+      targetLangs: Array.isArray(rule.targetLangs) ? rule.targetLangs.filter(Boolean) : [],
+      // autoDetect only — "replace" overwrites the page text in place
+      // (original behavior); "tooltip" leaves the text untouched and shows
+      // the translation in an instant hover tooltip instead.
+      displayMode: rule.displayMode === "tooltip" ? "tooltip" : "replace",
     };
   }
 
   // ── Scan loop ─────────────────────────────────────────────────────────────
 
-  // A rule's element type decides which module gates it:
-  //   input → Autofill (fill),  dropdown → Auto Select,  everything else → Auto Clicker (click).
+  // Click/input/dropdown rules all share one "Rules" gate now; translate
+  // rules are their own separate category (fundamentally a different kind
+  // of action, not click/fill/select — kept apart on purpose).
   function ruleCategory(rule) {
-    const t = rule.type || "button";
-    return t === "input" ? "fill" : t === "dropdown" ? "select" : "click";
+    return rule.type === "translate" ? "translate" : "auto";
   }
   function categoryEnabled(cat) {
-    return cat === "fill" ? fillEnabled : cat === "select" ? selectEnabled : moduleEnabled;
+    return cat === "translate" ? translateRulesEnabled : autoRulesEnabled;
   }
 
   function scanRules() {
-    if (!rules.length || (!moduleEnabled && !fillEnabled && !selectEnabled)) return;
+    if (!rules.length || !autoRulesEnabled) return;
     rules.forEach((rule) => {
+      if (rule.type === "translate") return; // handled by scanTranslateRules(), not click/fill/select's engine
+      if (rule.triggerMode === "hotkey") return; // fires only via its hotkey, never auto-scanned
       if (!categoryEnabled(ruleCategory(rule))) return;
       const element = conditionsPass(rule);
       if (element) executeRule(rule, element);
@@ -400,13 +522,454 @@
     executedRules.clear();
     pendingRules.clear();
     lastRunAt.clear();
+    refreshHotkeys(); // rule hotkeys live in this same list — keep the combo map current
     scanRules();
+    scanTranslateRules();
+  }
+
+  // ── Translation rules ──────────────────────────────────────────────────────
+  // Two independent modes sharing one rule shape (see normalizeRule above):
+  //   fieldToField — reactive, one source element → one target element, fixed
+  //                  language pair (like modules/translation.js, but user-
+  //                  configurable instead of hardcoded field selectors).
+  //   autoDetect   — scans requiredElements[0] (may match MANY elements, e.g.
+  //                  a whole column of rows), auto-detects the language of
+  //                  whatever text shows up, and translates it in place for
+  //                  the FIRST configured target language; any ADDITIONAL
+  //                  target languages get a cloned duplicate element inserted
+  //                  right after, holding that language's translation.
+  // Both bypass scanRules()/executeAction() entirely — they need async API
+  // calls and per-element "did this actually change" caching that doesn't fit
+  // the click/fill/select engine's fire-once dedup model.
+
+  const RTL_LANGS = new Set(["ar", "ur", "fa", "he", "ps", "syr", "dv", "ku", "yi"]);
+  function applyDir(el, lang) {
+    try { el.setAttribute("dir", RTL_LANGS.has(lang) ? "rtl" : "ltr"); } catch (_) {}
+  }
+
+  function isFieldElement(el) {
+    return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+  }
+  function readElementText(el) {
+    return (isFieldElement(el) ? el.value : (el.innerText || el.textContent || "")).trim();
+  }
+  function writeElementText(el, text) {
+    if (isFieldElement(el)) {
+      if (typeof window.simulateAngularInput === "function") window.simulateAngularInput(el, text);
+      else {
+        el.value = text;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } else {
+      el.textContent = text;
+    }
+  }
+
+  // Arabic-transliteration fallback — same map/logic as modules/translation.js
+  // — used only when the target language is Arabic AND the API either failed
+  // outright or clearly didn't translate (empty, unchanged, or still has
+  // Latin letters in it).
+  const EN_TO_AR_MAP = {
+    a: "ا", b: "ب", c: "ك", d: "د", e: "ي", f: "ف", g: "ج",
+    h: "ه", i: "ي", j: "ج", k: "ك", l: "ل", m: "م", n: "ن",
+    o: "و", p: "ب", q: "ق", r: "ر", s: "س", t: "ت", u: "و",
+    v: "ف", w: "و", x: "كس", y: "ي", z: "ذ",
+    0: "٠", 1: "١", 2: "٢", 3: "٣", 4: "٤", 5: "٥",
+    6: "٦", 7: "٧", 8: "٨", 9: "٩",
+    " ": " ", "-": "-", "'": "", '"': "",
+  };
+  function transliterateToArabic(text) {
+    return text.split("").map((ch) => EN_TO_AR_MAP[ch.toLowerCase()] || ch).join("");
+  }
+
+  // data[0] = translated segments, data[2] = detected source language (only
+  // meaningful when sl="auto" was passed). Same unofficial endpoint already
+  // used by modules/translation.js — already whitelisted in manifest.json.
+  function translateText(text, sl, tl) {
+    const toArabic = String(tl || "").toLowerCase().startsWith("ar");
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
+    return fetch(url).then((res) => res.json()).then((data) => {
+      let translated = ((data && data[0]) || []).map((seg) => seg[0]).join("");
+      const detected = (data && data[2]) || (sl === "auto" ? "" : sl);
+      const invalid = !translated || translated.toLowerCase() === text.toLowerCase() || /[a-z]/i.test(translated);
+      if (invalid && toArabic) translated = transliterateToArabic(text);
+      else if (!translated) translated = text;
+      return { translated, detected };
+    }).catch((err) => {
+      if (toArabic) return { translated: transliterateToArabic(text), detected: "" };
+      throw err;
+    });
+  }
+
+  function resolveSystemLanguage(pref) {
+    if (pref && pref !== "system") return pref;
+    try { return (chrome.i18n.getUILanguage() || "en").split("-")[0].toLowerCase(); } catch (_) { return "en"; }
+  }
+
+  // ── Mode: fieldToField ──────────────────────────────────────────────────
+  // Keyed by rule id (not element) — the rule shape only ever has ONE source
+  // + ONE target, so there's nothing to disambiguate beyond the rule itself.
+  const translateSourceCache = new Map();
+
+  function scanTranslateFieldToField() {
+    rules.forEach((rule) => {
+      if (rule.type !== "translate" || rule.mode === "autoDetect" || !rule.enabled) return;
+      if (!pathMatches(rule)) return;
+      const targetEl = getElement(rule.requiredElements[0]);
+      const sourceEl = getElement(rule.sourceSelector);
+      if (!targetEl || !sourceEl) return;
+      const raw = readElementText(sourceEl);
+      if (!raw) return;
+      const key = String(rule.id);
+      if (translateSourceCache.get(key) === raw) return;
+      translateSourceCache.set(key, raw); // set before the await — prevents firing again mid-flight
+      translateText(raw, rule.sourceLang || "en", rule.targetLang || "ar")
+        .then(({ translated }) => {
+          writeElementText(targetEl, translated);
+          applyDir(targetEl, rule.targetLang || "ar");
+        })
+        .catch(() => {});
+    });
+  }
+
+  // ── Mode: autoDetect (broadcast to N languages) ──────────────────────────
+  // element → { lastWritten, dupes: [elements] }. lastWritten lets a scan
+  // tick tell "did the page change this since we last translated it" apart
+  // from "this is just the translation WE wrote sitting there unchanged" —
+  // both look identical to a naive text comparison otherwise, which would
+  // either loop forever or never re-translate an edit.
+  const translateBroadcastCache = new WeakMap();
+  // Elements WE inserted as extra-language duplicates — excluded from being
+  // scanned as if they were fresh foreign-text matches (a clone can share the
+  // same class/selector as its original).
+  const translateDupElements = new WeakSet();
+  // Guards against the MutationObserver re-entering this same element while
+  // its translateText() calls are still in flight (our own writes are
+  // mutations too, and several can land before the first call resolves).
+  const translateInFlight = new WeakSet();
+
+  // ── Display mode: tooltip ─────────────────────────────────────────────────
+  // Leaves the page's own text untouched — the translation only ever shows in
+  // a small hover tooltip. Translated ahead of time by the scan loop (same as
+  // replace mode) so the tooltip has zero lookup delay; hovering just shows
+  // whatever's already cached instead of triggering a fetch, so it appears
+  // the instant the cursor lands, no matter how slow the translate API is.
+  // The tooltip also carries a "Replace text" button — an explicit, on-demand
+  // way to commit that translation into the page for just THAT element,
+  // without switching the whole rule over to always-replace mode.
+  const tooltipCache = new WeakMap(); // el -> { lastSource, lines: [{lang, text}] }
+  const tooltipTargets = new WeakSet(); // elements a tooltip should show for
+  const tooltipCommitted = new WeakMap(); // el -> original raw text, once its translation has been committed in place
+  let tooltipEl = null;
+  let tooltipLinesEl = null;
+  let tooltipBtnEl = null;
+  let currentTooltipTarget = null;
+
+  function ensureTooltipEl() {
+    if (tooltipEl) return tooltipEl;
+    tooltipEl = document.createElement("div");
+    tooltipEl.id = "nk-translate-tooltip";
+    Object.assign(tooltipEl.style, {
+      position: "fixed", zIndex: "2147483647", background: "#1f2430", color: "#fff",
+      padding: "9px 13px", borderRadius: "8px", fontSize: "15px", fontWeight: "600",
+      lineHeight: "1.5", maxWidth: "360px", boxShadow: "0 6px 18px rgba(0,0,0,.32)",
+      display: "none", fontFamily: "system-ui, sans-serif",
+    });
+
+    tooltipLinesEl = document.createElement("div");
+    tooltipEl.appendChild(tooltipLinesEl);
+
+    tooltipBtnEl = document.createElement("button");
+    tooltipBtnEl.type = "button";
+    Object.assign(tooltipBtnEl.style, {
+      display: "block", marginTop: "7px", padding: "5px 10px", width: "100%",
+      border: "none", borderRadius: "5px", background: "rgba(255,255,255,.16)",
+      color: "#fff", fontSize: "12.5px", fontWeight: "700", cursor: "pointer",
+      fontFamily: "inherit",
+    });
+    tooltipBtnEl.addEventListener("mouseenter", () => { tooltipBtnEl.style.background = "rgba(255,255,255,.28)"; });
+    tooltipBtnEl.addEventListener("mouseleave", () => { tooltipBtnEl.style.background = "rgba(255,255,255,.16)"; });
+    tooltipBtnEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!currentTooltipTarget) return;
+      const target = currentTooltipTarget;
+      toggleCommit(target);
+      showTooltipFor(target); // refresh the button label in place — stays open under the cursor
+    });
+    tooltipEl.appendChild(tooltipBtnEl);
+
+    // Leaving the tooltip itself (not back onto the target text) hides it —
+    // needed now that it has a clickable button, so the cursor has somewhere
+    // to actually go without immediately losing the tooltip.
+    tooltipEl.addEventListener("mouseleave", () => { hideTooltip(); });
+
+    document.body.appendChild(tooltipEl);
+    return tooltipEl;
+  }
+
+  function findTooltipTarget(node) {
+    let n = node;
+    while (n && n !== document.body && n !== document.documentElement) {
+      if (tooltipTargets.has(n)) return n;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
+  function showTooltipFor(el) {
+    const cache = tooltipCache.get(el);
+    if (!cache || !cache.lines.length) return;
+    currentTooltipTarget = el;
+    const tip = ensureTooltipEl();
+    tooltipLinesEl.textContent = ""; // each line gets its own dir="auto" div, so mixed-script tooltips (e.g. Arabic + Urdu) still render each line in its own natural direction
+    cache.lines.forEach((l) => {
+      const line = document.createElement("div");
+      line.dir = "auto";
+      line.textContent = l.text;
+      tooltipLinesEl.appendChild(line);
+    });
+    tooltipBtnEl.textContent = tooltipCommitted.has(el) ? "↺ Revert to original  (T)" : "✓ Replace text on page  (T)";
+    tip.style.display = "block";
+    const rect = el.getBoundingClientRect();
+    // A tight 2px gap (not the more typical 6-8px) — with the button now
+    // clickable, a wider gap gave the cursor a dead zone to lose the tooltip
+    // in on the way from the text to the button.
+    const above = rect.top - tip.offsetHeight - 2;
+    tip.style.top = (above < 4 ? rect.bottom + 2 : above) + "px";
+    tip.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - tip.offsetWidth - 4)) + "px";
+  }
+
+  function hideTooltip() {
+    if (tooltipEl) tooltipEl.style.display = "none";
+    currentTooltipTarget = null;
+  }
+
+  // One language sits on a single line; a second (and any further) language
+  // gets a full blank line before it, all inside the SAME element — a <br><br>
+  // between each language's <span>, rather than replace mode's separate
+  // cloned element per extra language. Each span keeps its own dir="auto" so
+  // mixed scripts (e.g. English + Urdu) each still render in their natural
+  // direction.
+  function writeTranslationLines(el, lines) {
+    if (isFieldElement(el)) {
+      writeElementText(el, lines.map((l) => l.text).join("\n\n"));
+      return;
+    }
+    el.textContent = "";
+    lines.forEach((line, i) => {
+      if (i > 0) { el.appendChild(document.createElement("br")); el.appendChild(document.createElement("br")); }
+      const span = document.createElement("span");
+      span.dir = "auto";
+      span.textContent = line.text;
+      el.appendChild(span);
+    });
+    if (lines.length) applyDir(el, lines[0].lang);
+  }
+
+  // Commits (or reverts) ALL configured target languages directly into the
+  // page for just this one element. The rule itself stays in tooltip mode;
+  // this only affects the element you triggered it on. Doesn't touch the
+  // tooltip's own visibility — callers (button click, keyboard shortcut)
+  // re-show it afterward so the state flip is visible without it blinking
+  // shut and reopening.
+  function toggleCommit(el) {
+    const cache = tooltipCache.get(el);
+    if (!cache || !cache.lines.length) return;
+    const committed = tooltipCommitted.get(el);
+    if (committed) {
+      writeElementText(el, committed.originalRaw);
+      tooltipCommitted.delete(el);
+      return;
+    }
+    const originalRaw = readElementText(el);
+    writeTranslationLines(el, cache.lines);
+    tooltipCommitted.set(el, { originalRaw });
+  }
+
+  document.addEventListener("mouseover", (e) => {
+    const target = findTooltipTarget(e.target);
+    if (target) showTooltipFor(target);
+  }, true);
+  document.addEventListener("mouseout", (e) => {
+    const target = findTooltipTarget(e.target);
+    if (!target) return;
+    const to = e.relatedTarget;
+    if (to && (target.contains(to) || (tooltipEl && tooltipEl.contains(to)))) return;
+    hideTooltip();
+  }, true);
+
+  // Keyboard shortcut for the exact same toggle the button does — the cursor
+  // never has to leave the original text (and risk losing the tooltip to a
+  // dead zone on the way to the button) to commit or revert a translation.
+  // Press T while a tooltip is showing; press it again to flip back.
+  document.addEventListener("keydown", (e) => {
+    if (!currentTooltipTarget) return;
+    if (e.key.toLowerCase() !== "t" || e.ctrlKey || e.altKey || e.metaKey) return;
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return; // don't steal a keystroke while actually typing somewhere
+    e.preventDefault();
+    toggleCommit(currentTooltipTarget);
+    showTooltipFor(currentTooltipTarget); // refresh the button label + keep the tooltip open so the result is visible immediately
+  }, true);
+
+  async function processTooltipElement(rule, el, raw) {
+    if (tooltipCommitted.has(el)) return; // text on the page IS the committed translation right now — don't re-translate it as if it were new foreign text
+    const cache = tooltipCache.get(el);
+    if (cache && cache.lastSource === raw) return; // already translated, text hasn't changed
+    if (translateInFlight.has(el)) return;
+    translateInFlight.add(el);
+    try {
+      const langs = rule.targetLangs.length ? rule.targetLangs : [resolveSystemLanguage()];
+      const lines = [];
+      for (const lang of langs) {
+        let translated, detected;
+        try {
+          const r = await translateText(raw, "auto", lang);
+          translated = r.translated; detected = r.detected;
+        } catch (_) { continue; }
+        if (detected && detected === lang) continue; // already in this language
+        lines.push({ lang, text: translated });
+      }
+      if (lines.length) {
+        tooltipCache.set(el, { lastSource: raw, lines });
+        tooltipTargets.add(el);
+      }
+    } finally {
+      translateInFlight.delete(el);
+    }
+  }
+
+  async function processBroadcastElement(rule, el) {
+    const raw = readElementText(el);
+    if (!raw) return;
+    if (rule.displayMode === "tooltip") return processTooltipElement(rule, el, raw);
+    const cache = translateBroadcastCache.get(el);
+    if (cache && cache.lastWritten === raw) return; // nothing's changed since we last wrote it
+    if (translateInFlight.has(el)) return;
+    translateInFlight.add(el);
+
+    try {
+      const langs = rule.targetLangs.length ? rule.targetLangs : [resolveSystemLanguage()];
+      if (cache && cache.dupes) cache.dupes.forEach((d) => { try { d.remove(); } catch (_) {} });
+
+      let primaryText = raw;
+      let primaryLang = langs[0];
+      const dupes = [];
+      let anchor = el;
+
+      for (let i = 0; i < langs.length; i++) {
+        const lang = langs[i];
+        let translated, detected;
+        try {
+          const r = await translateText(raw, "auto", lang);
+          translated = r.translated; detected = r.detected;
+        } catch (_) { continue; }
+
+        if (detected && detected === lang) {
+          // Already in this language — nothing to translate into it.
+          if (i === 0) { primaryText = raw; primaryLang = lang; }
+          continue;
+        }
+        if (i === 0) {
+          primaryText = translated;
+          primaryLang = lang;
+        } else {
+          const dup = el.cloneNode(true);
+          writeElementText(dup, translated);
+          applyDir(dup, lang);
+          translateDupElements.add(dup);
+          anchor.insertAdjacentElement("afterend", dup);
+          anchor = dup;
+          dupes.push(dup);
+        }
+      }
+
+      writeElementText(el, primaryText);
+      applyDir(el, primaryLang);
+      translateBroadcastCache.set(el, { lastWritten: primaryText, dupes });
+    } finally {
+      translateInFlight.delete(el);
+    }
+  }
+
+  // No selector set = "the whole page" — walk actual TEXT NODES (not a fixed
+  // tag list) and translate each one's PARENT element. A TreeWalker over
+  // SHOW_TEXT naturally lands on the deepest/leaf-most text-bearing element
+  // only (a wrapping <div> around a <span>Hello</span> has no text node of
+  // its own there — that text belongs to the span), which avoids double-
+  // translating the same text at multiple nesting levels the way a generic
+  // tag-list selector scan would.
+  const SKIP_TEXT_PARENT_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT"]);
+  function getGlobalTextElements() {
+    const out = [];
+    const seen = new Set();
+    let walker;
+    try {
+      walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          const p = node.parentElement;
+          if (!p || SKIP_TEXT_PARENT_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+          // Skip our own injected UI (bar, toasts, etc.) — never translate ourselves.
+          if (p.closest("#nkBrnBar, #tm-hotel-auto-toast, #multiHotelBox")) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+    } catch (_) { return out; }
+    let n;
+    while ((n = walker.nextNode())) {
+      const p = n.parentElement;
+      if (!p || seen.has(p) || translateDupElements.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
+    return out;
+  }
+
+  function scanTranslateBroadcast() {
+    rules.forEach((rule) => {
+      if (rule.type !== "translate" || rule.mode !== "autoDetect" || !rule.enabled) return;
+      if (!pathMatches(rule)) return;
+      const sel = (rule.requiredElements[0] || "").trim();
+      const elements = sel ? getAllElements(sel, true) : getGlobalTextElements();
+      elements.forEach((el) => {
+        if (translateDupElements.has(el)) return;
+        processBroadcastElement(rule, el);
+      });
+    });
+  }
+
+  function scanTranslateRules() {
+    if (!rules.length || !translateRulesEnabled) return;
+    scanTranslateFieldToField();
+    scanTranslateBroadcast();
+  }
+
+  // One-shot "pick text to translate" — no rule saved, just an immediate
+  // in-place fix using whatever language Settings has configured.
+  async function quickTranslateElement(element) {
+    if (!element) return;
+    const text = readElementText(element);
+    if (!text) { alert("No text found on that element."); return; }
+    chrome.storage.local.get(["nkLanguage"], async (res) => {
+      const targetLang = resolveSystemLanguage(res.nkLanguage);
+      try {
+        const { translated, detected } = await translateText(text, "auto", targetLang);
+        if (detected && detected === targetLang) { alert("That text already looks like it's in your target language."); return; }
+        writeElementText(element, translated);
+        applyDir(element, targetLang);
+      } catch (_) {
+        alert("Translation failed — check your connection and try again.");
+      }
+    });
   }
 
   // ── Rule saving ───────────────────────────────────────────────────────────
 
-  function buildDefaultRule(selection) {
-    const { selector, text, elementType = "button", meta = {} } = selection;
+  function buildDefaultRule(selection, forceType) {
+    const { selector, text, meta = {} } = selection;
+    const elementType = forceType || selection.elementType || "button";
 
     const base = {
       id: Date.now(),
@@ -440,8 +1003,8 @@
     return base;
   }
 
-  function saveCapturedRule(selection) {
-    const newRule = normalizeRule(buildDefaultRule(selection));
+  function saveCapturedRule(selection, forceType) {
+    const newRule = normalizeRule(buildDefaultRule(selection, forceType));
     chrome.storage.local.get([RULES_KEY], (res) => {
       const nextRules = [...(res[RULES_KEY] || []), newRule];
       chrome.storage.local.set({ [RULES_KEY]: nextRules }, () => {
@@ -451,14 +1014,22 @@
     });
   }
 
-  function updateSelectorInRule(ruleId, selection, key) {
+  // `index` targets a SPECIFIC existing selector to replace (the row's own
+  // Pick button, popup/auto-clicker.js's per-row payload) — omitted (or past
+  // the end of the current array, e.g. a row that hasn't been saved yet)
+  // falls back to appending, which is what the list-level "+ Add selector"
+  // button asks for.
+  function updateSelectorInRule(ruleId, selection, key, index) {
     chrome.storage.local.get([RULES_KEY, LEGACY_KEY], (res) => {
       const current = res[RULES_KEY] || res[LEGACY_KEY] || [];
       const nextRules = current.map((rule) => {
         if (String(rule.id) !== String(ruleId)) return normalizeRule(rule);
         const normalized = normalizeRule(rule);
         const existing = normalizeSelectorArray(normalized[key] || []);
-        return { ...normalized, [key]: [...existing, selection.selector].filter(Boolean) };
+        const next = (index != null && index >= 0 && index < existing.length)
+          ? existing.map((s, i) => (i === index ? selection.selector : s))
+          : [...existing, selection.selector];
+        return { ...normalized, [key]: next.filter(Boolean) };
       });
       chrome.storage.local.set({ [RULES_KEY]: nextRules }, () => {
         alert(`Selector saved: ${selection.selector}`);
@@ -517,6 +1088,16 @@
     });
   }
 
+  // "For each match" repeat mode's match selector — same save shape as
+  // saveRepeatWhileSelector, different repeat field.
+  function saveMatchSelector(selection, workflowId) {
+    chrome.storage.local.get(["autoWorkflows"], (res) => {
+      const wfs = (res.autoWorkflows || []).map((w) =>
+        String(w.id) === String(workflowId) ? { ...w, repeat: { ...(w.repeat || {}), matchSelector: selection.selector } } : w);
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Match selector set: ${selection.selector}`));
+    });
+  }
+
   // URL Shifter's "element appears" trigger — Pick sets the element selector
   // on the given redirect rule (modules/url-shifter.js owns its own storage
   // key, "autoUrlShiftRules", separate from click/fill/select rules).
@@ -525,6 +1106,18 @@
       const rules = (res.autoUrlShiftRules || []).map((r) =>
         String(r.id) === String(ruleId) ? { ...r, elementSelector: selection.selector } : r);
       chrome.storage.local.set({ autoUrlShiftRules: rules }, () => alert(`Element selector set: ${selection.selector}`));
+    });
+  }
+
+  // A translate rule (mode "fieldToField") has a SECOND selector beyond the
+  // shared requiredElements — the source it reads FROM. Re-picking it works
+  // the same as re-picking the target (updateSelectorInRule), just a
+  // different field on the same rule.
+  function saveTranslateSourceSelector(selection, ruleId) {
+    chrome.storage.local.get([RULES_KEY], (res) => {
+      const rules = (res[RULES_KEY] || []).map((r) =>
+        String(r.id) === String(ruleId) ? { ...normalizeRule(r), sourceSelector: selection.selector } : normalizeRule(r));
+      chrome.storage.local.set({ [RULES_KEY]: rules }, () => alert(`Source selector set: ${selection.selector}`));
     });
   }
 
@@ -559,15 +1152,18 @@
     inspector.start((selection) => {
       if (options.forWorkflowTrigger) { saveTriggerSelector(selection, options.workflowId); return; }
       if (options.forWorkflowRepeatWhile) { saveRepeatWhileSelector(selection, options.workflowId); return; }
+      if (options.forWorkflowMatchSelector) { saveMatchSelector(selection, options.workflowId); return; }
       if (options.forUsElement) { saveUsElementSelector(selection, options.ruleId); return; }
       if (options.forWorkflowStep) { updateWorkflowStepSelector(selection, options.workflowId, options.stepId); return; }
       if (options.forWorkflow) { saveCapturedStep(selection, options.workflowId, options.afterStepId); return; }
+      if (options.forQuickTranslate) { quickTranslateElement(selection.element); return; }
+      if (options.forTranslateSource) { saveTranslateSourceSelector(selection, options.ruleId); return; }
       if (options.ruleId) {
         const key = options.mode === "forbidden" ? "forbiddenElements" : "requiredElements";
-        updateSelectorInRule(options.ruleId, selection, key);
+        updateSelectorInRule(options.ruleId, selection, key, options.index);
         return;
       }
-      saveCapturedRule(selection);
+      saveCapturedRule(selection, options.forceType);
     });
     sendResponse({ status: "Inspector Active" });
   }
@@ -722,9 +1318,9 @@
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-  const observer = new MutationObserver(() => { scanRules(); scanWorkflows(); });
+  const observer = new MutationObserver(() => { scanRules(); scanWorkflows(); scanTranslateRules(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  setInterval(() => { scanRules(); scanWorkflows(); }, 1000);
+  setInterval(() => { scanRules(); scanWorkflows(); scanTranslateRules(); }, 1000);
 
   window.addEventListener("nusuk-route-change", () => {
     executedRules.clear();
@@ -734,18 +1330,19 @@
     scanWorkflows();
   });
 
-  // Premium — each automation tool has its OWN key entitlement now:
-  //   autoclick = click rules, fillrules = input-fill rules,
-  //   autoselect = dropdown rules, workflows = sequences.
+  // Premium — click/input/dropdown rules share ONE entitlement now
+  // ("autorules"). featOK also accepts the 3 OLD ids (autoclick/fillrules/
+  // autoselect) so a key that predates the merge keeps working as-is —
+  // no forced reissue, migrate customers to the clean id whenever convenient.
   const featOK = (f) => !window.NkLicense || window.NkLicense.featureOK(f);
+  const autoRulesOK = () => featOK("autorules") || featOK("autoclick") || featOK("fillrules") || featOK("autoselect");
 
   function refreshEnabled(after) {
-    chrome.storage.local.get(["moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect", "moduleWorkflows", "extensionEnabled"], (res) => {
+    chrome.storage.local.get(["moduleAutoRules", "moduleWorkflows", "moduleTranslateRules", "extensionEnabled"], (res) => {
       const on = res.extensionEnabled !== false;
-      moduleEnabled    = on && !!res.moduleAutoClicker   && featOK("autoclick");  // click rules
-      fillEnabled      = on && !!res.moduleAutoFillRules && featOK("fillrules");  // input-fill rules
-      selectEnabled    = on && !!res.moduleAutoSelect    && featOK("autoselect"); // dropdown rules
-      workflowsEnabled = on && !!res.moduleWorkflows     && featOK("workflows");
+      autoRulesEnabled      = on && !!res.moduleAutoRules      && autoRulesOK();
+      workflowsEnabled      = on && !!res.moduleWorkflows      && featOK("workflows");
+      translateRulesEnabled = on && !!res.moduleTranslateRules && featOK("translaterules");
       if (after) after();
       scanWorkflows();
     });
@@ -758,7 +1355,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes.moduleAutoClicker || changes.moduleAutoFillRules || changes.moduleAutoSelect || changes.moduleWorkflows || changes.extensionEnabled) refreshEnabled(scanRules);
+    if (changes.moduleAutoRules || changes.moduleWorkflows || changes.moduleTranslateRules || changes.extensionEnabled) refreshEnabled(scanRules);
     if (changes[RULES_KEY]) setRules(changes[RULES_KEY].newValue || []);
     else if (changes[LEGACY_KEY]) setRules(changes[LEGACY_KEY].newValue || []);
     else scanRules();
@@ -791,6 +1388,15 @@
   const WF_KEY = "autoWorkflows";
   const STATUS_KEY = "acRunStatus";
   const wfState = { running: false, paused: false, stop: false, id: null };
+  // Workflow ids currently "on the call stack" — the top-level running
+  // workflow, plus any it (or something it called) is calling right now via
+  // a "callWorkflow" step. There's still only ONE workflow ever actually
+  // executing (wfState is a single mutex, on purpose — see runWorkflow) — a
+  // call step just jumps the same thread of execution into another step
+  // list and back, like a subroutine call, not real concurrency. This stack
+  // exists purely to reject cycles (A calls B calls A) before they recurse
+  // forever.
+  let wfCallStack = [];
 
   const wlog = (m) => { try { (window.nkLog || console.log)("[Nuskomate Clicker] " + m); } catch (_) { console.log(m); } };
   const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms | 0)));
@@ -840,10 +1446,32 @@
     const cond = step.condition || "visible";
     if (cond === "visible") return isVisible(el);
     if (cond === "hidden")  return !isVisible(el);
+    // "disabled" is true once there's nothing left to wait for — either the
+    // element is gone entirely, or it's present but disabled — matching the
+    // common "!nextBtn || nextBtn.disabled" pattern for a paginator arrow
+    // that becomes disabled (not hidden) once there's nothing more to page
+    // through. "enabled" is the strict opposite: must exist AND not be disabled.
+    if (cond === "disabled") return !el || isElementDisabled(el);
+    if (cond === "enabled")  return !!el && !isElementDisabled(el);
     const text = readValue(el, "text").toLowerCase();
     const want = interp(step.value || "", ctx).toLowerCase();
     if (cond === "textEquals")   return !!el && text === want;
     return !!el && text.includes(want); // textIncludes (default for text conds)
+  }
+
+  // Poll evalCondition() until true (or timeout) — a generalized waitFor/
+  // waitGone that also covers "disabled"/"enabled"/text conditions, e.g.
+  // waiting for a paginator's Next arrow to become disabled (not hidden —
+  // disabled buttons usually stay fully visible) once nothing's left to page
+  // through.
+  async function waitUntilCondition(step, ctx, timeoutMs) {
+    const deadline = Date.now() + (Number(timeoutMs) || 15000);
+    for (;;) {
+      if (wfState.stop) return false;
+      if (evalCondition(step, ctx)) return true;
+      if (Date.now() > deadline) return false;
+      await sleep(250);
+    }
   }
 
   // Pair up block markers: loopStart↔loopEnd, if↔endif, else→endif.
@@ -861,13 +1489,19 @@
     return { partner, elseOf };
   }
 
-  async function runStep(step, ctx) {
+  async function runStep(step, ctx, base) {
     const type = step.type || "button";
-    const sel = interp(stepSelector(step), ctx);
+    const rawSel = stepSelector(step);
+    const sel = interp(rawSel, ctx);
 
     if (type === "wait" || type === "delay") { await sleep(Number(step.waitMs) || 0); return; }
     if (type === "waitFor")  { if (!(await waitUntil(sel, true,  step.timeoutMs))) throw new Error(`waitFor timed out: ${sel}`); return; }
     if (type === "waitGone") { if (!(await waitUntil(sel, false, step.timeoutMs))) throw new Error(`waitGone timed out: ${sel}`); return; }
+    if (type === "waitCondition") {
+      if (!(await waitUntilCondition(step, ctx, step.timeoutMs))) throw new Error(`waitCondition timed out: ${step.condition || "visible"} ${sel}`);
+      return;
+    }
+    if (type === "callWorkflow") { await callTarget(step, base); return; }
     if (type === "capture") {
       const ok = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
       const el = getElement(sel);
@@ -878,10 +1512,23 @@
       return;
     }
 
-    // Action step — ensure the element is present/visible first.
-    const present = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
-    const el = getElement(sel);
-    if (!present || !el) throw new Error(`element not found: ${sel}`);
+    // Action step. A "For each match" loop (ctx.forEach) sets its current
+    // iteration's specific element aside — if THIS step's own selector is
+    // literally the same text as the loop's match selector, target that
+    // exact element directly instead of re-resolving to the first match on
+    // the page every time. That's what makes "click the row button"
+    // actually advance through every row instead of clicking row 1 over and
+    // over. Anything else (a different selector, e.g. a "wait for Next to
+    // disable" step) resolves normally, unaffected.
+    let el;
+    if (ctx.forEach && rawSel === ctx.forEach.selector) {
+      el = ctx.forEach.element || null;
+      if (!el) throw new Error(`element not found: ${sel}`);
+    } else {
+      const present = await waitUntil(sel, true, Number(step.timeoutMs) || 8000);
+      el = present ? getElement(sel) : null;
+      if (!el) throw new Error(`element not found: ${sel}`);
+    }
     // Human-like: a short random "reaction time" before each action.
     if (ctx.humanize) await sleep(150 + Math.random() * 450);
     switch (type) {
@@ -890,6 +1537,62 @@
       case "checkbox": setCheckbox(el, step.targetState || "checked"); break;
       case "radio":    setCheckbox(el, step.targetState || "checked"); break;
       default:         clickElement(el);
+    }
+  }
+
+  // Fires a single click/fill/select rule synchronously (awaited) from
+  // inside a workflow's "Call" step — same conditions-check + jitter as
+  // fireRuleHotkey(), but resolves/rejects instead of firing and forgetting,
+  // so the calling workflow can wait for it (and skip it if `optional`).
+  function callRule(rule) {
+    return new Promise((resolve, reject) => {
+      const element = conditionsPass(rule, true);
+      if (!element) { reject(new Error(`rule "${rule.name}" — conditions not met`)); return; }
+      const jitter = Math.max(Number(rule.jitterMs) || 0, 0);
+      const delayMs = jitter ? Math.floor(Math.random() * jitter) : 0;
+      setTimeout(() => {
+        const freshElement = conditionsPass(rule, true);
+        if (!freshElement) { reject(new Error(`rule "${rule.name}" — conditions not met`)); return; }
+        executeAction(rule, freshElement);
+        resolve();
+      }, delayMs);
+    });
+  }
+
+  // A "callWorkflow" step — calls another saved workflow OR a single rule
+  // as a subroutine, like Call MySub in VBA: the SAME single-threaded run
+  // (wfState never changes, no second "running" workflow) just jumps into
+  // the target's steps and comes back when they finish. wfCallStack guards
+  // against cycles (A calls B calls A) and caps total call depth.
+  async function callTarget(step, base) {
+    const kind = step.targetKind === "rule" ? "rule" : "workflow";
+    const targetId = step.targetId;
+    if (!targetId) throw new Error("call step: no target selected");
+
+    if (kind === "rule") {
+      const rule = rules.find((r) => String(r.id) === String(targetId));
+      if (!rule) throw new Error(`called rule not found (it may have been deleted)`);
+      if (!rule.enabled) throw new Error(`called rule "${rule.name}" is turned off`);
+      wlog(`↳ calling rule "${rule.name}"`);
+      await callRule(rule);
+      return;
+    }
+
+    const wfs = await new Promise((resolve) => chrome.storage.local.get([WF_KEY], (res) => resolve(res[WF_KEY] || [])));
+    const target = wfs.find((w) => String(w.id) === String(targetId));
+    if (!target) throw new Error(`called workflow not found (it may have been deleted)`);
+    if (target.enabled === false) throw new Error(`called workflow "${target.name}" is turned off`);
+    if (!Array.isArray(target.steps) || !target.steps.length) throw new Error(`called workflow "${target.name}" has no steps`);
+    const tid = String(target.id);
+    if (wfCallStack.includes(tid)) throw new Error(`circular call: "${target.name}" is already running in this call chain`);
+    if (wfCallStack.length >= 6) throw new Error(`call depth limit reached (6) — check for a call loop`);
+
+    wfCallStack.push(tid);
+    try {
+      wlog(`↳ calling workflow "${target.name}"`);
+      await runWorkflowSteps(target, { ...base, name: target.name, total: (target.steps || []).length });
+    } finally {
+      wfCallStack.pop();
     }
   }
 
@@ -929,7 +1632,7 @@
       if (type === "endif") { pc++; continue; }
 
       try {
-        await runStep(step, ctx);
+        await runStep(step, ctx, base);
         // Human-like: vary the between-step gap ±40% instead of a fixed beat.
         const gap = Number(step.afterMs) || 250;
         await sleep(ctx.humanize ? gap * (0.6 + Math.random() * 0.8) : gap);
@@ -943,50 +1646,93 @@
     return { ok: true };
   }
 
-  async function runWorkflow(wf) {
-    if (wfState.running) { wlog("a workflow is already running"); return; }
-    if (!wf || !Array.isArray(wf.steps) || !wf.steps.length) return;
-    wfState.running = true; wfState.paused = false; wfState.stop = false; wfState.id = wf.id;
-    const total = wf.steps.length;
-    const base = { id: wf.id, name: wf.name, running: true, paused: false, total };
+  // Runs wf's own step list per its repeat mode. Used both as the top-level
+  // execution (called by runWorkflow, wrapped with wfState/writeStatus) and,
+  // unwrapped, when a "callWorkflow" step invokes another workflow as a
+  // subroutine — callers share the SAME wfState (stop/pause both still work
+  // across a call), they just don't touch it directly here.
+  async function runWorkflowSteps(wf, base) {
     const repeat = wf.repeat || { mode: "off" };
     const cols = (wf.data && Array.isArray(wf.data.columns)) ? wf.data.columns : [];
     const rows = (repeat.mode === "perRow" && wf.data && Array.isArray(wf.data.rows)) ? wf.data.rows : null;
     const newCtx = () => ({ vars: {}, humanize: !!wf.humanize });
+
+    if (rows) {
+      for (let r = 0; r < rows.length && !wfState.stop; r++) {
+        const ctx = newCtx();
+        cols.forEach((c, ci) => { ctx.vars[c] = rows[r][ci] != null ? rows[r][ci] : ""; });
+        ctx.vars._row = r + 1; ctx.vars._rows = rows.length;
+        wlog(`— row ${r + 1}/${rows.length}`);
+        if ((await runProgram(wf.steps, ctx, { ...base, iter: r + 1, iterTotal: rows.length })).stopped) break;
+      }
+    } else if (repeat.mode === "count") {
+      const n = Math.max(1, Number(repeat.count) || 1);
+      for (let r = 0; r < n && !wfState.stop; r++) {
+        if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r + 1, iterTotal: n })).stopped) break;
+      }
+    } else if (repeat.mode === "whileVisible") {
+      let r = 0;
+      while (!wfState.stop && isVisible(getElement(repeat.whileSelector || "")) && ++r <= 10000) {
+        if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r })).stopped) break;
+      }
+    } else if (repeat.mode === "forEachMatch") {
+      // Runs the steps once per element CURRENTLY matching matchSelector —
+      // e.g. every row's "Review Passports" button — instead of re-running
+      // against the same (always-first) match. Tracks WHICH elements have
+      // already been handled (by identity, not position) and re-queries
+      // the match list fresh each iteration, picking the first not-yet-
+      // handled one — robust whether matches stay put (their state just
+      // changes) or get removed from the DOM after being processed; a
+      // plain index would silently skip an element in the latter case.
+      // Whichever step's own selector equals matchSelector gets pointed at
+      // THIS specific match (see runStep's ctx.forEach handling) —
+      // everything else in the steps resolves normally. includeHidden=true
+      // — matches even elements still hidden inside a closed dropdown menu
+      // (every row's menu content is typically all rendered up front, just
+      // CSS-hidden until its own toggle is clicked), so this can target
+      // "every row's Review Passports button" directly without an extra
+      // "open the menu first" step, same as a hand-written script that
+      // just calls .click() on whatever querySelectorAll found.
+      const matchSel = (repeat.matchSelector || "").trim();
+      if (!matchSel) { wlog(`⚠ "For each match" has no match selector set — nothing to do`); }
+      const handled = new Set();
+      let n = 0;
+      while (!wfState.stop) {
+        const matches = matchSel ? getAllElements(matchSel, true) : [];
+        const next = matches.find((el) => !handled.has(el));
+        if (!next) break; // every currently-matching element has already been handled
+        handled.add(next);
+        n++;
+        const ctx = { vars: { _matchIndex: n, _matchCount: matches.length }, humanize: !!wf.humanize, forEach: { selector: matchSel, element: next } };
+        wlog(`— match ${n}`);
+        if ((await runProgram(wf.steps, ctx, { ...base, iter: n, iterTotal: matches.length })).stopped) break;
+      }
+    } else {
+      await runProgram(wf.steps, newCtx(), base);
+    }
+  }
+
+  async function runWorkflow(wf) {
+    if (wfState.running) { wlog("a workflow is already running"); return; }
+    if (!wf || !Array.isArray(wf.steps) || !wf.steps.length) return;
+    wfState.running = true; wfState.paused = false; wfState.stop = false; wfState.id = wf.id;
+    wfCallStack = [String(wf.id)];
+    const total = wf.steps.length;
+    const base = { id: wf.id, name: wf.name, running: true, paused: false, total };
     wlog(`▶ ${wf.name} — ${total} step(s)${wf.humanize ? " (humanized)" : ""}`);
 
     try {
-      if (rows) {
-        for (let r = 0; r < rows.length && !wfState.stop; r++) {
-          const ctx = newCtx();
-          cols.forEach((c, ci) => { ctx.vars[c] = rows[r][ci] != null ? rows[r][ci] : ""; });
-          ctx.vars._row = r + 1; ctx.vars._rows = rows.length;
-          wlog(`— row ${r + 1}/${rows.length}`);
-          if ((await runProgram(wf.steps, ctx, { ...base, iter: r + 1, iterTotal: rows.length })).stopped) break;
-        }
-      } else if (repeat.mode === "count") {
-        const n = Math.max(1, Number(repeat.count) || 1);
-        for (let r = 0; r < n && !wfState.stop; r++) {
-          if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r + 1, iterTotal: n })).stopped) break;
-        }
-      } else if (repeat.mode === "whileVisible") {
-        let r = 0;
-        while (!wfState.stop && isVisible(getElement(repeat.whileSelector || "")) && ++r <= 10000) {
-          if ((await runProgram(wf.steps, newCtx(), { ...base, iter: r })).stopped) break;
-        }
-      } else {
-        await runProgram(wf.steps, newCtx(), base);
-      }
+      await runWorkflowSteps(wf, base);
     } catch (e) {
       const m = (e && e.message) || String(e);
-      wfState.running = false; wfState.id = null;
+      wfState.running = false; wfState.id = null; wfCallStack = [];
       writeStatus({ ...base, running: false, done: true, lastError: m });
       wlog(`✖ ${wf.name} failed: ${m}`);
       return;
     }
 
     const stopped = wfState.stop;
-    wfState.running = false; wfState.id = null;
+    wfState.running = false; wfState.id = null; wfCallStack = [];
     writeStatus({ ...base, running: false, done: true, stopped, lastError: "" });
     wlog(stopped ? `■ ${wf.name} stopped` : `✔ ${wf.name} finished`);
   }
@@ -1042,7 +1788,8 @@
   }
 
   // ── Hotkey triggers ───────────────────────────────────────────────────────
-  // A workflow with a `hotkey` (e.g. "Alt+1", "Ctrl+Shift+K") runs on that combo.
+  // A workflow OR a click/fill/select rule (rule.triggerMode === "hotkey")
+  // with a `hotkey` (e.g. "Alt+1", "Ctrl+Shift+K") runs on that combo.
   // Requires Ctrl/Alt/Meta (Shift-only is ignored so normal typing isn't caught).
   function comboFromEvent(e) {
     if (["Alt", "Control", "Shift", "Meta"].includes(e.key)) return "";
@@ -1066,12 +1813,18 @@
     if (!key || !mods.length) return "";
     return [...mods, key.length === 1 ? key.toUpperCase() : key].join("+");
   }
-  // Cache combo → workflow so we don't hit storage on every keystroke.
+  // Cache combo → { kind: "workflow"|"rule", item } so we don't hit storage
+  // on every keystroke. Rules come from the already-in-memory `rules` array
+  // (kept current by setRules(), which calls this on every RULES_KEY
+  // change) rather than a separate storage read. If a rule and a workflow
+  // (or two rules) both claim the same combo, whichever is processed last
+  // here wins — no collision warning UI, just documented behavior.
   let hotkeyMap = {};
   function refreshHotkeys() {
     chrome.storage.local.get([WF_KEY], (res) => {
       hotkeyMap = {};
-      (res[WF_KEY] || []).forEach((w) => { if (w.enabled !== false && w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = w; } });
+      (res[WF_KEY] || []).forEach((w) => { if (w.enabled !== false && w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = { kind: "workflow", item: w }; } });
+      rules.forEach((r) => { if (r.enabled && r.triggerMode === "hotkey" && r.hotkey) { const k = normHotkey(r.hotkey); if (k) hotkeyMap[k] = { kind: "rule", item: r }; } });
     });
   }
   refreshHotkeys();
@@ -1082,18 +1835,26 @@
     wfArmed.clear();          // workflows edited → re-evaluate triggers cleanly
   });
   document.addEventListener("keydown", (e) => {
-    if (!workflowsEnabled) return;
     const combo = comboFromEvent(e);
     if (!combo) return;
-    const wf = hotkeyMap[combo];
-    if (wf) { e.preventDefault(); e.stopPropagation(); runWorkflow(wf); }
+    const entry = hotkeyMap[combo];
+    if (!entry) return;
+    if (entry.kind === "workflow") {
+      if (!workflowsEnabled) return;
+      e.preventDefault(); e.stopPropagation();
+      runWorkflow(entry.item);
+    } else if (entry.kind === "rule") {
+      if (!categoryEnabled(ruleCategory(entry.item))) return;
+      e.preventDefault(); e.stopPropagation();
+      fireRuleHotkey(entry.item);
+    }
   }, true);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
-        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowRepeatWhile: msg.forWorkflowRepeatWhile, forUsElement: msg.forUsElement, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId });
+        startInspector(sendResponse, { mode: msg.mode || "required", ruleId: msg.ruleId, index: msg.index, forWorkflow: msg.forWorkflow, forWorkflowTrigger: msg.forWorkflowTrigger, forWorkflowRepeatWhile: msg.forWorkflowRepeatWhile, forWorkflowMatchSelector: msg.forWorkflowMatchSelector, forUsElement: msg.forUsElement, forWorkflowStep: msg.forWorkflowStep, workflowId: msg.workflowId, afterStepId: msg.afterStepId, stepId: msg.stepId, forceType: msg.forceType, forTranslateSource: msg.forTranslateSource, forQuickTranslate: msg.forQuickTranslate });
         break;
       case "START_RECORD":   startRecording(msg.workflowId); sendResponse({ ok: true }); break;
       case "STOP_RECORD":    stopRecording(true); sendResponse({ ok: true }); break;

@@ -1,10 +1,27 @@
-// Auto Clicker — rules manager for the "Clicker" tab.
+// Auto Clicker — rules manager for the "Rules" tab (click/fill/select rules
+// merged into one) and the separate "Translate" tab.
 // Rules are stored in chrome.storage.local under "autoClickRules" and executed
-// by modules/auto-clicker.js on the Masar page. The enable toggle lives in the
-// Modules tab (moduleAutoClicker); this panel only creates/edits rules.
+// by modules/auto-clicker.js on the Masar page. The enable toggle lives on
+// each tab's own module card; this panel only creates/edits rules.
 document.addEventListener("DOMContentLoaded", () => {
   const RULES_KEY = "autoClickRules";
-  const TYPE_LABELS = { button: "BTN", input: "INP", dropdown: "SEL", checkbox: "CHK", radio: "RAD" };
+  const TYPE_LABELS = { button: "BTN", input: "INP", dropdown: "SEL", checkbox: "CHK", radio: "RAD", translate: "TRN" };
+
+  // Practical subset of Google Translate's supported languages, weighted
+  // toward the languages actually in play around Umrah travel (South Asia,
+  // Southeast Asia, the Gulf, Turkey/Iran/Africa) rather than the full list.
+  const LANGUAGES = [
+    { code: "en", label: "English" }, { code: "ar", label: "Arabic" },
+    { code: "ur", label: "Urdu" }, { code: "hi", label: "Hindi" },
+    { code: "bn", label: "Bengali" }, { code: "id", label: "Indonesian" },
+    { code: "ms", label: "Malay" }, { code: "tl", label: "Filipino (Tagalog)" },
+    { code: "tr", label: "Turkish" }, { code: "fa", label: "Persian (Farsi)" },
+    { code: "ps", label: "Pashto" }, { code: "sw", label: "Swahili" },
+    { code: "fr", label: "French" }, { code: "es", label: "Spanish" },
+    { code: "pt", label: "Portuguese" }, { code: "de", label: "German" },
+    { code: "ru", label: "Russian" }, { code: "zh-CN", label: "Chinese (Simplified)" },
+    { code: "ta", label: "Tamil" }, { code: "ml", label: "Malayalam" },
+  ];
 
   // Preset date/time formats offered for a fill rule's "date" value mode.
   // Tokens: YYYY YY MMM MM DD HH mm ss (see formatDate in modules/auto-clicker.js).
@@ -14,16 +31,25 @@ document.addEventListener("DOMContentLoaded", () => {
     { value: "custom", label: "Custom…" },
   ];
 
-  // Reactive rules split into three category views by element type:
-  //   click  → Auto Clicker (buttons/checkbox/radio)   → moduleAutoClicker
-  //   fill   → Autofill      (input fields)             → moduleAutoFillRules
-  //   select → Auto Select   (dropdowns)                → moduleAutoSelect
+  // Click/input/dropdown rules used to be 3 separate tabs/categories — now
+  // ONE "Rules" tab/category ("auto"); Translate stays its own separate
+  // category on purpose (a text transform, not a click/fill/select action).
   const CATS = [
-    { cat: "click",  list: "ac-list",   search: "ac-search",   add: "ac-add",   exp: "ac-export",   imp: "ac-import",   impFile: "ac-import-file",   share: "ac-share",   impLink: "ac-import-link",   delAll: "ac-delete-all",   expandToggle: "ac-expand-toggle",   searchKey: "acSearch_click",  module: "moduleAutoClicker",   empty: "No click rules yet",  file: "click-rules",  infoBtn: "ac-info-btn",   infoPanel: "ac-info-panel"   },
-    { cat: "fill",   list: "fill-list", search: "fill-search", add: "fill-add", exp: "fill-export", imp: "fill-import", impFile: "fill-import-file", share: "fill-share", impLink: "fill-import-link", delAll: "fill-delete-all", expandToggle: "fill-expand-toggle", searchKey: "acSearch_fill",   module: "moduleAutoFillRules", empty: "No fill rules yet",   file: "fill-rules",   infoBtn: "fill-info-btn", infoPanel: "fill-info-panel" },
-    { cat: "select", list: "as-list",   search: "as-search",   add: "as-add",   exp: "as-export",   imp: "as-import",   impFile: "as-import-file",   share: "as-share",   impLink: "as-import-link",   delAll: "as-delete-all",   expandToggle: "as-expand-toggle",   searchKey: "acSearch_select", module: "moduleAutoSelect",    empty: "No select rules yet", file: "select-rules", infoBtn: "as-info-btn",   infoPanel: "as-info-panel"   },
+    { cat: "auto",      list: "ar-list", search: "ar-search", add: "ar-add", exp: "ar-export", imp: "ar-import", impFile: "ar-import-file", share: "ar-share", impLink: "ar-import-link", delAll: "ar-delete-all", expandToggle: "ar-expand-toggle", searchKey: "acSearch_auto",      module: "moduleAutoRules",      empty: "No rules yet",             file: "auto-rules",      infoBtn: "ar-info-btn", infoPanel: "ar-info-panel" },
+    { cat: "translate", list: "tr-list", search: "tr-search", add: "tr-add", exp: "tr-export", imp: "tr-import", impFile: "tr-import-file", share: "tr-share", impLink: "tr-import-link", delAll: "tr-delete-all", expandToggle: "tr-expand-toggle", searchKey: "acSearch_translate", module: "moduleTranslateRules", empty: "No translation rules yet", file: "translate-rules", infoBtn: "tr-info-btn", infoPanel: "tr-info-panel", forceType: "translate" },
   ];
-  if (!document.getElementById("ac-list")) return;
+  if (!document.getElementById("ar-list")) return;
+
+  // Default for a brand-new "auto-detect" translate rule's language list —
+  // resolved once at popup load (Settings > Extension language, "system" =
+  // the browser's own UI language). Not re-read live; good enough for a
+  // one-time default, the rule's own saved list is what actually matters.
+  let cachedDefaultLang = "en";
+  chrome.storage.local.get(["nkLanguage"], (res) => {
+    const pref = res.nkLanguage;
+    if (pref && pref !== "system") { cachedDefaultLang = pref; return; }
+    try { cachedDefaultLang = (chrome.i18n.getUILanguage() || "en").split("-")[0].toLowerCase(); } catch (_) {}
+  });
 
   const collapsedRuleIds = new Set();
   const knownRuleIds = new Set();
@@ -61,8 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function categoryOf(rule) {
-    const t = rule.type || "button";
-    return t === "input" ? "fill" : t === "dropdown" ? "select" : "click";
+    return rule.type === "translate" ? "translate" : "auto";
   }
 
   // ── Per-category search + info toggle ───────────────────────────────────
@@ -116,6 +141,8 @@ document.addEventListener("DOMContentLoaded", () => {
       repeat,
       repeatIntervalMs: Math.max(Number(rule.repeatIntervalMs) || Number(rule.alwaysClickDelay) || 0, 0),
       jitterMs: Math.max(Number(rule.jitterMs) || 0, 0),
+      triggerMode: rule.triggerMode === "hotkey" ? "hotkey" : "auto",
+      hotkey: rule.hotkey || "",
       fillValue: rule.fillValue || "",
       valueMode: rule.valueMode === "date" ? "date" : "text",
       dateFormat: rule.dateFormat || "YYYY-MM-DD",
@@ -127,6 +154,15 @@ document.addEventListener("DOMContentLoaded", () => {
       selectValue: rule.selectValue || "",
       selectMatchBy: rule.selectMatchBy || "value",
       targetState: rule.targetState || "checked",
+      mode: rule.mode === "autoDetect" ? "autoDetect" : "fieldToField",
+      sourceSelector: rule.sourceSelector || "",
+      sourceLang: rule.sourceLang || "en",
+      targetLang: rule.targetLang || "ar",
+      targetLangs: Array.isArray(rule.targetLangs) ? rule.targetLangs.filter(Boolean) : [],
+      // autoDetect only — "replace" overwrites the page text in place
+      // (original behavior); "tooltip" leaves the text untouched and shows
+      // the translation in a hover tooltip instead.
+      displayMode: rule.displayMode === "tooltip" ? "tooltip" : "replace",
     };
   }
 
@@ -198,6 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function matchesSearch(rule, search) {
     return [
       rule.name, rule.type, rule.pathname, rule.pathMatch, rule.fillValue, rule.selectValue,
+      rule.sourceSelector, ...(rule.targetLangs || []),
       ...rule.requiredElements, ...rule.forbiddenElements,
     ].filter(Boolean).join(" ").toLowerCase().includes(search);
   }
@@ -404,7 +441,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // These fields change which OTHER fields should be visible (e.g.
       // switching Value to "date" reveals the date-format field), so they
       // need a full re-render, not just a silent save.
-      const needsRerender = key === "actionType" || key === "valueMode" || key === "dateFormat";
+      const needsRerender = key === "actionType" || key === "valueMode" || key === "dateFormat" || key === "triggerMode" || key === "mode" || key === "displayMode";
       saveRules(nextRules, needsRerender ? renderRules : undefined);
     });
     wrapper.append(label, control);
@@ -423,6 +460,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const label = document.createElement("label");
     label.textContent = labelText;
     wrapper.append(input, label);
+    return wrapper;
+  }
+
+  // Path match + Page path share one row — the dropdown stays a fixed
+  // narrow width, the path input takes the rest. Reuses createField for
+  // each half so the actual save/change wiring stays identical everywhere
+  // else it's used; this just repackages the two into one flex row.
+  function createPathRow(rule, rules) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "rule-field full path-row";
+    const matchField = createField(rule, "pathMatch", "Path match", "select", rules, ["exact", "includes"]);
+    matchField.classList.add("path-row-match");
+    const pathField = createField(rule, "pathname", "Page path", "input", rules);
+    pathField.classList.add("path-row-path");
+    wrapper.append(matchField, pathField);
     return wrapper;
   }
 
@@ -455,16 +507,22 @@ document.addEventListener("DOMContentLoaded", () => {
           next.splice(index, 1);
           saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, [key]: next.filter(Boolean) } : r), renderRules);
         }, true);
-        // Pick always APPENDS a new selector to the list (it doesn't target
-        // this specific row) — shown on every row anyway so the button is
-        // right next to the field, same layout as every other selector row
-        // in the extension (input, Pick, Highlight[, Delete]).
-        row.append(input, pickSelectorBtn({ mode, ruleId: rule.id }), highlightSelectorBtn(() => input.value), removeBtn);
+        // Pick REPLACES this specific row (by index) — appending a brand new
+        // row is the separate "+ Add selector" button below the list, not
+        // something every row's own Pick button should also do.
+        row.append(input, pickSelectorBtn({ mode, ruleId: rule.id, index }), highlightSelectorBtn(() => input.value), removeBtn);
         list.appendChild(row);
       });
     };
 
-    wrapper.append(label, list);
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "multi-selector-add";
+    addBtn.textContent = "+ Add selector";
+    addBtn.title = "Pick another element on the page to add as a new selector";
+    addBtn.addEventListener("click", () => startPicker({ mode, ruleId: rule.id }));
+
+    wrapper.append(label, list, addBtn);
     renderItems();
     return wrapper;
   }
@@ -500,14 +558,98 @@ document.addEventListener("DOMContentLoaded", () => {
       case "checkbox":
       case "radio":
         return [createField(rule, "targetState", "Target state", "select", rules, ["checked", "unchecked", "toggle"])];
+      case "translate": {
+        const fields = [createField(rule, "mode", "Mode", "select", rules, [
+          { value: "fieldToField", label: "Field to field — one source, one target, fixed languages" },
+          { value: "autoDetect",   label: "Auto-detect — translate any foreign text found, to N languages" },
+        ])];
+        if (rule.mode === "autoDetect") {
+          fields.push(
+            createField(rule, "displayMode", "Display", "select", rules, [
+              { value: "replace", label: "Replace the text on the page" },
+              { value: "tooltip", label: "Show a tooltip on hover, with a button to replace on demand" },
+            ]),
+            createTargetLangsField(rule, rules),
+          );
+        } else {
+          fields.push(
+            createSourceSelectorField(rule, rules),
+            createField(rule, "sourceLang", "From language", "select", rules, LANGUAGES.map((l) => ({ value: l.code, label: l.label }))),
+            createField(rule, "targetLang", "To language", "select", rules, LANGUAGES.map((l) => ({ value: l.code, label: l.label }))),
+          );
+        }
+        return fields;
+      }
       default:
         return [];
     }
   }
 
+  // ── Translation rule fields (mode-specific, see getTypeSpecificFields) ────
+
+  function createSourceSelectorField(rule, rules) {
+    const wrapper = document.createElement("div"); wrapper.className = "rule-field full";
+    const label = document.createElement("label"); label.textContent = "Source element (translated FROM here)";
+    const row = document.createElement("div"); row.className = "us-url-row";
+    const input = document.createElement("input");
+    input.type = "text"; input.value = rule.sourceSelector || "";
+    input.placeholder = "CSS / xpath= / text=";
+    input.addEventListener("change", (e) => {
+      saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, sourceSelector: e.target.value.trim() } : r), renderRules);
+    });
+    row.append(
+      input,
+      pickSelectorBtn({ forTranslateSource: true, ruleId: rule.id }),
+      highlightSelectorBtn(() => input.value),
+    );
+    wrapper.append(label, row);
+    return wrapper;
+  }
+
+  function createTargetLangsField(rule, rules) {
+    const wrapper = document.createElement("div"); wrapper.className = "rule-field full";
+    const label = document.createElement("label");
+    label.textContent = rule.displayMode === "tooltip"
+      ? "Target languages — each one adds a line to the hover tooltip"
+      : "Target languages — first replaces the text in place; each extra one adds a translated duplicate right below it";
+    const list = document.createElement("div"); list.className = "multi-selector-list";
+    const langs = rule.targetLangs.length ? rule.targetLangs : [cachedDefaultLang];
+
+    langs.forEach((code, index) => {
+      const row = document.createElement("div"); row.className = "multi-selector-row";
+      const sel = document.createElement("select");
+      LANGUAGES.forEach((l) => { const opt = document.createElement("option"); opt.value = l.code; opt.textContent = l.label; sel.appendChild(opt); });
+      sel.value = code;
+      sel.addEventListener("change", (e) => {
+        const next = [...langs]; next[index] = e.target.value;
+        saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, targetLangs: next } : r), renderRules);
+      });
+      const removeBtn = iconMini("trash", "Remove this language", () => {
+        const next = [...langs]; next.splice(index, 1);
+        saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, targetLangs: next } : r), renderRules);
+      }, true);
+      row.append(sel, removeBtn);
+      list.appendChild(row);
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button"; addBtn.className = "multi-selector-add"; addBtn.textContent = "+ Add language";
+    addBtn.title = "Add another target language — a translated duplicate is inserted for each one beyond the first";
+    addBtn.addEventListener("click", () => {
+      const next = [...langs, cachedDefaultLang];
+      saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, targetLangs: next } : r), renderRules);
+    });
+
+    wrapper.append(label, list, addBtn);
+    return wrapper;
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   function renderRules() {
-    chrome.storage.local.get([RULES_KEY, "autoButtons", "acSearch_click", "acSearch_fill", "acSearch_select"], (res) => {
+    // Pull every category's search key dynamically (was a hardcoded list
+    // that silently missed acSearch_translate when that tab was added —
+    // its search box never actually filtered anything as a result).
+    chrome.storage.local.get([RULES_KEY, "autoButtons", ...CATS.map((c) => c.searchKey)], (res) => {
       const rules = (res[RULES_KEY] || res.autoButtons || []).map(normalizeRule);
 
       const buildRuleCard = (rule) => {
@@ -516,6 +658,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const card = document.createElement("div");
         card.className = "rule-card";
+
+        const isCollapsed = collapsedRuleIds.has(id);
 
         const head = document.createElement("div");
         head.className = "rule-head";
@@ -528,15 +672,33 @@ document.addEventListener("DOMContentLoaded", () => {
         dragHandle.className = "drag-handle";
         dragHandle.textContent = "☰";
 
-        const title = document.createElement("div");
-        title.className = "rule-title";
-        title.textContent = rule.name || rule.requiredElements[0] || "Unnamed";
+        // Collapsed: plain headline text. Expanded: the SAME spot becomes a
+        // borderless inline input — renaming happens right in the header,
+        // no separate "Rule name" field further down the card anymore.
+        let title;
+        if (isCollapsed) {
+          title = document.createElement("div");
+          title.className = "rule-title";
+          title.textContent = rule.name || rule.requiredElements[0] || "Unnamed";
+        } else {
+          title = document.createElement("input");
+          title.type = "text";
+          title.className = "rule-title rule-title-input";
+          title.value = rule.name || "";
+          title.placeholder = rule.requiredElements[0] || "Unnamed";
+          title.addEventListener("change", (e) => {
+            saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, name: e.target.value } : r));
+          });
+        }
 
         const badge = document.createElement("span");
         badge.className = `type-badge type-badge--${rule.type}`;
         badge.textContent = TYPE_LABELS[rule.type] || "BTN";
 
-        const isCollapsed = collapsedRuleIds.has(id);
+        // Headline row: toggle, drag handle, name — the type badge floats to
+        // the far right for free since the title/input has flex:1.
+        head.append(toggleWrap, dragHandle, title, badge);
+
         const collapseBtn = document.createElement("button");
         collapseBtn.className = "collapse-rule wf-icon-btn";
         collapseBtn.type = "button";
@@ -565,30 +727,69 @@ document.addEventListener("DOMContentLoaded", () => {
         delBtn.innerHTML = svgIcon("trash");
         delBtn.title = "Delete this rule";
 
-        head.append(toggleWrap, dragHandle, title, badge, collapseBtn, shareBtn, dupBtn, delBtn);
-
+        // Second row: summary text on the left, all the icon actions grouped
+        // at the far right — the headline row above stays clean (just name +
+        // type), everything actionable lives in one place below it.
         const summary = document.createElement("div");
         summary.className = "rule-summary";
         const delayText = rule.action.type === "delay" ? ` ${rule.action.delayMs / 1000}s` : "";
         const repeatText = rule.repeat ? ` | repeat ${rule.repeatIntervalMs / 1000}s` : "";
-        summary.textContent = `${rule.action.type}${delayText}${repeatText} | ${rule.pathMatch}: ${rule.pathname || "any path"}`;
+        const hotkeyText = rule.triggerMode === "hotkey" ? ` | ⌨ ${rule.hotkey || "not set"}` : "";
+        summary.textContent = `${rule.action.type}${delayText}${repeatText}${hotkeyText} | ${rule.pathMatch}: ${rule.pathname || "any path"}`;
+
+        const actions = document.createElement("div");
+        actions.className = "rule-actions";
+        actions.append(collapseBtn, shareBtn, dupBtn, delBtn);
+
+        const metaRow = document.createElement("div");
+        metaRow.className = "rule-meta-row";
+        metaRow.append(summary, actions);
+
+        // Translate rules don't have a "click" action, a hotkey trigger, or
+        // jitter/repeat timing — they're continuously reactive by nature, and
+        // everything type-specific for them lives in getTypeSpecificFields().
+        const isTranslate = rule.type === "translate";
+        const requiredLabel = !isTranslate ? "Required selectors"
+          : rule.mode === "autoDetect" ? "Elements to scan (blank = the whole page; selector may also match many)"
+          : "Target element (translation is written here)";
 
         const body = document.createElement("div");
         body.className = collapsedRuleIds.has(id) ? "rule-body collapsed" : "rule-body";
         body.append(
-          createField(rule, "name", "Rule name", "input", rules),
-          createField(rule, "pathMatch", "Path match", "select", rules, ["exact", "includes"]),
-          createField(rule, "pathname", "Page path", "input", rules, null, "full"),
-          createMultiSelectorField(rule, "requiredElements", "Required selectors", rules, ".btn, [data-action]", "required"),
-          createMultiSelectorField(rule, "forbiddenElements", "Forbidden selectors", rules, ".error, button[disabled]", "forbidden"),
-          createField(rule, "actionType", "Action", "select", rules, ["run", "stop", "delay"]),
+          createPathRow(rule, rules),
+          createMultiSelectorField(rule, "requiredElements", requiredLabel, rules, ".btn, [data-action]", "required"),
         );
-        if (rule.action.type === "delay") body.append(createField(rule, "actionDelaySeconds", "Delay sec", "input", rules));
-        const jitterField = createField(rule, "jitterSeconds", "Jitter (sec)", "input", rules);
-        jitterField.querySelector("input").title = "Random extra delay added before running, up to this many seconds — makes timing look human, not robotic.";
-        body.append(jitterField);
-        body.append(createCheckboxField(rule, "repeat", "Repeat", rules, renderRules));
-        if (rule.repeat) body.append(createField(rule, "repeatIntervalSeconds", "Repeat interval sec", "input", rules));
+        if (!isTranslate) {
+          body.append(
+            createMultiSelectorField(rule, "forbiddenElements", "Forbidden selectors", rules, ".error, button[disabled]", "forbidden"),
+            createField(rule, "actionType", "Action", "select", rules, ["run", "stop", "delay"]),
+          );
+          if (rule.action.type === "delay") body.append(createField(rule, "actionDelaySeconds", "Delay sec", "input", rules));
+
+          body.append(createField(rule, "triggerMode", "Trigger", "select", rules, [
+            { value: "auto", label: "Automatic — as soon as it appears" },
+            { value: "hotkey", label: "Keyboard shortcut" },
+          ]));
+          if (rule.triggerMode === "hotkey") {
+            const hkWrap = document.createElement("div"); hkWrap.className = "rule-field full";
+            const hkLbl = document.createElement("label"); hkLbl.textContent = "Hotkey — click box, press combo";
+            const hk = buildHotkeyRecorder(rule.hotkey, (v) => {
+              saveRules(rules.map((r) => String(r.id) === String(rule.id) ? { ...r, hotkey: v } : r), renderRules);
+            });
+            hkWrap.append(hkLbl, hk);
+            body.append(hkWrap);
+          }
+
+          const jitterField = createField(rule, "jitterSeconds", "Jitter (sec)", "input", rules);
+          jitterField.querySelector("input").title = "Random extra delay added before running, up to this many seconds — makes timing look human, not robotic.";
+          body.append(jitterField);
+          // Repeat/cooldown only means something for auto-triggered rules — a
+          // hotkey press already IS the explicit re-trigger, every press fires.
+          if (rule.triggerMode !== "hotkey") {
+            body.append(createCheckboxField(rule, "repeat", "Repeat", rules, renderRules));
+            if (rule.repeat) body.append(createField(rule, "repeatIntervalSeconds", "Repeat interval sec", "input", rules));
+          }
+        }
 
         const typeFields = getTypeSpecificFields(rule, rules);
         if (typeFields.length) {
@@ -605,7 +806,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (listEl) startPointerDrag(e, dragHandle, card, id, listEl, ".rule-card", (srcId, targetId) => reorderRules(srcId, targetId));
         });
 
-        card.append(head, summary, body);
+        card.append(head, metaRow, body);
         return card;
       };
 
@@ -688,6 +889,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // One-shot "pick text on the page and translate it in place" — not a
+  // saved rule, just an immediate fix using whatever Settings > Extension
+  // language resolves to (see quickTranslateElement in modules/auto-clicker.js).
+  const quickTranslateBtn = document.getElementById("tr-quick-translate");
+  if (quickTranslateBtn) quickTranslateBtn.onclick = () => startPicker({ forQuickTranslate: true });
+
   // ── Picker ──────────────────────────────────────────────────────────────
   function startPicker(payload = {}) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -729,10 +936,40 @@ document.addEventListener("DOMContentLoaded", () => {
     return b;
   }
 
+  // Shared hotkey-combo recorder — click the box, press the actual combo
+  // (e.g. Alt+1). Must include Ctrl/Alt/Meta (Shift alone would clash with
+  // normal typing). Backspace/Delete clears; Esc leaves the field. Used by
+  // both workflow hotkeys and per-rule hotkeys — same widget, same behavior.
+  function buildHotkeyRecorder(currentValue, onSet) {
+    const hk = document.createElement("input");
+    hk.type = "text";
+    hk.readOnly = true;
+    hk.value = currentValue || "";
+    hk.placeholder = "Click, then press keys… (e.g. Alt+1)";
+    hk.title = "Press the combo you want (must include Ctrl, Alt or Cmd). Backspace clears.";
+    hk.addEventListener("focus", () => { if (!hk.value) hk.placeholder = "Press keys now… (Ctrl/Alt + key)"; });
+    hk.addEventListener("blur", () => { hk.placeholder = "Click, then press keys… (e.g. Alt+1)"; });
+    hk.addEventListener("keydown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === "Escape") { hk.blur(); return; }
+      if (e.key === "Backspace" || e.key === "Delete") { onSet(""); return; }
+      if (["Alt", "Control", "Shift", "Meta"].includes(e.key)) return;   // wait for the real key
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) { hk.value = "add Ctrl or Alt…"; return; }
+      const parts = [];
+      if (e.ctrlKey)  parts.push("Ctrl");
+      if (e.altKey)   parts.push("Alt");
+      if (e.shiftKey) parts.push("Shift");
+      if (e.metaKey)  parts.push("Meta");
+      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      onSet(parts.join("+"));
+    });
+    return hk;
+  }
+
   // ── Per-category toolbars (Add picks only that type; export/import filter) ──
   CATS.forEach((cfg) => {
     const addBtn = document.getElementById(cfg.add);
-    if (addBtn) addBtn.onclick = () => startPicker({ mode: "required" });
+    if (addBtn) addBtn.onclick = () => startPicker({ mode: "required", forceType: cfg.forceType });
 
     // Share this category's rules — short server link, long link as fallback.
     // NOTE: never touch .textContent/.innerHTML on this button for a "loading"
@@ -825,6 +1062,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const wfCollapsed = new Set();    // collapsed (hidden body) workflow ids
   let liveStatus = {};
   let openInserterKey = null; // "<wfId>|<afterId or START>" of the one open "+ insert" menu
+  // Kept fresh by renderWorkflows() on every render — lets a "Call" step's
+  // field editor populate its target dropdown synchronously instead of
+  // firing its own storage read every keystroke/open.
+  const wfPickerCache = { workflows: [], rules: [] };
 
   // Same reasoning as persistRuleCollapse: a popup is rebuilt from scratch
   // every time it's opened, so Hide/Show and the ⚙ settings panel would
@@ -837,9 +1078,10 @@ document.addEventListener("DOMContentLoaded", () => {
     button: "CLICK", click: "CLICK", input: "FILL", dropdown: "SELECT",
     checkbox: "CHECK", radio: "RADIO", waitFor: "WAIT+", waitGone: "WAIT-", wait: "DELAY", delay: "DELAY",
     capture: "GET", if: "IF", else: "ELSE", endif: "END IF", loopStart: "LOOP", loopEnd: "END LOOP",
+    waitCondition: "WAIT?", callWorkflow: "CALL",
   };
   const MARKER_TYPES = new Set(["else", "endif", "loopEnd"]);       // no fields, minimal row
-  const NO_HIGHLIGHT = new Set(["wait", "delay", "else", "endif", "loopEnd", "loopStart"]);
+  const NO_HIGHLIGHT = new Set(["wait", "delay", "else", "endif", "loopEnd", "loopStart", "callWorkflow"]);
   // Block openers/closers aren't safe to duplicate on their own (they're
   // paired — duplicating just one half would misalign the loop/if structure).
   // Duplicate is offered only for self-contained action/wait/capture steps.
@@ -932,9 +1174,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }), renderWorkflows));
   }
   function addWaitStep(wfId, type, afterId) {
-    const step = type === "wait"
-      ? { id: uid(), type: "wait", name: "Delay", waitMs: 1000 }
-      : { id: uid(), type, name: type === "waitFor" ? "Wait for element" : "Wait until gone", requiredElements: [""], selector: "", timeoutMs: 15000 };
+    let step;
+    if (type === "wait") step = { id: uid(), type: "wait", name: "Delay", waitMs: 1000 };
+    else if (type === "waitCondition") step = { id: uid(), type, name: "Wait until…", requiredElements: [""], selector: "", condition: "disabled", value: "", timeoutMs: 15000 };
+    else step = { id: uid(), type, name: type === "waitFor" ? "Wait for element" : "Wait until gone", requiredElements: [""], selector: "", timeoutMs: 15000 };
     addStepAt(wfId, step, afterId);
   }
   function deleteWorkflow(wfId) {
@@ -992,6 +1235,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function addIf(wfId, afterId)   { addStepsAt(wfId, [{ id: uid(), type: "if", name: "If", requiredElements: [""], selector: "", condition: "visible", value: "" }, { id: uid(), type: "endif", name: "End if" }], afterId); }
   function addElse(wfId, afterId) { addStepAt(wfId, { id: uid(), type: "else", name: "Else" }, afterId); }
   function addLoop(wfId, afterId) { addStepsAt(wfId, [{ id: uid(), type: "loopStart", name: "Loop", loopMode: "count", count: 2, requiredElements: [""], selector: "" }, { id: uid(), type: "loopEnd", name: "End loop" }], afterId); }
+  function addCallStep(wfId, afterId) { addStepAt(wfId, { id: uid(), type: "callWorkflow", name: "Call…", targetKind: "workflow", targetId: "", targetName: "", optional: false }, afterId); }
 
   // Drag-and-drop reorder of steps WITHIN a workflow.
   function reorderSteps(wfId, sourceStepId, targetStepId) {
@@ -1048,6 +1292,8 @@ document.addEventListener("DOMContentLoaded", () => {
       case "wait": case "delay": return `delay ${Number(step.waitMs) || 0} ms`;
       case "waitFor":  return `wait for ${sel}`;
       case "waitGone": return `wait until gone ${sel}`;
+      case "waitCondition": return `wait until ${step.condition || "visible"} ${sel}${(step.condition === "textIncludes" || step.condition === "textEquals") && step.value ? ` "${step.value}"` : ""}`;
+      case "callWorkflow": return `call ${step.targetKind === "rule" ? "rule" : "workflow"} "${step.targetName || step.targetId || "not set"}"`;
       case "input":    return `fill "${step.fillValue || ""}"`;
       case "dropdown": return `select "${step.selectValue || ""}"`;
       case "checkbox": case "radio": return `${step.targetState || "checked"}`;
@@ -1102,12 +1348,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return w;
   }
 
+  const CONDITION_OPTIONS = ["visible", "hidden", "disabled", "enabled", "textIncludes", "textEquals"];
+
   function stepFields(wf, step) {
     const P = (patch) => patchStep(wf.id, step.id, patch);
     const selVal = (step.requiredElements && step.requiredElements[0]) || step.selector || "";
     const isDelay = step.type === "wait" || step.type === "delay";
-    const isWait = step.type === "waitFor" || step.type === "waitGone";
-    const isText = step.type === "if" && (step.condition === "textIncludes" || step.condition === "textEquals");
+    const isWait = step.type === "waitFor" || step.type === "waitGone" || step.type === "waitCondition";
+    const isText = (step.type === "if" || step.type === "waitCondition") && (step.condition === "textIncludes" || step.condition === "textEquals");
     const fields = [];
 
     // ── loop marker ──
@@ -1120,7 +1368,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ── conditional ──
     if (step.type === "if") {
       fields.push(selectorFieldRow("Selector", selVal, wf, step));
-      fields.push(fieldRow("Condition", sel(step.condition || "visible", ["visible", "hidden", "textIncludes", "textEquals"], (v) => P({ condition: v }))));
+      fields.push(fieldRow("Condition", sel(step.condition || "visible", CONDITION_OPTIONS, (v) => P({ condition: v }))));
       if (isText) fields.push(fieldRow("Text", txt(step.value, "", (v) => P({ value: v }))));
       return fields;
     }
@@ -1129,6 +1377,33 @@ document.addEventListener("DOMContentLoaded", () => {
       fields.push(selectorFieldRow("Selector", selVal, wf, step));
       fields.push(fieldRow("Variable name", txt(step.varName, "e.g. name", (v) => P({ varName: v }))));
       fields.push(fieldRow("Read", sel(step.captureSource || "text", ["text", "value"], (v) => P({ captureSource: v }))));
+      return fields;
+    }
+    // ── call another workflow or rule as a subroutine (VBA-style "Call") ──
+    if (step.type === "callWorkflow") {
+      const kind = step.targetKind === "rule" ? "rule" : "workflow";
+      fields.push(fieldRow("Call", sel(kind, [
+        { value: "workflow", label: "Workflow" },
+        { value: "rule", label: "Rule (click / fill / select)" },
+      ], (v) => P({ targetKind: v, targetId: "", targetName: "" }))));
+      const options = kind === "rule"
+        ? wfPickerCache.rules.map((r) => ({ value: String(r.id), label: r.name || r.text || String(r.id) }))
+        : wfPickerCache.workflows.filter((w) => String(w.id) !== String(wf.id)).map((w) => ({ value: String(w.id), label: w.name || String(w.id) }));
+      const targetSel = sel(step.targetId || "", [{ value: "", label: "— choose —" }, ...options], (v) => {
+        const picked = options.find((o) => o.value === v);
+        P({ targetId: v, targetName: picked ? picked.label : "" });
+      });
+      fields.push(fieldRow(kind === "rule" ? "Rule to run" : "Workflow to run", targetSel));
+      const hint = document.createElement("div"); hint.className = "wf-data-hint";
+      hint.textContent = kind === "rule"
+        ? "Runs that rule's action once, right now, and waits for it before continuing."
+        : "Runs that workflow's steps (and its own repeat mode) once, right here, and waits for it to finish before continuing — like calling a subroutine.";
+      fields.push(hint);
+      const optWrap = document.createElement("div"); optWrap.className = "check-row";
+      const opt = document.createElement("input"); opt.type = "checkbox"; opt.checked = !!step.optional;
+      opt.addEventListener("change", (e) => P({ optional: e.target.checked }));
+      const optl = document.createElement("label"); optl.textContent = "Optional (skip if it fails)";
+      optWrap.append(opt, optl); fields.push(optWrap);
       return fields;
     }
 
@@ -1144,6 +1419,10 @@ document.addEventListener("DOMContentLoaded", () => {
       fields.push(fieldRow("Match by", sel(step.selectMatchBy || "value", ["value", "text"], (v) => P({ selectMatchBy: v }))));
     }
     if (step.type === "checkbox" || step.type === "radio") fields.push(fieldRow("Target state", sel(step.targetState || "checked", ["checked", "unchecked", "toggle"], (v) => P({ targetState: v }))));
+    if (step.type === "waitCondition") {
+      fields.push(fieldRow("Condition", sel(step.condition || "visible", CONDITION_OPTIONS, (v) => P({ condition: v }))));
+      if (isText) fields.push(fieldRow("Text", txt(step.value, "", (v) => P({ value: v }))));
+    }
     if (isDelay) fields.push(fieldRow("Delay (ms)", num(step.waitMs, (v) => P({ waitMs: v }))));
     if (isWait || !isDelay) fields.push(fieldRow(isWait ? "Timeout (ms)" : "Element timeout (ms)", num(step.timeoutMs == null ? (isWait ? 15000 : 8000) : step.timeoutMs, (v) => P({ timeoutMs: v }))));
 
@@ -1155,7 +1434,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return fields;
   }
 
-  // The 8 "add a step" actions, reused by both the per-step inserter and the
+  // The "add a step" actions, reused by both the per-step inserter and the
   // trailing (append-at-end) inserter. afterId = null means append at end.
   function buildInserterMenu(wf, afterId, onAdded) {
     const menu = document.createElement("div"); menu.className = "wf-inserter-menu";
@@ -1164,11 +1443,13 @@ document.addEventListener("DOMContentLoaded", () => {
       mini("+ Pick element", wrap(() => startPicker({ forWorkflow: true, workflowId: wf.id, afterStepId: afterId }))),
       mini("+ Wait for", wrap(() => addWaitStep(wf.id, "waitFor", afterId))),
       mini("+ Wait gone", wrap(() => addWaitStep(wf.id, "waitGone", afterId))),
+      mini("+ Wait until…", wrap(() => addWaitStep(wf.id, "waitCondition", afterId))),
       mini("+ Delay", wrap(() => addWaitStep(wf.id, "wait", afterId))),
       mini("+ Capture", wrap(() => addCapture(wf.id, afterId))),
       mini("+ If", wrap(() => addIf(wf.id, afterId))),
       mini("+ Else", wrap(() => addElse(wf.id, afterId))),
       mini("+ Loop", wrap(() => addLoop(wf.id, afterId))),
+      mini("+ Call workflow/rule", wrap(() => addCallStep(wf.id, afterId))),
     );
     return menu;
   }
@@ -1233,7 +1514,11 @@ document.addEventListener("DOMContentLoaded", () => {
     name.addEventListener("change", (e) => patchStep(wf.id, step.id, { name: e.target.value }));
     const hi = iconMini("target", "Flash this element on the page", () => { const s = (step.requiredElements && step.requiredElements[0]) || step.selector; if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s }); });
     hi.disabled = NO_HIGHLIGHT.has(step.type);
-    head.append(dragHandle, numTag, badge, name, up, down, hi, ...(dup ? [dup] : []), del);
+    const nameRow = document.createElement("div"); nameRow.className = "wf-step-name-row";
+    nameRow.append(numTag, badge, name);
+    const controlsRow = document.createElement("div"); controlsRow.className = "wf-step-controls-row";
+    controlsRow.append(dragHandle, up, down, hi, ...(dup ? [dup] : []), del);
+    head.append(nameRow, controlsRow);
 
     const summary = document.createElement("div"); summary.className = "wf-step-sum"; summary.textContent = stepSummary(step);
     const body = document.createElement("div"); body.className = "wf-step-body";
@@ -1268,31 +1553,7 @@ document.addEventListener("DOMContentLoaded", () => {
       th.textContent = "Auto-run fires once when the element appears; it re-arms after the element disappears. Leave the selector blank to use the first step's element.";
       panel.append(th);
     }
-    // Hotkey RECORDER — click the box and press the actual combo (e.g. Alt+1).
-    // Must include Ctrl/Alt/Meta (Shift alone would clash with normal typing).
-    // Backspace/Delete clears; Esc leaves the field.
-    const hk = document.createElement("input");
-    hk.type = "text";
-    hk.readOnly = true;
-    hk.value = wf.hotkey || "";
-    hk.placeholder = "Click, then press keys… (e.g. Alt+1)";
-    hk.title = "Press the combo you want (must include Ctrl, Alt or Cmd). Backspace clears.";
-    hk.addEventListener("focus", () => { if (!hk.value) hk.placeholder = "Press keys now… (Ctrl/Alt + key)"; });
-    hk.addEventListener("blur", () => { hk.placeholder = "Click, then press keys… (e.g. Alt+1)"; });
-    hk.addEventListener("keydown", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      if (e.key === "Escape") { hk.blur(); return; }
-      if (e.key === "Backspace" || e.key === "Delete") { patchWorkflow(wf.id, { hotkey: "" }); return; }
-      if (["Alt", "Control", "Shift", "Meta"].includes(e.key)) return;   // wait for the real key
-      if (!e.ctrlKey && !e.altKey && !e.metaKey) { hk.value = "add Ctrl or Alt…"; return; }
-      const parts = [];
-      if (e.ctrlKey)  parts.push("Ctrl");
-      if (e.altKey)   parts.push("Alt");
-      if (e.shiftKey) parts.push("Shift");
-      if (e.metaKey)  parts.push("Meta");
-      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
-      patchWorkflow(wf.id, { hotkey: parts.join("+") });
-    });
+    const hk = buildHotkeyRecorder(wf.hotkey, (v) => patchWorkflow(wf.id, { hotkey: v }));
     panel.append(fieldRow("Hotkey — click box, press combo", hk));
 
     // Human-like: random reaction pause before actions + varied step gaps.
@@ -1302,7 +1563,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const humLbl = document.createElement("label"); humLbl.textContent = "Human-like delays (randomized timing)";
     humWrap.append(hum, humLbl); panel.append(humWrap);
 
-    panel.append(fieldRow("Repeat", sel(repeat.mode || "off", ["off", "count", "whileVisible", "perRow"], (v) => patchRepeat(wf.id, { mode: v }))));
+    panel.append(fieldRow("Repeat", sel(repeat.mode || "off", [
+      { value: "off", label: "off" },
+      { value: "count", label: "count" },
+      { value: "whileVisible", label: "whileVisible" },
+      { value: "perRow", label: "perRow" },
+      { value: "forEachMatch", label: "For each match" },
+    ], (v) => patchRepeat(wf.id, { mode: v }))));
     if (repeat.mode === "count") panel.append(fieldRow("Times", num(repeat.count == null ? 1 : repeat.count, (v) => patchRepeat(wf.id, { count: v }))));
     if (repeat.mode === "whileVisible") {
       const wvWrap = document.createElement("div"); wvWrap.className = "rule-field full";
@@ -1316,6 +1583,22 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       wvWrap.append(wvLbl, wvRow);
       panel.append(wvWrap);
+    }
+    if (repeat.mode === "forEachMatch") {
+      const fmWrap = document.createElement("div"); fmWrap.className = "rule-field full";
+      const fmLbl = document.createElement("label"); fmLbl.textContent = "Match selector (every element matching this gets one pass)";
+      const fmRow = document.createElement("div"); fmRow.className = "us-url-row";
+      const fmInput = txt(repeat.matchSelector, "CSS / xpath= / text=  (a || b = fallback)", (v) => patchRepeat(wf.id, { matchSelector: v }));
+      fmRow.append(
+        fmInput,
+        pickSelectorBtn({ forWorkflowMatchSelector: true, workflowId: wf.id }),
+        highlightSelectorBtn(() => fmInput.value),
+      );
+      fmWrap.append(fmLbl, fmRow);
+      panel.append(fmWrap);
+      const fmHint = document.createElement("div"); fmHint.className = "wf-data-hint";
+      fmHint.textContent = "Runs the steps once per matching element (e.g. every row's “Review” button), most-recent match list re-checked each time. Whichever step's own selector is set to this SAME selector automatically targets that iteration's specific match instead of always the first one — set your click step's selector to match this field exactly.";
+      panel.append(fmHint);
     }
 
     // Data source (CSV) — feeds {{column}} variables; run "Per data row" to loop rows.
@@ -1415,8 +1698,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const { label: toggleWrap } = toggleSwitch(wf.enabled !== false, null, (checked) => patchWorkflowEnabled(wf.id, checked));
     toggleWrap.title = "Turn this workflow on/off (blocks its hotkey, auto-trigger and Run button)";
     const dragHandle = document.createElement("span"); dragHandle.className = "drag-handle wf-drag"; dragHandle.textContent = "☰"; dragHandle.title = "Drag to reorder";
-    const name = document.createElement("input"); name.className = "wf-name"; name.value = wf.name || "Workflow";
-    name.addEventListener("change", (e) => patchWorkflow(wf.id, { name: e.target.value }));
+    // Collapsed: plain static text. Expanded: the same spot becomes an
+    // editable input — was always an input regardless of collapse state,
+    // which invited accidental edits/cursor placement on a card you were
+    // just skimming past collapsed.
+    let name;
+    if (collapsed) {
+      name = document.createElement("div"); name.className = "wf-name-static"; name.textContent = wf.name || "Workflow";
+    } else {
+      name = document.createElement("input"); name.className = "wf-name"; name.value = wf.name || "Workflow";
+      name.addEventListener("change", (e) => patchWorkflow(wf.id, { name: e.target.value }));
+    }
 
     const runBtn = document.createElement("button");
     runBtn.type = "button";
@@ -1440,7 +1732,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const collapseBtn = iconMini(collapsed ? "chevDown" : "chevUp", collapsed ? "Show steps" : "Hide steps", () => { wfCollapsed.has(id) ? wfCollapsed.delete(id) : wfCollapsed.add(id); renderWorkflows(); });
     const del = iconMini("trash", "Delete this workflow", () => deleteWorkflow(wf.id), true);
 
-    head.append(toggleWrap, dragHandle, name, runBtn, pauseBtn, recBtn, gear, shareBtn, dupBtn, collapseBtn, del);
+    const nameRow = document.createElement("div"); nameRow.className = "wf-head-name-row";
+    nameRow.append(name);
+    const controlsRow = document.createElement("div"); controlsRow.className = "wf-head-controls-row";
+    controlsRow.append(toggleWrap, dragHandle, runBtn, pauseBtn, recBtn, gear, shareBtn, dupBtn, collapseBtn, del);
+    head.append(nameRow, controlsRow);
 
     // status line
     const status = document.createElement("div"); status.className = "wf-status";
@@ -1511,9 +1807,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderWorkflows() {
     if (!wfListEl) return;
-    chrome.storage.local.get([WF_KEY, STATUS_KEY, WF_SEARCH_KEY], (res) => {
+    chrome.storage.local.get([WF_KEY, STATUS_KEY, WF_SEARCH_KEY, RULES_KEY], (res) => {
       const wfs = res[WF_KEY] || [];
       liveStatus = res[STATUS_KEY] || {};
+      wfPickerCache.workflows = wfs;
+      wfPickerCache.rules = (res[RULES_KEY] || []).map(normalizeRule);
       const search = (res[WF_SEARCH_KEY] || "").trim().toLowerCase();
       const shown = search ? wfs.filter((w) => matchesWfSearch(w, search)) : wfs;
       wireExpandToggle("wf-expand-toggle", shown.map((w) => String(w.id)), wfCollapsed, () => { persistWfCollapse(); renderWorkflows(); }, "workflows");
