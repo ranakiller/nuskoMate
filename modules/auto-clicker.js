@@ -530,8 +530,11 @@
   // ── Translation rules ──────────────────────────────────────────────────────
   // Two independent modes sharing one rule shape (see normalizeRule above):
   //   fieldToField — reactive, one source element → one target element, fixed
-  //                  language pair (like modules/translation.js, but user-
-  //                  configurable instead of hardcoded field selectors).
+  //                  language pair, fully user-configurable (no hardcoded
+  //                  field selectors — the old modules/translation.js that
+  //                  hardcoded 7 of these was removed once this could cover
+  //                  it; background.js seeds 4 of them — the name fields —
+  //                  as default rules so nobody lost anything).
   //   autoDetect   — scans requiredElements[0] (may match MANY elements, e.g.
   //                  a whole column of rows), auto-detects the language of
   //                  whatever text shows up, and translates it in place for
@@ -566,10 +569,9 @@
     }
   }
 
-  // Arabic-transliteration fallback — same map/logic as modules/translation.js
-  // — used only when the target language is Arabic AND the API either failed
-  // outright or clearly didn't translate (empty, unchanged, or still has
-  // Latin letters in it).
+  // Arabic-transliteration fallback — used only when the target language is
+  // Arabic AND the API either failed outright or clearly didn't translate
+  // (empty, unchanged, or still has Latin letters in it).
   const EN_TO_AR_MAP = {
     a: "ا", b: "ب", c: "ك", d: "د", e: "ي", f: "ف", g: "ج",
     h: "ه", i: "ي", j: "ج", k: "ك", l: "ل", m: "م", n: "ن",
@@ -584,8 +586,8 @@
   }
 
   // data[0] = translated segments, data[2] = detected source language (only
-  // meaningful when sl="auto" was passed). Same unofficial endpoint already
-  // used by modules/translation.js — already whitelisted in manifest.json.
+  // meaningful when sl="auto" was passed). Unofficial endpoint, already
+  // whitelisted in manifest.json's host_permissions.
   function translateText(text, sl, tl) {
     const toArabic = String(tl || "").toLowerCase().startsWith("ar");
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;

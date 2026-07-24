@@ -170,23 +170,6 @@
         </div>
       </div>
 
-      <!-- Auto Translate -->
-      <div class="module-card">
-        <div class="module-header">
-          <div class="module-icon translate-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>
-          </div>
-          <div class="module-info">
-            <div class="module-name">Auto Translate Names</div>
-            <div class="module-desc">Transliterate names to Arabic</div>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-translate" />
-            <span class="slider"></span>
-          </label>
-        </div>
-      </div>
-
       <!-- Auto Issue Date -->
       <div class="module-card">
         <div class="module-header">
@@ -427,9 +410,9 @@
           </label>
         </div>
         <ul class="info-panel" id="talabcopy-info-panel" style="display:none;">
-          <li><b>Hotel Agreement Details</b> page — copies agreement number, hotel name + city, dates + days + beds, and the shirka (company) name.</li>
-          <li><b>Mutamers List</b> page — copies group number, group name (+ trip length), a numbered passport + name list, and the shirka name.</li>
+          <li><b>Mutamers List</b> page — copies group number, group name (+ trip length in days, parsed from its flight dates), a numbered passport + name list, and the shirka name.</li>
           <li><b>Groups List</b> page — copies a numbered list of visible groups as <code>N. GroupNumber xMutamers (State)</code>, a totals line, and the shirka name.</li>
+          <li><b>Hotel Agreement Details</b> page — copies agreement number, hotel name + city, dates + days + beds, and the shirka (company) name.</li>
           <li><b>Agreements</b> list page — copies a 3-line block per agreement (number, hotel name + city, dates + days + rooms) and the shirka name.</li>
           <li>Press the keyboard shortcut below (default <b>Alt+Shift+C</b>, changeable) on any of these pages to copy without clicking the button.</li>
           <li>Untick a line below to leave it out of that page's copied text from now on.</li>
@@ -441,6 +424,24 @@
           </div>
           <div class="k-tools" id="talabcopy-fields">
             <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Mutamers List</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupNumber" checked /> Group number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupName" checked /> Group name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.sr" checked /> Sr. number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.passport" checked /> Passport</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.name" checked /> Name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.shirkaName" checked /> Shirka name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.days" checked /> Days (appended to group name)</label>
+            </div>
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Groups List</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.groupNumber" checked /> Group number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.mutamerCount" checked /> Mutamer count</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.state" checked /> State</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.totals" checked /> Totals line</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.shirkaName" checked /> Shirka name</label>
+            </div>
+            <div class="k-group">
               <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Hotel Agreement Details</b></label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.agreementNumber" checked /> Agreement number</label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.hotelName" checked /> Hotel name</label>
@@ -450,23 +451,6 @@
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.days" checked /> Days</label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.beds" checked /> Beds</label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.shirkaName" checked /> Shirka name</label>
-            </div>
-            <div class="k-group">
-              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Mutamers List</b></label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupNumber" checked /> Group number</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.groupName" checked /> Group name</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.sr" checked /> Sr. number</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.passport" checked /> Passport</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.name" checked /> Name</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="mutamerList.shirkaName" checked /> Shirka name</label>
-            </div>
-            <div class="k-group">
-              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Groups List</b></label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.groupNumber" checked /> Group number</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.mutamerCount" checked /> Mutamer count</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.state" checked /> State</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.totals" checked /> Totals line</label>
-              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="groupsList.shirkaName" checked /> Shirka name</label>
             </div>
             <div class="k-group">
               <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Agreements List</b></label>
@@ -481,6 +465,32 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Auto Date Picker — focus any PrimeNG calendar field anywhere on
+           the site and type a shorthand (DD / DDMM / DDMMYY) to jump
+           straight to that date; two dates (space-separated, or "+Nd"/
+           "+Nm"/"+Ny" math) fills a date-range pair in one go. No settings
+           beyond on/off — same as Disable Overlay. -->
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon overlay-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Auto Date Picker <button id="adp-info-btn" class="info-btn" type="button" title="How this works" aria-label="How this works">i</button></div>
+            <div class="module-desc">Type DD / DDMM / DDMMYY / DDMMYYYY into any calendar field</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-autodatepicker" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="adp-info-panel" style="display:none;">
+          <li>Click into any date field, then type <b>DD</b>, <b>DDMM</b>, <b>DDMMYY</b>, or <b>DDMMYYYY</b> — Enter or Tab commits it (or just pause typing for 1.5s); Escape cancels.</li>
+          <li>Type two dates separated by a space (e.g. <code>25 01</code>) to fill a date-range pair in one go — the second fills whichever calendar field comes next.</li>
+          <li>Or use math off the first date: <code>+Nd</code> / <code>+Nm</code> / <code>+Ny</code> (e.g. <code>2207+20</code> = 22 Jul, then 20 days later).</li>
+        </ul>
       </div>
 
     </div>

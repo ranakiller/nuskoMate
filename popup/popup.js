@@ -87,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Each premium toggle maps to the tool id the key must include.
     const TOGGLE_FEATURE = {
       "toggle-autofill": "autofill",
-      "toggle-reload": "reload", "toggle-overlay": "overlay", "toggle-translate": "translate",
+      "toggle-reload": "reload", "toggle-overlay": "overlay",
       "toggle-issue-date": "issuedate", "toggle-vaccine": "vaccine", "toggle-ocr": "ocr",
       "toggle-father": "father", "toggle-batch": "batch",
       "toggle-workflows": "workflows",
@@ -98,6 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-translaterules": "translaterules",
       "toggle-groups": "groups",
       "toggle-talabcopy": "talabcopy",
+      "toggle-autodatepicker": "autodatepicker",
     };
 
     // Is a given tool unlocked for the current key? (features null = all
@@ -446,7 +447,6 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-reload",     key: "moduleReload"         },
     { id: "toggle-overlay",    key: "moduleDisableOverlay" },
     { id: "toggle-autofill",   key: "moduleAutofill"       },
-    { id: "toggle-translate",  key: "moduleTranslate"      },
     { id: "toggle-issue-date", key: "moduleIssueDateCalc"  },
     { id: "toggle-vaccine",    key: "moduleVaccineUpload"  },
     { id: "toggle-ocr",       key: "moduleOcr"            },
@@ -462,6 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-translaterules", key: "moduleTranslateRules", offLabel: true },
     { id: "toggle-groups",      key: "moduleGroupsExport"                },
     { id: "toggle-talabcopy",   key: "moduleTalabCopy"                   },
+    { id: "toggle-autodatepicker", key: "moduleAutoDatePicker"           },
   ];
 
   // ALL modules default ON for new installs (key never set = treat as true).
@@ -526,20 +527,46 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 
-  // ── Gear buttons — expand/collapse a module-card's settings, collapsed
-  // by default so the card doesn't show its interval permanently. ──
+  // ── Gear buttons — expand/collapse a module-card's settings. Collapsed by
+  // default for a card nobody's touched yet, but remembered per-gear once you
+  // do open one — same "stays how you left it" behavior as expanded rule
+  // cards, instead of silently re-collapsing every time the popup reopens. ──
+  const GEAR_OPEN_KEY = "moduleGearOpen";
   function wireGearToggle(gearId, extraId) {
     const gear = document.getElementById(gearId);
     const extra = document.getElementById(extraId);
     if (!gear || !extra) return;
+    function setOpen(open) {
+      extra.style.display = open ? "" : "none";
+      gear.classList.toggle("module-gear-open", open);
+    }
+    chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+      setOpen(!!(res[GEAR_OPEN_KEY] || {})[gearId]);
+    });
     gear.addEventListener("click", () => {
-      const open = extra.style.display !== "none";
-      extra.style.display = open ? "none" : "";
-      gear.classList.toggle("module-gear-open", !open);
+      const open = extra.style.display === "none";
+      setOpen(open);
+      chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+        const all = { ...(res[GEAR_OPEN_KEY] || {}) };
+        all[gearId] = open;
+        chrome.storage.local.set({ [GEAR_OPEN_KEY]: all });
+      });
     });
   }
   wireGearToggle("batch-settings-btn", "batch-module-extra");
   wireGearToggle("reload-settings-btn", "reload-module-extra");
+
+  // Auto Date Picker's "i" info panel — no settings/gear, just this.
+  (function () {
+    const infoBtn = document.getElementById("adp-info-btn");
+    const infoPanel = document.getElementById("adp-info-panel");
+    if (!infoBtn || !infoPanel) return;
+    infoBtn.addEventListener("click", () => {
+      const open = infoPanel.style.display !== "none";
+      infoPanel.style.display = open ? "none" : "";
+      infoBtn.classList.toggle("info-btn-open", !open);
+    });
+  })();
 
 
   // ── Reload Interval ─────────────────────────────────────────
@@ -791,19 +818,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Gear button — the ONLY toggle now, expands/collapses the whole editor
   // (email search/add/list + phone field, nested inside the card like
-  // Totals' own module-extra), collapsed by default so the card doesn't
-  // show its settings permanently.
+  // Totals' own module-extra). Collapsed by default for a card nobody's
+  // opened yet, but remembered (via GEAR_OPEN_KEY, same as the other gear
+  // buttons) once you do — reopening the popup no longer silently
+  // re-collapses it.
   const afSettingsBtn = document.getElementById("af-settings-btn");
   const afModuleSub = document.getElementById("af-module-sub");
   if (afSettingsBtn && afModuleSub) {
+    function setAfOpen(open) {
+      afModuleSub.style.display = open ? "" : "none";
+      afSettingsBtn.classList.toggle("module-gear-open", open);
+    }
+    chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+      setAfOpen(!!(res[GEAR_OPEN_KEY] || {})["af-settings-btn"]);
+    });
     afSettingsBtn.addEventListener("click", () => {
-      const open = afModuleSub.style.display !== "none";
-      afModuleSub.style.display = open ? "none" : "";
-      afSettingsBtn.classList.toggle("module-gear-open", !open);
+      const open = afModuleSub.style.display === "none";
+      setAfOpen(open);
+      chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+        const all = { ...(res[GEAR_OPEN_KEY] || {}) };
+        all["af-settings-btn"] = open;
+        chrome.storage.local.set({ [GEAR_OPEN_KEY]: all });
+      });
       // Closing — drop out of any unsaved add/edit form state so reopening
       // later starts clean; setEmailMode("search") also refreshes the
       // summary (via renderList → renderAfSummary) to reflect any edits.
-      if (open) setEmailMode("search");
+      if (!open) setEmailMode("search");
     });
   }
 

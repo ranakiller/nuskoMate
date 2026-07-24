@@ -24,15 +24,29 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Gear button — expands/collapses the page-list block, collapsed by
-  // default so the card doesn't show its settings permanently.
+  // Gear button — expands/collapses the page-list block. Collapsed by
+  // default for a card nobody's opened yet, but remembered (same
+  // GEAR_OPEN_KEY every module-card gear uses) once you do — reopening the
+  // popup no longer silently re-collapses it.
+  const GEAR_OPEN_KEY = "moduleGearOpen";
   const settingsBtn = document.getElementById("mv-settings-btn");
   const moduleExtra = document.getElementById("mv-module-extra");
   if (settingsBtn && moduleExtra) {
+    function setMvOpen(open) {
+      moduleExtra.style.display = open ? "" : "none";
+      settingsBtn.classList.toggle("module-gear-open", open);
+    }
+    chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+      setMvOpen(!!(res[GEAR_OPEN_KEY] || {})["mv-settings-btn"]);
+    });
     settingsBtn.addEventListener("click", () => {
-      const open = moduleExtra.style.display !== "none";
-      moduleExtra.style.display = open ? "none" : "";
-      settingsBtn.classList.toggle("module-gear-open", !open);
+      const open = moduleExtra.style.display === "none";
+      setMvOpen(open);
+      chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+        const all = { ...(res[GEAR_OPEN_KEY] || {}) };
+        all["mv-settings-btn"] = open;
+        chrome.storage.local.set({ [GEAR_OPEN_KEY]: all });
+      });
     });
   }
 

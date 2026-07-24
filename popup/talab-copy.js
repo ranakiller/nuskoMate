@@ -23,11 +23,26 @@ document.addEventListener("DOMContentLoaded", () => {
       infoBtn.classList.toggle("info-btn-open", !open);
     });
   }
+  // Collapsed by default for a card nobody's opened yet, but remembered
+  // (same GEAR_OPEN_KEY every module-card gear uses) once you do — reopening
+  // the popup no longer silently re-collapses it.
+  const GEAR_OPEN_KEY = "moduleGearOpen";
   if (settingsBtn && moduleExtra) {
+    function setTcOpen(open) {
+      moduleExtra.style.display = open ? "" : "none";
+      settingsBtn.classList.toggle("module-gear-open", open);
+    }
+    chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+      setTcOpen(!!(res[GEAR_OPEN_KEY] || {})["talabcopy-settings-btn"]);
+    });
     settingsBtn.addEventListener("click", () => {
-      const open = moduleExtra.style.display !== "none";
-      moduleExtra.style.display = open ? "none" : "";
-      settingsBtn.classList.toggle("module-gear-open", !open);
+      const open = moduleExtra.style.display === "none";
+      setTcOpen(open);
+      chrome.storage.local.get([GEAR_OPEN_KEY], (res) => {
+        const all = { ...(res[GEAR_OPEN_KEY] || {}) };
+        all["talabcopy-settings-btn"] = open;
+        chrome.storage.local.set({ [GEAR_OPEN_KEY]: all });
+      });
     });
   }
 
@@ -80,6 +95,20 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Saves every field in one group at once — a single get-then-set, not one
+  // per checkbox. Doing it per-checkbox (each with its own async get+set)
+  // let several of those read the SAME pre-update snapshot and then each
+  // write their own single-field change back on top of it, so only the LAST
+  // one to finish actually stuck — unticking the group then re-ticking just
+  // one field looked like it silently reverted the rest.
+  function saveFields(pairs) {
+    chrome.storage.local.get([KEY], (res) => {
+      const fields = { ...(res[KEY] || {}) };
+      pairs.forEach(([field, checked]) => { fields[field] = checked; });
+      chrome.storage.local.set({ [KEY]: fields });
+    });
+  }
+
   // Header ⇄ children sync — header click sets every field in that group;
   // any child change updates the header (checked = all on, unchecked = none,
   // indeterminate = some).
@@ -94,10 +123,9 @@ document.addEventListener("DOMContentLoaded", () => {
   groups.forEach((group) => {
     const head = group.querySelector(".talabcopy-group-all");
     head.addEventListener("change", () => {
-      group.querySelectorAll(".talabcopy-field").forEach((k) => {
-        k.checked = head.checked;
-        saveField(k.dataset.field, k.checked);
-      });
+      const kids = [...group.querySelectorAll(".talabcopy-field")];
+      kids.forEach((k) => { k.checked = head.checked; });
+      saveFields(kids.map((k) => [k.dataset.field, k.checked]));
       refreshGroupHead(group);
     });
   });

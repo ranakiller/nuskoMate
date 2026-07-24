@@ -51,6 +51,75 @@ chrome.runtime.onStartup.addListener(applyUiMode);
 chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c.uiMode) applyUiMode(); });
 applyUiMode();
 
+// ── Translation Rules defaults ───────────────────────────────────────────
+// modules/translation.js ("Auto Translate Names") used to hardcode 4
+// name-field EN→AR pairs (first/second/third/family name) plus 3 other
+// fields (service name, details, a generic placeholder pair) — all removed
+// now that Translation Rules can do the same thing, configurably. Only the
+// 4 name pairs get carried forward, as pre-built (not forced-on) rules, so
+// existing Translation Rules users get them for free and new installs start
+// with a sane default instead of an empty list. Idempotent — checks each
+// one's sourceSelector before adding, so this is safe to run on every
+// startup without ever duplicating a rule the user already has (including
+// one they've since edited or deleted on purpose).
+const DEFAULT_TRANSLATE_PATH = "/umrah/mutamer/add-mutamer";
+const DEFAULT_TRANSLATE_RULES = [
+  { name: "First Name (EN → AR)", source: 'div[formgroupname="firstName"] input[formcontrolname="en"]', target: 'div[formgroupname="firstName"] input[formcontrolname="ar"]' },
+  { name: "Second Name (EN → AR)", source: 'div[formgroupname="secondName"] input[formcontrolname="en"]', target: 'div[formgroupname="secondName"] input[formcontrolname="ar"]' },
+  { name: "Third Name (EN → AR)", source: 'div[formgroupname="thirdName"] input[formcontrolname="en"]', target: 'div[formgroupname="thirdName"] input[formcontrolname="ar"]' },
+  { name: "Family Name (EN → AR)", source: 'div[formgroupname="familyName"] input[formcontrolname="en"]', target: 'div[formgroupname="familyName"] input[formcontrolname="ar"]' },
+];
+
+async function seedDefaultTranslateRules() {
+  try {
+    const res = await chrome.storage.local.get(["autoClickRules", "moduleTranslate", "moduleTranslateRules"]);
+    const rules = Array.isArray(res.autoClickRules) ? res.autoClickRules : [];
+    const existingSources = new Set(rules.filter((r) => r && r.type === "translate").map((r) => r.sourceSelector));
+    const missing = DEFAULT_TRANSLATE_RULES.filter((d) => !existingSources.has(d.source));
+
+    // One-time correction: an earlier version of this seed shipped these 4
+    // rules site-wide (pathname ""). Any rule still sitting at that original
+    // blank pathname is presumed unmodified (a real edit would have set
+    // something) and gets pinned to the intended page instead.
+    let patched = false;
+    const patchedRules = rules.map((r) => {
+      if (r && r.type === "translate" && !r.pathname && DEFAULT_TRANSLATE_RULES.some((d) => d.source === r.sourceSelector)) {
+        patched = true;
+        return { ...r, pathname: DEFAULT_TRANSLATE_PATH, pathMatch: "exact" };
+      }
+      return r;
+    });
+
+    const updates = {};
+    if (missing.length || patched) {
+      const added = missing.map((d) => ({
+        id: Date.now() + Math.random(),
+        type: "translate",
+        mode: "fieldToField",
+        enabled: true,
+        name: d.name,
+        pathname: DEFAULT_TRANSLATE_PATH,
+        pathMatch: "exact",
+        requiredElements: [d.target],
+        sourceSelector: d.source,
+        sourceLang: "en",
+        targetLang: "ar",
+      }));
+      updates.autoClickRules = [...patchedRules, ...added];
+    }
+
+    // One-time carry-over: if the old always-on module was enabled, turn on
+    // Translation Rules too so the equivalent behavior keeps working.
+    if (res.moduleTranslate && !res.moduleTranslateRules) updates.moduleTranslateRules = true;
+
+    if (Object.keys(updates).length) await chrome.storage.local.set(updates);
+    if (res.moduleTranslate !== undefined) await chrome.storage.local.remove("moduleTranslate");
+  } catch (_) {}
+}
+chrome.runtime.onInstalled.addListener(seedDefaultTranslateRules);
+chrome.runtime.onStartup.addListener(seedDefaultTranslateRules);
+seedDefaultTranslateRules();
+
 async function handle(msg) {
   const base = String(msg.base || "").replace(/\/+$/, "");
   if (!base) return { ok: false, error: "Licensing not configured" };
@@ -177,13 +246,13 @@ const SYNC_ALARM = "nkCloudSyncPoll";
 // local-only like the license key does.
 const SYNC_KEYS = [
   "autoClickRules", "autoWorkflows", "autoUrlShiftRules",
-  "moduleReload", "moduleDisableOverlay", "moduleAutofill", "moduleTranslate",
+  "moduleReload", "moduleDisableOverlay", "moduleAutofill",
   "moduleIssueDateCalc", "moduleVaccineUpload", "moduleOcr", "moduleFatherName",
   "moduleBatchUpload", "moduleAutoRules",
   // Old per-category toggles kept syncing too (read by the one-time
   // moduleAutoRules migration in popup.js) — harmless once migrated.
   "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect",
-  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "extensionEnabled",
+  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "moduleAutoDatePicker", "extensionEnabled",
   "reloadInterval", "batchDelay", "batchFieldSelector",
   "emailList", "activeEmailId", "email", "mobile",
   "brnHotelList", "brnLastUsed", "brnHotkey", "brnDefaultPrice", "brnDefaultNights",

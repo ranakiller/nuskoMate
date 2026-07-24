@@ -6,7 +6,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const TOOL_LABELS = {
     autofill: "Mutamer Details Fill",
-    translate: "Auto Translate",
     issuedate: "Issue Date Calc",
     vaccine: "Vaccine Upload",
     ocr: "Passport OCR (page scan)",
@@ -37,10 +36,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // that's fine, the two are equivalent entitlements; see featOK("autorules")
   // in modules/auto-clicker.js / popup.js for the read-side backward compat.
   const TOOL_GROUPS = [
-    { name: "Mutamer Details Fill", tools: ["autofill", "translate", "issuedate", "vaccine", "ocr", "father", "batch"] },
-    { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest", "translaterules"] },
+    { name: "Mutamer Details Fill", tools: ["autofill", "translaterules", "issuedate", "vaccine", "ocr", "father", "batch"] },
+    { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest"] },
     { name: "Passport Parser",      tools: ["bulk"] },
-    { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy"] },
+    { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy", "autodatepicker"] },
   ];
 
   // Icon-only row buttons (Edit/Reset/Revoke/Del) — same visual language as

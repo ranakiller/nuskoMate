@@ -316,7 +316,6 @@ body {
 .reload-icon    { background: var(--reload-bg);     color: var(--reload-fg);     }
 .overlay-icon   { background: var(--overlay-bg);    color: var(--overlay-fg);    }
 .autofill-icon  { background: var(--fill-bg);       color: var(--fill-fg);       }
-.translate-icon { background: var(--translate-bg);  color: var(--translate-fg);  }
 .issuedate-icon { background: var(--issuedate-bg);  color: var(--issuedate-fg);  }
 .vaccine-icon   { background: var(--vaccine-bg);    color: var(--vaccine-fg);    }
 .ocr-icon       { background: var(--ocr-bg);        color: var(--ocr-fg);        }

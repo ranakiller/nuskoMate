@@ -248,19 +248,32 @@
     return { groupName: m[1].trim(), groupNumber: m[2].trim() };
   }
 
-  // Group names carry the two flight dates (e.g. "NEBRAS 31JUL 20AUG SKT JED
-  // SKT PF") — appends "(N Days)" when both are present, current year used
-  // for both (matches the original — it never anchored on Creation Date here
-  // the way Groups Export's date parser does).
+  // Group names carry the two flight dates, but the format varies a lot:
+  // "20JUL" (no separator), "21JULY" (full month name), "24 JUL" (space
+  // between day and month), "31JULG9175" (month abbreviation glued to
+  // trailing flight-code letters) — same permissive matching Groups
+  // Export's own date parser uses (popup/groups.js's
+  // parseDatesFromGroupName): 1-2 digit day, 3-9 letter month, only the
+  // month's first 3 letters looked up, so any of those variants resolve.
+  // Current year used for both dates (matches the original — it never
+  // anchored on Creation Date here the way Groups Export's parser does).
   const MONTH_IDX = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
-  function appendDaysSuffix(groupName) {
-    const m = groupName.match(/(\d{2})([A-Z]{3})\s+(\d{2})([A-Z]{3})/);
-    if (!m) return groupName;
+  function computeDaysText(groupName) {
+    const re = /(\d{1,2})\s*([A-Z]{3,9})/g;
+    const upper = String(groupName || "").toUpperCase();
+    const found = [];
+    let m;
+    while ((m = re.exec(upper)) && found.length < 2) {
+      const month = MONTH_IDX[m[2].slice(0, 3)];
+      if (month === undefined) continue;
+      found.push({ day: parseInt(m[1], 10), month });
+    }
+    if (found.length < 2) return "";
     const y = new Date().getFullYear();
-    const d1 = new Date(y, MONTH_IDX[m[2]], parseInt(m[1], 10));
-    const d2 = new Date(y, MONTH_IDX[m[4]], parseInt(m[3], 10));
+    const d1 = new Date(y, found[0].month, found[0].day);
+    const d2 = new Date(y, found[1].month, found[1].day);
     const diff = Math.round((d2 - d1) / 86400000);
-    return diff > 0 ? `${groupName} (${diff} Days)` : groupName;
+    return diff > 0 ? `${diff} Days` : "";
   }
 
   // Name sits 2 lines above its passport number in the rendered table.
@@ -281,13 +294,19 @@
     const mutamers = extractMutamers(filteredLines);
     if (!mutamers.length) { showToast("No mutamers found on this page", true); return; }
 
-    const { groupName: rawName, groupNumber } = extractGroupNameNumber(pageText);
-    const groupName = appendDaysSuffix(rawName);
+    const { groupName, groupNumber } = extractGroupNameNumber(pageText);
+    const daysText = computeDaysText(groupName);
     const shirkaName = extractShirkaName(getLines());
 
     const headerBits = [];
     if (fieldOn("mutamerList.groupNumber")) headerBits.push(groupNumber);
-    if (fieldOn("mutamerList.groupName")) headerBits.push(groupName);
+    if (fieldOn("mutamerList.groupName")) {
+      // Days appends right onto the END of the group name itself — "GroupName
+      // (N Days)" — its own toggle, so it can be dropped independently, but
+      // only shows at all when the group name line itself is shown.
+      const withDays = fieldOn("mutamerList.days") && daysText ? `${groupName} (${daysText})` : groupName;
+      headerBits.push(withDays);
+    }
 
     const showSr = fieldOn("mutamerList.sr");
     const showPassport = fieldOn("mutamerList.passport");

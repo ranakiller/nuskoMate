@@ -11,7 +11,7 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | Module | What it does |
 |---|---|
 | **Mutamer Details Autofill** | Pre-fills Email, Mobile, City, Profession, Passport Type, Birth Country, Marital Status, and phone country code automatically |
-| **Auto Translate Names** | Transliterates English names into Arabic script across all four name boxes |
+| **Auto Date Picker** | Type a short code (`DD`, `DDMM`, `DDMMYY`, or `DDMMYYYY`) into any calendar field on the page and it fills the date in — Enter, Tab, or a short pause confirms it. Type two dates at once (space-separated, or `+Nd`/`+Nm`/`+Ny` math off the first) to fill a date-range pair in one go |
 | **Auto Issue Date** | Calculates the passport issue date from the expiry date and copies it to your clipboard |
 | **Vaccine Image Upload** | Auto-uploads the bundled vaccine placeholder image to the vaccine file input |
 | **Passport OCR** | Scans an uploaded passport image server-side (your own [free ocr.space key](https://ocr.space/ocrapi/freekey) + a custom MRZ-aware parser) and fills the form — name boxes, DOB, gender, issue date. Validates MRZ check digits and warns on a blurry/unreliable scan instead of silently filling wrong data. **Requires an OCR API key saved in Settings** — see note below |
@@ -31,7 +31,7 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 |---|---|
 | **Automation Rules** | Reactive rules that click, fill, or select — one tab covers what used to be three separate ones (Autofill/Auto Clicker/Auto Select) |
 | **Workflows** | Programmable step sequences — clicks, fills, waits, loops, if/else conditions, CSV data-driven runs, hotkeys, and an on-page recorder that turns your own clicks/typing into steps |
-| **Translation Rules** | Field-to-field translation, or auto-detect-and-translate any foreign text on a page — either replaces the text in place, or (new) leaves it untouched and shows the translation in an instant hover tooltip with a one-key commit if you want it copied into the page after all |
+| **Translation Rules** | Field-to-field translation, or auto-detect-and-translate any foreign text on a page — either replaces the text in place, or leaves it untouched and shows the translation in an instant hover tooltip with a one-key commit if you want it copied into the page after all. Ships with 4 ready-made rules translating the Add Mutamer name fields to Arabic — edit or turn them off like any other rule |
 | **URL Shifter** | Redirects to a target URL either when the current URL matches a condition, or when a chosen element appears anywhere on the page (even dynamically inserted ones) |
 | **BRN Request** | A hotkey-driven hotel search bar with auto-captured hotel IDs and agreement auto-fill |
 
@@ -107,14 +107,15 @@ nuskoMate/
 │   ├── talab-copy.js                # Copy tool settings (per-line toggles + hotkey)
 │   └── keys-admin.js                # License Keys admin tab
 ├── modules/                         # Content-script feature modules (one per toggle)
-│   ├── autofill.js, auto-reload.js, translation.js, issue-date-calc.js,
+│   ├── autofill.js, auto-reload.js, issue-date-calc.js,
 │   │   vaccine-upload.js, disable-loading-overlay.js, ocr.js, batch-passport.js
 │   ├── auto-clicker.js              # Executes click/fill/select/translate rules + workflows
 │   ├── url-shifter.js               # Executes URL/element-trigger redirect rules
 │   ├── groups-export.js             # Scrapes Masar's Groups List table across every page
 │   ├── mv-totals.js                 # Injects the running Mutamer/Voucher/Rows total
 │   ├── brn-request.js               # Hotel search bar + auto-capture + agreement autofill
-│   └── talab-copy.js                # Injects the Copy button/hotkey on 4 Masar pages
+│   ├── talab-copy.js                # Injects the Copy button/hotkey on 4 Masar pages
+│   └── auto-date-picker.js          # Type-a-shorthand date filler for any calendar field
 ├── utils/
 │   ├── license.js                   # Client licensing API (activate, sync, share links, heartbeat)
 │   ├── route-watcher.js             # SPA route-change detection
@@ -161,4 +162,4 @@ nuskoMate/
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.5.0** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.6.0** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.

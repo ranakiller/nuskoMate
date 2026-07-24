@@ -150,14 +150,19 @@
       const addDays = parseInt(daysToAddStr, 10);
       if (isNaN(addDays)) { alert("Invalid +days format"); return null; }
 
+      // Bug fix: only length===2 was treated as "day-only" here — a single
+      // digit (e.g. "5+3") fell through both branches, leaving day/month
+      // undefined and producing an Invalid Date. Day-only now covers any
+      // non-4-length input (1 or 2 digits), same convention the plain
+      // (non-"+") parse() below already uses.
       let day, month;
-      if (left.length === 2) {
+      if (left.length === 4) {
+        day = parseInt(left.slice(0, 2), 10);
+        month = parseInt(left.slice(2, 4), 10) - 1;
+      } else {
         day = parseInt(left, 10);
         month = today.getMonth();
         if (day < today.getDate()) { month++; if (month > 11) { month = 0; year++; } }
-      } else if (left.length === 4) {
-        day = parseInt(left.slice(0, 2), 10);
-        month = parseInt(left.slice(2, 4), 10) - 1;
       }
 
       let start = new Date(year, month, day);
