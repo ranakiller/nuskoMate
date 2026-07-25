@@ -52,13 +52,17 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
             <span>Modules</span>
           </button>
-          <button class="tab" data-tab="autorules" title="Automation (click / fill / select rules)">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 9 2"/></svg>
-            <span>Automation</span>
-          </button>
           <button class="tab" data-tab="translate" title="Translation Rules">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="currentColor" stroke="none"><text x="1" y="15" font-size="14" font-weight="700" font-family="sans-serif">文</text><text x="13" y="21" font-size="11" font-weight="700" font-family="sans-serif">A</text></svg>
             <span>Translate</span>
+          </button>
+          <button class="tab" data-tab="passport" title="Passport">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
+            <span>Passport</span>
+          </button>
+          <button class="tab" data-tab="autorules" title="Automation (click / fill / select rules)">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 9 2"/></svg>
+            <span>Automation</span>
           </button>
           <button class="tab" data-tab="workflows" title="Workflows">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
@@ -72,9 +76,9 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="9" y1="15" x2="9" y2="15.01"/></svg>
             <span>BRN</span>
           </button>
-          <button class="tab" data-tab="passport" title="Passport">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
-            <span>Passport</span>
+          <button class="tab" data-tab="packagecreator" title="Package Creator">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            <span>Package</span>
           </button>
           <!-- Any future tab goes here, right before Logs — Logs always
                stays the last item in this scrollable group. -->
@@ -1122,6 +1126,280 @@
     </div><!-- /brn-content -->
     </div><!-- /panel-brnrequest -->
 
+    <!-- Panel: Package Creator -->
+    <div class="tab-panel" id="panel-packagecreator">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon batch-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Package Creator <button id="pc-info-btn" class="info-btn" type="button" title="How Package Creator works" aria-label="How Package Creator works">i</button></div>
+            <div class="module-desc">Automates the whole create-package flow, end to end</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-packagecreator" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="pc-info-panel" style="display:none;">
+          <li>On any create-package page a small <b>Package Creator</b> panel appears — paste one or more Talab blocks (dates line, hotel name with (MAK)/(MAD), BRN number, "N Px" beds) and press START. It fills dates, picks the latest flight, adds trips, selects hotels and BRNs, fills room counts, and saves — then moves to the next block automatically.</li>
+          <li>Blocks whose dates chain (checkout = next check-in) are grouped into one package; others become separate queued packages.</li>
+          <li>The helpers below also work on their own while you create packages by hand — each has its own switch.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="pc-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Package Creator is a premium tool</div>
+      <div class="premium-upsell-text">End-to-end package creation from pasted Talab details, plus auto price fill, agent selection, and more. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="pc-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="pc-content">
+
+      <div class="section">
+        <div class="section-title">Helpers</div>
+
+        <!-- Each helper's own settings live behind its own gear (same
+             pattern as Totals / Copy / Autofill), not in loose sections
+             further down the tab. -->
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Auto Package Runner</div>
+              <div class="module-desc">The on-page paste-and-START panel on create-package pages</div>
+            </div>
+            <label class="toggle-switch"><input type="checkbox" id="pc-runner" /><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Ground Service</div>
+              <div class="module-desc">Ticks matching company rows and fills their price on the Basic Info page</div>
+            </div>
+            <button id="pc-ground-gear" class="module-gear-btn" type="button" title="Ground service settings" aria-label="Ground service settings">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-ground" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-ground-extra" style="display:none;">
+            <div class="pc-sub">Ground Services Price</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Ground services price</label>
+                <input type="number" id="pc-ground-bp" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Profit margin</label>
+                <input type="number" id="pc-ground-pm" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+            </div>
+
+            <div class="pc-sub">Match Words <span class="k-count-inline" id="pc-words-count">(0)</span></div>
+            <div class="k-hint" style="margin-bottom:8px;">A row is ticked when its text contains any word switched on here.</div>
+            <div class="email-add-bar">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <input type="text" id="pc-word-input" class="email-input" placeholder="Add a word to match&hellip;" autocomplete="off" />
+              <button id="pc-word-add" type="button" class="email-io-btn" title="Add word" aria-label="Add word">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <div class="pc-list" id="pc-words-list"></div>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Flight Selection</div>
+              <div class="module-desc">Picks the only flight left after filtering, or the latest one on your hotkey</div>
+            </div>
+            <button id="pc-flight-gear" class="module-gear-btn" type="button" title="Flight hotkey" aria-label="Flight hotkey">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-singleflight" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-flight-extra" style="display:none;">
+            <div class="pc-sub">Pick Latest Flight</div>
+            <div class="k-hint" style="margin-bottom:8px;">Press this on a flight table to select the row with the highest departure time.</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotkey</label>
+                <div id="pc-flight-hotkey-row"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Hotel &amp; Services Prices</div>
+              <div class="module-desc">Expands accordions, zeroes trip numbers, ticks acknowledge boxes, fills prices</div>
+            </div>
+            <button id="pc-prices-gear" class="module-gear-btn" type="button" title="Price settings" aria-label="Price settings">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-autofill" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-prices-extra" style="display:none;">
+            <div class="pc-sub">Hotel Prices</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label" title="Static = one fixed value; Calc = nights x rate">Price mode</label>
+                <select id="pc-hotel-mode" class="field-input">
+                  <option value="static">Static value</option>
+                  <option value="calc">Calc (nights &times; rate)</option>
+                </select>
+              </div>
+              <div style="flex:1; min-width:0;" id="pc-hotel-static-wrap">
+                <label class="k-mini-label">Hotel price</label>
+                <input type="number" id="pc-hotel-bp-static" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0; display:none;" id="pc-hotel-rate-wrap">
+                <label class="k-mini-label">Rate / night</label>
+                <input type="number" id="pc-hotel-bp-rate" class="field-input" placeholder="100" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Profit margin</label>
+                <input type="number" id="pc-hotel-pm" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+            </div>
+
+            <div class="pc-sub">Beds</div>
+            <div class="pc-inline-toggle">
+              <label class="toggle-switch toggle-switch-sm" title="Fill an empty beds field"><input type="checkbox" id="pc-beds" /><span class="slider"></span></label>
+              <input type="number" id="pc-beds-value" class="field-input" placeholder="10000" autocomplete="off" title="Value written into an empty beds field" />
+            </div>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Services Selection</div>
+              <div class="module-desc">Fills the Enrichment and Additional Services dialogs &mdash; date, destination and prices</div>
+            </div>
+            <button id="pc-services-gear" class="module-gear-btn" type="button" title="Services settings" aria-label="Services settings">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-services" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-services-extra" style="display:none;">
+            <div class="pc-sub">Enrichment Services</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Price</label>
+                <input type="number" id="pc-enrichment-bp" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Profit margin</label>
+                <input type="number" id="pc-enrichment-pm" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+            </div>
+            <div class="pc-inline-toggle" style="margin-top:9px;">
+              <label class="toggle-switch toggle-switch-sm" title="Pick the first available date"><input type="checkbox" id="pc-enrichment-autodate" /><span class="slider"></span></label>
+              <span class="pc-inline-text">Pick the first available date</span>
+            </div>
+            <div class="k-hint" style="margin-bottom:8px;">Off = the date is left for you to set, and nothing else runs until you do.</div>
+
+            <div class="pc-sub">Destinations <span class="k-count-inline" id="pc-dests-count">(0)</span></div>
+            <div class="k-hint" style="margin-bottom:8px;">One is picked at random from the ones switched on. While this list is empty, no destination is chosen at all.</div>
+            <div class="email-add-bar">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <input type="text" id="pc-dest-input" class="email-input" placeholder="Add a destination&hellip;" autocomplete="off" />
+              <button id="pc-dest-add" type="button" class="email-io-btn" title="Add destination" aria-label="Add destination">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <div class="pc-list" id="pc-dests-list"></div>
+
+            <div class="pc-sub">Additional Services</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label" title="Written into the dialog's name and details fields">Service text</label>
+                <input type="text" id="pc-service-text" class="field-input" placeholder="ZIARAT" autocomplete="off" />
+              </div>
+            </div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Price</label>
+                <input type="number" id="pc-additional-bp" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Profit margin</label>
+                <input type="number" id="pc-additional-pm" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Transport Selection</div>
+              <div class="module-desc">On the transport page: picks Train when offered, else Land, and fills trip number &amp; price</div>
+            </div>
+            <button id="pc-transport-gear" class="module-gear-btn" type="button" title="Vehicle settings" aria-label="Vehicle settings">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-transport" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-transport-extra" style="display:none;">
+            <div class="pc-sub">Transport Price</div>
+            <div class="k-hint" style="margin-bottom:8px;">Company, vehicle model and type are set by your own dropdown rules on the Automation tab, not here.</div>
+            <div class="k-row">
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Buying price</label>
+                <input type="number" id="pc-transport-cost" class="field-input" placeholder="10" autocomplete="off" />
+              </div>
+              <div style="flex:1; min-width:0;">
+                <label class="k-mini-label">Profit margin</label>
+                <input type="number" id="pc-transport-profit" class="field-input" placeholder="1" autocomplete="off" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-info">
+              <div class="module-name">Select Agents &amp; Add</div>
+              <div class="module-desc">Ticks the agent companies switched on here, then clicks Add</div>
+            </div>
+            <button id="pc-agents-gear" class="module-gear-btn" type="button" title="Agent companies" aria-label="Agent companies">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <label class="toggle-switch"><input type="checkbox" id="pc-agents" /><span class="slider"></span></label>
+          </div>
+          <div class="module-extra" id="pc-agents-extra" style="display:none;">
+            <div class="pc-sub">Agent Companies <span class="k-count-inline" id="pc-agents-count">(0)</span></div>
+            <div class="k-hint" style="margin-bottom:8px;">Only the ones switched on get ticked. Names must match exactly.</div>
+            <div class="email-add-bar">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <input type="text" id="pc-agent-input" class="email-input" placeholder="Add a company name&hellip;" autocomplete="off" />
+              <button id="pc-agent-add" type="button" class="email-io-btn" title="Add company" aria-label="Add company">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <div class="pc-list" id="pc-agents-list"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div><!-- /pc-content -->
+    </div><!-- /panel-packagecreator -->
+
     <!-- panel-mvtotals removed — Mutamer/Voucher Totals is now a module
          card in Modules > Utilities, see below. -->
 
@@ -1206,5 +1484,6 @@
     <script src="brn-request.js"></script>
     <script src="mv-totals.js"></script>
     <script src="talab-copy.js"></script>
+    <script src="package-creator.js"></script>
   </body>
 </html>

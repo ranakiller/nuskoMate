@@ -252,7 +252,7 @@ const SYNC_KEYS = [
   // Old per-category toggles kept syncing too (read by the one-time
   // moduleAutoRules migration in popup.js) — harmless once migrated.
   "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect",
-  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "moduleAutoDatePicker", "extensionEnabled",
+  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "moduleAutoDatePicker", "modulePackageCreator", "pkgCreatorSettings", "extensionEnabled",
   "reloadInterval", "batchDelay", "batchFieldSelector",
   "emailList", "activeEmailId", "email", "mobile",
   "brnHotelList", "brnLastUsed", "brnHotkey", "brnDefaultPrice", "brnDefaultNights",

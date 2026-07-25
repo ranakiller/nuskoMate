@@ -34,6 +34,7 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | **Translation Rules** | Field-to-field translation, or auto-detect-and-translate any foreign text on a page — either replaces the text in place, or leaves it untouched and shows the translation in an instant hover tooltip with a one-key commit if you want it copied into the page after all. Ships with 4 ready-made rules translating the Add Mutamer name fields to Arabic — edit or turn them off like any other rule |
 | **URL Shifter** | Redirects to a target URL either when the current URL matches a condition, or when a chosen element appears anywhere on the page (even dynamically inserted ones) |
 | **BRN Request** | A hotkey-driven hotel search bar with auto-captured hotel IDs and agreement auto-fill |
+| **Package Creator** | Seven helpers for the create-package flow, each with its own switch: an on-page **Runner** that takes pasted Talab blocks and drives the whole wizard end to end (dates → latest flight → trips → hotels/BRNs/room counts → save, then straight on to the next queued block); **Ground Service** row ticking + price; **Flight Selection** (auto-picks the only flight left after filtering, or the latest one on a configurable hotkey); **Hotel & Services Prices** (accordions, trip numbers, acknowledge boxes, prices, beds); **Services Selection** for the Enrichment/Additional dialogs (first available date, random destination from your own allow-list); **Transport Selection** (Train over Land, trip number, price) |
 
 Every rule/step/redirect-rule list shares the same tooling:
 - **Pick** an element on the live page via the on-page inspector, then **Highlight** it to confirm, all through one consistent button pair everywhere a selector is needed
@@ -105,6 +106,7 @@ nuskoMate/
 │   ├── mv-totals.js                 # Totals module settings (page list)
 │   ├── brn-request.js               # BRN Request tab (hotkey + hotel list)
 │   ├── talab-copy.js                # Copy tool settings (per-line toggles + hotkey)
+│   ├── package-creator.js           # Package Creator tab (helper switches + per-helper settings)
 │   └── keys-admin.js                # License Keys admin tab
 ├── modules/                         # Content-script feature modules (one per toggle)
 │   ├── autofill.js, auto-reload.js, issue-date-calc.js,
@@ -115,7 +117,8 @@ nuskoMate/
 │   ├── mv-totals.js                 # Injects the running Mutamer/Voucher/Rows total
 │   ├── brn-request.js               # Hotel search bar + auto-capture + agreement autofill
 │   ├── talab-copy.js                # Injects the Copy button/hotkey on 4 Masar pages
-│   └── auto-date-picker.js          # Type-a-shorthand date filler for any calendar field
+│   ├── auto-date-picker.js          # Type-a-shorthand date filler for any calendar field
+│   └── package-creator.js           # The seven create-package helpers + the Runner state machine
 ├── utils/
 │   ├── license.js                   # Client licensing API (activate, sync, share links, heartbeat)
 │   ├── route-watcher.js             # SPA route-change detection
@@ -162,4 +165,4 @@ nuskoMate/
 
 **Release checklist**: whenever a new version ships, update this README (and the [releases repo's README](https://github.com/ranakiller/nuskomate-releases)) to reflect current features — both should always describe what's actually in that release, not what shipped several versions ago.
 
-Current version: **v3.6.0** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.
+Current version: **v3.7.0** — see [Releases](https://github.com/ranakiller/nuskomate-releases/releases) for the full per-version changelog.

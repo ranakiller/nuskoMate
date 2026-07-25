@@ -99,6 +99,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-groups": "groups",
       "toggle-talabcopy": "talabcopy",
       "toggle-autodatepicker": "autodatepicker",
+      "toggle-packagecreator": "packagecreator",
     };
 
     // Is a given tool unlocked for the current key? (features null = all
@@ -157,7 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now (autorules also
       // accepts the 3 old ids it replaced — see has() above).
-      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"]].forEach(([up, ct, feat]) => {
+      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -237,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn"].forEach((idb) => {
+    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -463,6 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-groups",      key: "moduleGroupsExport"                },
     { id: "toggle-talabcopy",   key: "moduleTalabCopy"                   },
     { id: "toggle-autodatepicker", key: "moduleAutoDatePicker"           },
+    { id: "toggle-packagecreator", key: "modulePackageCreator", offLabel: true },
   ];
 
   // ALL modules default ON for new installs (key never set = treat as true).

@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
     groups: "Groups Export",
     brnrequest: "BRN Request",
     translaterules: "Translation Rules",
+    packagecreator: "Package Creator",
     mvtotals: "Mutamer/Voucher Totals",
     bulk: "Bulk Parser",
     reload: "Auto Reload",
@@ -37,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // in modules/auto-clicker.js / popup.js for the read-side backward compat.
   const TOOL_GROUPS = [
     { name: "Mutamer Details Fill", tools: ["autofill", "translaterules", "issuedate", "vaccine", "ocr", "father", "batch"] },
-    { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest"] },
+    { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest", "packagecreator"] },
     { name: "Passport Parser",      tools: ["bulk"] },
     { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy", "autodatepicker"] },
   ];

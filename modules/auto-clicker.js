@@ -610,9 +610,17 @@
   }
 
   // ── Mode: fieldToField ──────────────────────────────────────────────────
-  // Keyed by rule id (not element) — the rule shape only ever has ONE source
-  // + ONE target, so there's nothing to disambiguate beyond the rule itself.
-  const translateSourceCache = new Map();
+  // Keyed by the TARGET ELEMENT, holding the source text its current
+  // contents were translated from. It used to be keyed by rule id, which
+  // silently skipped any repeat of the same source text — so a second
+  // card/dialog carrying the identical value (two "ZIARAT" services in a
+  // row, two mutamers with the same first name) never got its translation,
+  // because the rule had "already translated that text once".
+  const translateSourceCache = new WeakMap();
+  // Targets with a translation request still in the air. The cache alone
+  // can't stand in for this: until the reply lands the target is still
+  // empty, and the empty-target check below would re-fire every scan tick.
+  const translateFieldInFlight = new WeakSet();
 
   function scanTranslateFieldToField() {
     rules.forEach((rule) => {
@@ -623,15 +631,21 @@
       if (!targetEl || !sourceEl) return;
       const raw = readElementText(sourceEl);
       if (!raw) return;
-      const key = String(rule.id);
-      if (translateSourceCache.get(key) === raw) return;
-      translateSourceCache.set(key, raw); // set before the await — prevents firing again mid-flight
+      if (translateFieldInFlight.has(targetEl)) return;
+      // Re-translate when the source changed OR the target is sitting
+      // empty — the second covers Angular reusing one element for the next
+      // card, where the cache still remembers the previous card's text.
+      if (translateSourceCache.get(targetEl) === raw && readElementText(targetEl)) return;
+
+      translateFieldInFlight.add(targetEl);
+      translateSourceCache.set(targetEl, raw);
       translateText(raw, rule.sourceLang || "en", rule.targetLang || "ar")
         .then(({ translated }) => {
           writeElementText(targetEl, translated);
           applyDir(targetEl, rule.targetLang || "ar");
         })
-        .catch(() => {});
+        .catch(() => {})
+        .then(() => translateFieldInFlight.delete(targetEl));
     });
   }
 
