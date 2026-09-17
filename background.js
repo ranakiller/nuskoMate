@@ -78,6 +78,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
+  if (msg.type === "nkPipelineClearQueue") {        // popup's "Clear Stuck Queue" button — see modules/whatsapp-pipeline.js's clearStuckQueue
+    WA_PIPELINE.clearStuckQueue()
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkMasarMutamerConfirmed") {     // Mutamer List confirmation relay from modules/masar-add-mutamer.js — the real "this passport is actually saved" signal
+    WA_PIPELINE.handleMutamerConfirmed(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
   if (msg.type !== "nkLicense") return;            // not for us
   handle(msg)
     .then(sendResponse)

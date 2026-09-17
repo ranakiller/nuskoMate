@@ -177,6 +177,7 @@ const WA_PIPELINE = (() => {
   // that page's bulk parser at the same moment would desync this), each scan
   // completion corresponds to the oldest still-unresolved entry here. ──
   const FEED_ORDER_KEY = "waMasarFeedOrder";
+  const CONFIRM_QUEUE_KEY = "waMasarConfirmQueue"; // see pushConfirmQueue's own comment further down for what this is
   async function pushFeedOrder(entry) {
     const { [FEED_ORDER_KEY]: list } = await chrome.storage.local.get([FEED_ORDER_KEY]);
     const next = Array.isArray(list) ? list : [];
@@ -198,6 +199,64 @@ const WA_PIPELINE = (() => {
     const [head, ...rest] = list;
     await chrome.storage.local.set({ [FEED_ORDER_KEY]: rest });
     return head;
+  }
+  // Removes ONE specific entry rather than assuming it's at the head — used
+  // when a feed fails after already being pushed (see runReservationEvent).
+  // Different reservations' events run concurrently (only same-reservation
+  // calls share a lock), so another entry can land in between this one's
+  // push and its own failure being detected; blindly popping the head in
+  // that case would silently discard a DIFFERENT, perfectly good
+  // reservation's tracking entry instead of this failed one's.
+  async function removeFeedOrder(reservationNo, messageId) {
+    const { [FEED_ORDER_KEY]: list } = await chrome.storage.local.get([FEED_ORDER_KEY]);
+    if (!Array.isArray(list) || !list.length) return;
+    const next = list.filter((e) => !(e.reservationNo === reservationNo && e.messageId === messageId));
+    if (next.length !== list.length) await chrome.storage.local.set({ [FEED_ORDER_KEY]: next });
+  }
+
+  // ── Manual "Clear Stuck Queue" (popup button) ────────────────────────────
+  // For when processing stops mid-flight — an error, a page reload, the
+  // extension itself reloading — and leaves a reservation permanently
+  // "confirmed, awaiting more passports/mutamer save" with nothing left that
+  // will ever move it forward, plus a stale waMasarFeedOrder entry that
+  // could wrongly latch onto some LATER, unrelated scan. Toggling the
+  // Pipeline module off/on does NOT clear any of this by itself — off just
+  // stops new events from being accepted, it doesn't touch already-recorded
+  // state, which is exactly why old work could still resurface once it's
+  // switched back on. Only ever removes reservations that are mid-flight
+  // (status "confirmed" with no repliedAt yet) — anything already resolved
+  // (not_found/draft/cancelled/conflict/replied) is left alone, since those
+  // are done, not stuck, and are worth keeping for the passport-reuse
+  // conflict check and for a record of what happened.
+  async function clearStuckQueue() {
+    const { [DB_KEY]: db } = await chrome.storage.local.get([DB_KEY]);
+    const records = db || {};
+    const stuckNos = Object.keys(records).filter((no) => records[no].status === "confirmed" && !records[no].repliedAt);
+    for (const no of stuckNos) delete records[no];
+    await chrome.storage.local.set({ [DB_KEY]: records });
+
+    // Drop any passport→reservation index entries that pointed at a
+    // reservation we just cleared — otherwise a stale entry could wrongly
+    // flag a real future booking as a passport-reuse conflict against a
+    // reservation that no longer has any tracking record at all.
+    const { [PASSPORT_INDEX_KEY]: idx } = await chrome.storage.local.get([PASSPORT_INDEX_KEY]);
+    const nextIdx = idx || {};
+    let idxChanged = false;
+    for (const passportNo of Object.keys(nextIdx)) {
+      if (stuckNos.includes(nextIdx[passportNo])) { delete nextIdx[passportNo]; idxChanged = true; }
+    }
+    if (idxChanged) await chrome.storage.local.set({ [PASSPORT_INDEX_KEY]: nextIdx });
+
+    const { [FEED_ORDER_KEY]: feedOrder } = await chrome.storage.local.get([FEED_ORDER_KEY]);
+    const feedOrderCount = Array.isArray(feedOrder) ? feedOrder.length : 0;
+    await chrome.storage.local.set({ [FEED_ORDER_KEY]: [] });
+
+    const { [CONFIRM_QUEUE_KEY]: confirmQueue } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+    const confirmQueueCount = Array.isArray(confirmQueue) ? confirmQueue.length : 0;
+    await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: [] });
+
+    await pLog("info", `Pipeline: manually cleared ${stuckNos.length} stuck reservation(s)${stuckNos.length ? ` (${stuckNos.join(", ")})` : ""}, ${feedOrderCount} pending feed-order entr${feedOrderCount === 1 ? "y" : "ies"}, and ${confirmQueueCount} pending confirm-queue entr${confirmQueueCount === 1 ? "y" : "ies"}.`);
+    return { ok: true, clearedReservations: stuckNos, clearedFeedOrderCount: feedOrderCount, clearedConfirmQueueCount: confirmQueueCount };
   }
   // `mutamers` here is the full {passportNo, sex, age} array, not just
   // passport numbers — modules/masar-group.js needs `sex` to pick a group
@@ -307,18 +366,34 @@ const WA_PIPELINE = (() => {
       return;
     }
 
+    // Register the FIFO entry BEFORE sending the feed request, not after —
+    // confirmed live this ordering actually matters: when a passport is fed
+    // DIRECTLY (the upload field was free), nkBatchFeedOrQueue's own call
+    // triggers the OCR scan as part of that same round trip, so the scan can
+    // finish and get relayed to the background BEFORE the tab-messaging
+    // response even makes it back here. With pushFeedOrder called only
+    // AFTER that await, handleMasarScanResult would find nothing queued yet
+    // for this reservation (treating a real result as an untracked manual
+    // upload and dropping it), while this reservation's own entry — pushed
+    // moments too late — sat in the FIFO to be wrongly matched against
+    // whatever unrelated scan happened to complete next. That's what
+    // "instantly went to creating group" was: an old/wrong FIFO entry
+    // getting resolved by a scan that wasn't actually its own.
+    await pushFeedOrder({ reservationNo, messageId });
+
     let queued;
     try {
       queued = await queuePassportToMasar(media.dataUrl, media.filename || `passport-${reservationNo}.jpg`);
     } catch (err) {
+      await removeFeedOrder(reservationNo, messageId); // the feed never reached Masar — nothing will ever complete this entry, so don't leave it stuck in the queue
       await pLog("error", `Pipeline: could not hand reservation ${reservationNo}'s passport to Masar's bulk parser: ${err.message}`);
       return;
     }
     if (!queued || !queued.ok) {
+      await removeFeedOrder(reservationNo, messageId);
       await pLog("error", `Pipeline: Masar didn't accept reservation ${reservationNo}'s passport into the queue: ${(queued && queued.error) || "no confirmation"}`);
       return;
     }
-    await pushFeedOrder({ reservationNo, messageId });
     await pLog("info", `Pipeline: reservation ${reservationNo}'s passport (message ${messageId}) handed to Masar's bulk parser (${queued.mode === "fed-directly" ? "fed immediately" : "queued behind others"}) — awaiting OCR result.`);
   }
 
@@ -366,27 +441,23 @@ const WA_PIPELINE = (() => {
     }
     await setPassportOwner(scan.passportNo, reservationNo);
 
-    // 4) Track this mutamer against the reservation; only create the group
-    // once every expected PAX has been fed (avoids a group per single
-    // passport when a reservation has several travelers).
+    // 4) Track this mutamer against the reservation (identity only — sex/
+    // age/name for group-leader picking) — but DON'T treat "OCR read it" as
+    // "ready for group creation" (see CONFIRM_QUEUE_KEY below for why).
     const mutamers = [...(record.mutamers || []), { passportNo: scan.passportNo, name: scan.name, sex: scan.sex || null, age: scan.age ?? null, messageId }];
-    const expectedPax = record.expectedPax || (crm && crm.pax) || null;
     await saveRecord(reservationNo, { mutamers });
-    await pLog("info", `Pipeline: OCR read mutamer "${scan.name || "(name unknown)"}" (passport ${scan.passportNo}) for reservation ${reservationNo}`);
+    await pLog("info", `Pipeline: OCR read mutamer "${scan.name || "(name unknown)"}" (passport ${scan.passportNo}) for reservation ${reservationNo} — waiting for Masar to confirm it's actually saved.`);
 
-    if (!expectedPax) {
-      // CRM's PAX: field didn't parse (see crm-lookup.js's grab("PAX:")) — no
-      // signal at all for how many travelers this reservation has. Proceeding
-      // straight to group creation here would silently treat "unknown" the
-      // same as "just this one," which is wrong for any multi-pax booking.
-      // Flag it instead of guessing.
-      await pLog("warn", `Pipeline: reservation ${reservationNo} has no PAX count from CRM — can't tell if more passports are expected. Creating the group with just the ${mutamers.length} fed so far; check manually if this booking has more travelers.`);
-    } else if (mutamers.length < expectedPax) {
-      await pLog("info", `Pipeline: reservation ${reservationNo} has ${mutamers.length}/${expectedPax} passports fed — waiting for the rest before creating a group.`);
-      return;
-    }
+    // 5) Queue this passport for confirmation instead of deciding readiness
+    // here — see pushConfirmQueue's comment for the full reasoning.
+    await pushConfirmQueue({ reservationNo, messageId, passportNo: scan.passportNo });
+  }
 
-    // 5) Create the Masar group.
+  // ── Group creation + reply, split out of the old continueAfterMasarScan
+  // so it can be triggered from the confirmation step below instead of
+  // right after an OCR read. ──
+  async function createGroupAndReply(reservationNo, record) {
+    const { waId, chatName, crm, mutamers } = record;
     const groupName = buildGroupName(crm && crm.parsedPackage);
     if (!groupName) {
       await pLog("error", `Pipeline: could not build a group name for reservation ${reservationNo} (CRM Package string didn't parse: "${crm && crm.package}") — stopping before group creation.`);
@@ -395,7 +466,7 @@ const WA_PIPELINE = (() => {
 
     let group;
     try {
-      group = await createMasarGroup(groupName, mutamers.filter((m) => m.passportNo));
+      group = await createMasarGroup(groupName, (mutamers || []).filter((m) => m.passportNo));
     } catch (err) {
       await pLog("error", `Pipeline: Masar create-group failed for reservation ${reservationNo}: ${err.message}`);
       return;
@@ -407,7 +478,7 @@ const WA_PIPELINE = (() => {
     await saveRecord(reservationNo, { groupName, groupCreatedAt: Date.now() });
     await pLog("info", `Pipeline: created Masar group "${groupName}" for reservation ${reservationNo}`);
 
-    // 6) Screenshot + caption, then reply in the originating chat.
+    // Screenshot + caption, then reply in the originating chat.
     let assets;
     try {
       assets = await getGroupReplyAssets(groupName);
@@ -423,6 +494,67 @@ const WA_PIPELINE = (() => {
     await sendReply(waId, { mediaDataUrl: assets.screenshotDataUrl, filename: `${groupName}.png`, caption: assets.caption });
     await saveRecord(reservationNo, { repliedAt: Date.now() });
     await pLog("info", `Pipeline: replied in chat "${chatName}" for reservation ${reservationNo} — done.`);
+  }
+
+  // ── Confirmation queue — the REAL "is this passport actually done" signal
+  // (2026-09-18, v3.11.21, replacing the disruptive polling attempt) ──────
+  // Per the user's own description of how their existing Masar workflow
+  // actually behaves: after a passport is fed and their own Auto-Clicker
+  // rules finish autofilling/clicking through/Saving it, MASAR ITSELF (that
+  // existing workflow) navigates to the Mutamer List page as its own final
+  // step — Nuskomate never has to drive that navigation, and must NOT poll
+  // for it (a repeated navigate-away-and-back loop was confirmed live to
+  // interrupt the user's own in-progress Auto-Clicker work on the CURRENT
+  // passport). Instead: modules/masar-add-mutamer.js reacts PASSIVELY to
+  // route-watcher.js's "nusuk-route-change" event — whenever the SPA's own
+  // navigation happens to land on the Mutamer List (for this automated flow,
+  // or a human checking manually), it checks whichever entries are pending
+  // here against the visible rows, relays back whichever ones it finds via
+  // nkMasarMutamerConfirmed, and then — ONLY if something here was actually
+  // pending, so a human's own manual visit is never hijacked — redirects
+  // back to Add Mutamer so batch-passport.js's own queue can feed the next
+  // one. Exactly the cycle described: feed → (their workflow saves it) →
+  // Mutamer List appears → Nuskomate confirms + redirects back → feed the
+  // next → repeat.
+  async function pushConfirmQueue(entry) {
+    const { [CONFIRM_QUEUE_KEY]: list } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+    const next = Array.isArray(list) ? list : [];
+    next.push({ ...entry, queuedAt: Date.now() });
+    await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: next });
+  }
+
+  // Called once a passport's OWN reservation+passport number has been
+  // confirmed visible on the Mutamer List (see masar-add-mutamer.js's
+  // reactive check). Only NOW do we know the mutamer is truly saved and can
+  // count toward expectedPax — this is the actual gate for group creation.
+  async function handleMutamerConfirmed({ reservationNo, messageId, passportNo }) {
+    return withReservationLock(reservationNo, async () => {
+      const record = await getRecord(reservationNo);
+      if (!record) {
+        await pLog("warn", `Pipeline: Mutamer List confirmed passport ${passportNo}, but no tracking record exists for reservation ${reservationNo} anymore — ignoring.`);
+        return;
+      }
+      const confirmed = [...(record.confirmedPassports || [])];
+      if (!confirmed.includes(passportNo)) confirmed.push(passportNo);
+      await saveRecord(reservationNo, { confirmedPassports: confirmed });
+
+      const expectedPax = record.expectedPax || (record.crm && record.crm.pax) || null;
+      await pLog("info", `Pipeline: confirmed mutamer ${passportNo} saved in Masar for reservation ${reservationNo} (${confirmed.length}${expectedPax ? `/${expectedPax}` : ""} confirmed).`);
+
+      if (!expectedPax) {
+        // CRM's PAX didn't parse — no signal for how many travelers this
+        // reservation has. Proceeding after just one confirmation would
+        // silently treat "unknown" as "just this one," wrong for any
+        // multi-pax booking — flagged instead of guessed.
+        await pLog("warn", `Pipeline: reservation ${reservationNo} has no PAX count from CRM — can't tell if more passports are expected. Creating the group with just the ${confirmed.length} confirmed so far; check manually if this booking has more travelers.`);
+      } else if (confirmed.length < expectedPax) {
+        await pLog("info", `Pipeline: reservation ${reservationNo} has ${confirmed.length}/${expectedPax} passports confirmed — waiting for the rest before creating a group.`);
+        return;
+      }
+
+      const fresh = await getRecord(reservationNo); // re-read: saveRecord above already merged confirmedPassports in
+      await createGroupAndReply(reservationNo, fresh);
+    });
   }
 
   // ── Entry point for the OCR-scan relay (see masar-add-mutamer.js) — pops
@@ -448,5 +580,5 @@ const WA_PIPELINE = (() => {
     return withReservationLock(entry.reservationNo, () => continueAfterMasarScan(entry.reservationNo, entry.messageId, scan || {}));
   }
 
-  return { processReservationEvent, handleMasarScanResult, registerTestFeed, callWaAction, sendReply, getRecord };
+  return { processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed, callWaAction, sendReply, getRecord, clearStuckQueue };
 })();

@@ -1605,6 +1605,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pipelineQueueList  = document.getElementById("pipeline-queue-list");
   const pipelineQueueEmpty = document.getElementById("pipeline-queue-empty");
   const pipelineQueueRefresh = document.getElementById("pipeline-queue-refresh");
+  const pipelineQueueClearStuck = document.getElementById("pipeline-queue-clear-stuck");
   const pipelineLogsList   = document.getElementById("pipeline-logs-list");
   const pipelineLogsEmpty  = document.getElementById("pipeline-logs-empty");
   const pipelineLogsRefresh = document.getElementById("pipeline-logs-refresh");
@@ -1672,6 +1673,28 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.get([RESERVATIONS_KEY], (res) => renderPipelineQueue(res[RESERVATIONS_KEY]));
   }
   if (pipelineQueueRefresh) pipelineQueueRefresh.addEventListener("click", loadPipelineQueue);
+
+  // Turning the Pipeline module off only stops NEW events from being
+  // accepted — it doesn't touch anything already recorded, so a reservation
+  // that got stuck mid-flight (an error, a page reload, the extension
+  // itself reloading) stays stuck and can resurface once the module's
+  // switched back on. This clears exactly that: reservations still marked
+  // "confirmed" with no reply sent yet, plus the internal queue that
+  // correlates OCR results back to a reservation. Anything already resolved
+  // (not found/on hold/cancelled/conflict/already replied) is left alone.
+  if (pipelineQueueClearStuck) pipelineQueueClearStuck.addEventListener("click", async () => {
+    const ok = await window.nkConfirm(
+      "Clear any reservation stuck mid-processing, plus the internal OCR-wait queue? Reservations that already got a reply (or were On hold/Cancelled/Not found) are left alone.",
+      { confirmText: "Clear stuck queue", danger: true }
+    );
+    if (!ok) return;
+    chrome.runtime.sendMessage({ type: "nkPipelineClearQueue" }, (res) => {
+      if (!res || !res.ok) { window.nkToast(`Failed to clear: ${(res && res.error) || "unknown error"}`, "error"); return; }
+      const n = res.clearedReservations.length;
+      window.nkToast(`Cleared ${n} stuck reservation${n === 1 ? "" : "s"} and ${res.clearedFeedOrderCount} pending queue entr${res.clearedFeedOrderCount === 1 ? "y" : "ies"}`, "success");
+      loadPipelineQueue();
+    });
+  });
 
   function renderPipelineLogs(logs) {
     const pipelineLogs = (Array.isArray(logs) ? logs : []).filter((e) => e.m && e.m.startsWith("Pipeline:"));

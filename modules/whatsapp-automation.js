@@ -161,11 +161,6 @@ async function markDetected(mediaMessageId) {
 // ── The actual per-message handler ──────────────────────────────────────
 async function handleIncomingMessage(payload) {
   const { waId, isGroup, chatName, fromMe, messageId, messageType, text, timestamp } = payload || {};
-  // TEMPORARY debug trace (remove once live receiving is confirmed working) —
-  // logs every raw event this handler is ever called with, BEFORE any of the
-  // filtering below, so a message that gets dropped by the fromMe check, the
-  // pairing check, or dedup still leaves visible proof it arrived at all.
-  await bgLog("info", `Pipeline: [debug] raw event — waId=${waId} fromMe=${fromMe} type=${messageType} textLen=${(text || "").length} chatName="${chatName}"`);
   if (!waId || fromMe) return; // never react to the agency's own messages
   const now = timestamp || Date.now();
 

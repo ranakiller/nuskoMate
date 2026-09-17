@@ -166,6 +166,9 @@
     return true;
   }
 
+  // Manual-only (Test Tools' "Verify Mutamers" button) — actively navigates
+  // to the Mutamer List to check, unlike the reactive confirmation below
+  // which never drives navigation itself.
   async function verifyMutamers(expectedPassportNumbers) {
     await goToMutamerListPage();
     await setPageSizeTo100().catch(() => {});
@@ -179,6 +182,72 @@
     }
     return { ok: true, found, missing, allFound: missing.length === 0 };
   }
+
+  // ── Reactive Mutamer List confirmation (2026-09-18, v3.11.21) ────────────
+  // The real "is this passport actually saved" signal for the WhatsApp
+  // pipeline, replacing an earlier polling attempt that actively navigated
+  // to this page every 15s and was confirmed live to interrupt the user's
+  // own in-progress Auto-Clicker work on whatever passport was currently
+  // being processed on Add Mutamer.
+  //
+  // Per the user's own description of their existing workflow: after a
+  // passport is fed and their Auto-Clicker rules finish autofilling/
+  // clicking through/Saving it, MASAR ITSELF (that existing workflow, not
+  // anything built here) navigates to this Mutamer List page as its own
+  // final step. Nuskomate never drives that navigation — it just reacts,
+  // via route-watcher.js's "nusuk-route-change" event, whenever the SPA
+  // happens to land here. If whatsapp-pipeline.js has anything pending
+  // confirmation (waMasarConfirmQueue — pushed once OCR has identified a
+  // fed passport's number), check the visible rows for it, relay back
+  // whichever ones are found, then hand control back to Add Mutamer so
+  // batch-passport.js's own queue can feed the next one — exactly the cycle
+  // described: feed → (their workflow saves it) → Mutamer List appears →
+  // Nuskomate confirms + redirects back → feed the next → repeat.
+  //
+  // Deliberately does nothing at all when nothing is pending — a human
+  // manually checking this page on their own is never redirected away from
+  // it; only genuinely automated, Nuskomate-initiated feeds get this
+  // treatment.
+  const CONFIRM_QUEUE_KEY = "waMasarConfirmQueue";
+  let checkingConfirmations = false;
+  async function checkMutamerListConfirmations() {
+    if (checkingConfirmations) return; // a route-change can fire more than once per navigation; avoid overlapping checks
+    checkingConfirmations = true;
+    try {
+      const { [CONFIRM_QUEUE_KEY]: pending } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+      const list = Array.isArray(pending) ? pending : [];
+      if (!list.length) return; // nothing we're waiting on — leave the page alone
+
+      await sleep(800); // let the grid finish rendering after the route change
+      const bodyText = document.body.innerText;
+      const stillPending = [];
+      for (const entry of list) {
+        if (entry.passportNo && bodyText.includes(entry.passportNo)) {
+          wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
+          chrome.runtime.sendMessage({
+            type: "nkMasarMutamerConfirmed",
+            reservationNo: entry.reservationNo,
+            messageId: entry.messageId,
+            passportNo: entry.passportNo,
+          }).catch(() => {});
+        } else {
+          stillPending.push(entry);
+        }
+      }
+      await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: stillPending });
+
+      // Hand control back to Add Mutamer so the batch queue can feed the
+      // next passport — only reached because something WAS pending above,
+      // so this was genuinely our own automated flow, not a human's visit.
+      await goToAddMutamerPage().catch(() => {});
+    } finally {
+      checkingConfirmations = false;
+    }
+  }
+  window.addEventListener("nusuk-route-change", () => {
+    if (location.pathname === MUTAMER_LIST_PATH) checkMutamerListConfirmations();
+  });
+  if (location.pathname === MUTAMER_LIST_PATH) checkMutamerListConfirmations(); // in case this content script attached while already on the page (e.g. an extension reload)
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg) return;

@@ -727,9 +727,14 @@
       <div class="section" id="pipeline-queue-section">
         <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Queue</span>
-          <button id="pipeline-queue-refresh" type="button" class="logs-btn" title="Refresh">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          </button>
+          <div class="logs-actions">
+            <button id="pipeline-queue-refresh" type="button" class="logs-btn" title="Refresh">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+            <button id="pipeline-queue-clear-stuck" type="button" class="logs-btn logs-btn-danger" title="Clear any reservation stuck mid-processing (e.g. after an error) plus the internal OCR-wait queue — done/replied reservations are left alone">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
         </div>
         <div id="pipeline-queue-empty" class="logs-empty">No reservations tracked yet — this fills in as WhatsApp messages get detected and processed.</div>
         <div id="pipeline-queue-list" class="pipeline-scroll-list"></div>
