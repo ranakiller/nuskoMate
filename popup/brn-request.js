@@ -29,6 +29,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const nightsInput = document.getElementById("brn-default-nights");
   const infoBtn = document.getElementById("brn-info-btn");
   const infoPanel = document.getElementById("brn-info-panel");
+  const qsHotel = document.getElementById("brn-qs-hotel");
+  const qsHotelList = document.getElementById("brn-qs-hotel-list");
+  const qsDate = document.getElementById("brn-qs-date");
+  const qsFull = document.getElementById("brn-qs-full");
+  const qsSend = document.getElementById("brn-qs-send");
 
   if (infoBtn && infoPanel) {
     infoBtn.addEventListener("click", () => {
@@ -148,8 +153,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   }
 
-  function deleteHotel(name) {
-    if (!confirm(`Remove "${name}" from the hotel list?`)) return;
+  async function deleteHotel(name) {
+    if (!(await window.nkConfirm(`Remove "${name}" from the hotel list?`, { confirmText: "Remove", danger: true }))) return;
     const next = { ...hotels };
     delete next[name];
     saveHotels(next, render);
@@ -266,12 +271,57 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.local.get([LIST_KEY], (res) => {
     hotels = res[LIST_KEY] || {};
     render();
+    refreshQsDatalist();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes[LIST_KEY]) { hotels = changes[LIST_KEY].newValue || {}; render(); }
+    if (changes[LIST_KEY]) { hotels = changes[LIST_KEY].newValue || {}; render(); refreshQsDatalist(); }
   });
+
+  // ── Quick Send — same hotel/date/Full-Talab search as the on-page floating
+  // bar (modules/brn-request.js), triggered from here instead of a hotkey on
+  // a Masar tab. The popup has no page of its own to navigate, so it asks
+  // whichever Masar tab is active to do it via BRN_QUICK_SEARCH — same
+  // lookup, date math and URL the on-page bar uses, so results never differ
+  // depending on which one you happened to use. ──
+  function refreshQsDatalist() {
+    if (!qsHotelList) return;
+    qsHotelList.innerHTML = "";
+    Object.keys(hotels).sort((a, b) => a.localeCompare(b)).forEach((h) => {
+      const opt = document.createElement("option");
+      opt.value = h;
+      qsHotelList.appendChild(opt);
+    });
+  }
+
+  if (qsHotel || qsDate || qsFull) {
+    chrome.storage.local.get(["brnLastUsed"], (res) => {
+      const last = res.brnLastUsed || {};
+      if (qsHotel) qsHotel.value = last.hotel || "";
+      if (qsDate) qsDate.value = last.date || "";
+      if (qsFull) qsFull.checked = !!last.fullTalab;
+    });
+  }
+
+  function quickSend() {
+    const hotelName = (qsHotel && qsHotel.value.trim()) || "";
+    const dates = (qsDate && qsDate.value.trim()) || "";
+    const fullTalab = !!(qsFull && qsFull.checked);
+    if (!hotelName || !dates) { window.nkToast("Enter a hotel name and dates first.", "error"); return; }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0] || !tabs[0].id) { window.nkToast("Open a Masar page first.", "error"); return; }
+      chrome.tabs.sendMessage(tabs[0].id, { action: "BRN_QUICK_SEARCH", hotelName, dates, fullTalab }, (resp) => {
+        if (chrome.runtime.lastError) { window.nkToast("Open a Masar page and refresh it before sending a BRN request.", "error"); return; }
+        if (resp && resp.ok) window.nkToast(`Opening ${hotelName}…`, "success");
+        else window.nkToast((resp && resp.error) || "Could not send — try again.", "error");
+      });
+    });
+  }
+  if (qsSend) qsSend.addEventListener("click", quickSend);
+  if (qsDate) qsDate.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); quickSend(); } });
+  if (qsHotel) qsHotel.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); quickSend(); } });
 
   // ── Bulk edit (JSON) — same power-editing capability as the original
   // Tampermonkey script's on-page modal, just relocated into this tab. ──

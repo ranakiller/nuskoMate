@@ -8,11 +8,19 @@
   let seeded    = false;
   let flushTimer = null;
 
-  // Seed the in-memory buffer from storage once (so logs persist across reloads)
-  chrome.storage.local.get([STORAGE_KEY], (res) => {
-    if (Array.isArray(res[STORAGE_KEY])) buffer = res[STORAGE_KEY];
-    seeded = true;
-  });
+  // Seed the in-memory buffer from storage once (so logs persist across reloads).
+  // Lazily, on the first log line: this file also loads on every site allowed
+  // in Settings → Sites, and most of those pages never log anything — no
+  // reason for each one to read up to 10,000 entries out of storage.
+  let seeding = false;
+  function seed() {
+    if (seeding) return;
+    seeding = true;
+    chrome.storage.local.get([STORAGE_KEY], (res) => {
+      if (Array.isArray(res[STORAGE_KEY])) buffer = res[STORAGE_KEY];
+      seeded = true;
+    });
+  }
 
   function stringifyArg(a) {
     if (typeof a === "string") return a;
@@ -31,7 +39,7 @@
 
   function persist(entry) {
     // If storage hasn't seeded yet, retry shortly so we don't drop early logs
-    if (!seeded) { setTimeout(() => persist(entry), 50); return; }
+    if (!seeded) { seed(); setTimeout(() => persist(entry), 50); return; }
     buffer.push(entry);
     if (buffer.length > MAX_ENTRIES) buffer = buffer.slice(-MAX_ENTRIES);
     scheduleFlush();

@@ -26,7 +26,7 @@
   // autoclick/fillrules/autoselect are the pre-merge ids for what's now the
   // single "autorules" tool — kept in the list (not removed) since already-
   // issued keys may still carry them; featOK("autorules") accepts all 4.
-  const FEATURES = ["ocr", "father", "bulk", "batch", "vaccine", "issuedate", "reload", "overlay", "autorules", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups", "brnrequest", "translaterules", "mvtotals", "talabcopy", "autodatepicker", "packagecreator"];
+  const FEATURES = ["ocr", "father", "bulk", "batch", "vaccine", "issuedate", "reload", "overlay", "autorules", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups", "brnrequest", "translaterules", "mvtotals", "talabcopy", "autodatepicker", "packagecreator", "filetools"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms
@@ -286,8 +286,19 @@
   }
   // Shortly after load (catches a stale cache fast) and then periodically for
   // as long as this page/popup stays open.
-  setTimeout(checkStatus, 4000);
-  setInterval(checkStatus, 5 * 60 * 1000);
+  let heartbeatStarted = false;
+  function startHeartbeat() {
+    if (heartbeatStarted) return;
+    heartbeatStarted = true;
+    setTimeout(checkStatus, 4000);
+    setInterval(checkStatus, 5 * 60 * 1000);
+  }
+  // Masar pages and the popup always check. This file also loads on every
+  // site the user allows in Settings → Sites — possibly ALL sites, i.e. every
+  // open tab — so there it waits until the rules engine actually has
+  // something to run on that page (modules/auto-clicker.js calls
+  // startHeartbeat), instead of every tab calling the license server.
+  if (/-extension:$/.test(location.protocol) || /(^|\.)masar\.nusuk\.sa$/i.test(location.hostname)) startHeartbeat();
 
   // ── Admin (master key only) — manage the whole key list ───────────────────
   // The active key (stored licenseKey) is sent as the master credential; the
@@ -377,6 +388,6 @@
     enforced, getStatus, getKey, activate, deactivate, scan,
     isActivated, premiumOK, featureOK, onPremiumChange, FEATURES,
     adminList, adminPut, adminRevoke, adminDelete,
-    shareRules, fetchSharedRules, checkStatus,
+    shareRules, fetchSharedRules, checkStatus, startHeartbeat,
   };
 })();

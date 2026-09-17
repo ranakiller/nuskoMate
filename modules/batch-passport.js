@@ -253,6 +253,53 @@
     }
   }
 
+  // ── External entry point for the WhatsApp pipeline (modules/masar-add-
+  // mutamer.js's nkMasarQueuePassport) — feeds a batch of 1+ files exactly
+  // the way a manual multi-select already does (onChangeCapture, above):
+  // ONE atomic decision for the whole batch — the first file goes straight
+  // into the field if it's free right now, the rest are queued in the SAME
+  // call. Deliberately NOT split into one call per file: a caller awaiting
+  // each file's own separate call before starting the next (as an early
+  // version of the WhatsApp pipeline's test harness did) re-checks "is the
+  // field free" per file, and that check can race ahead of the page settling
+  // from the previous feed, misreading a field that's actually now occupied
+  // as still free. Doing it all here in one un-interruptible pass avoids
+  // that entirely, same as the manual path always has. Does NOT wait for
+  // Masar to actually finish with any of them — the caller finds out later
+  // via ocr.js's own ocrDisplay write, relayed separately (see
+  // masar-add-mutamer.js).
+  async function feedOrQueue(files) {
+    if (!isEnabled) throw new Error("Bulk Passport Parser module is off (or not licensed) — turn it on so Nuskomate can feed passports through it.");
+    if (!files || !files.length) return { ok: true, mode: "none", queued: 0 };
+    const sel = await getSelector();
+    const field = fieldExists(sel) ? findEmptyField(sel) : null;
+    if (field && !feeding && (await queueCount()) === 0) {
+      const [first, ...rest] = files;
+      rememberField(field);
+      feeding = true;
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(first);
+        field.files = dt.files;
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        if (typeof window.nkOcrScan === "function") window.nkOcrScan(first);
+        prevState = "filled"; // we just filled it; wait for the next refresh
+        armed = false;
+      } finally {
+        feeding = false;
+      }
+      if (rest.length) await queueAdd(rest);
+      updatePanel();
+      if (rest.length) toast(`Batch: ${rest.length} queued (WhatsApp)`);
+      return { ok: true, mode: "fed-directly", queued: rest.length };
+    }
+    await queueAdd(files);
+    updatePanel();
+    toast(`Batch: ${files.length} queued (WhatsApp)`);
+    return { ok: true, mode: "queued", queued: files.length };
+  }
+  window.nkBatchFeedOrQueue = feedOrQueue;
+
   // ── On-page control panel ───────────────────────────────────────────────
   function ensurePanel() {
     let p = document.getElementById("nk-batch-panel");

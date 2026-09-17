@@ -148,7 +148,7 @@
     if (startStr.includes("+")) {
       const [left, daysToAddStr] = startStr.split("+");
       const addDays = parseInt(daysToAddStr, 10);
-      if (isNaN(addDays)) { alert("Invalid +days format"); return null; }
+      if (isNaN(addDays)) { window.nkToast("Invalid +days format", "error"); return null; }
 
       // Bug fix: only length===2 was treated as "day-only" here — a single
       // digit (e.g. "5+3") fell through both branches, leaving day/month
@@ -219,6 +219,39 @@
     return `${y}-${m}-${day}`;
   }
 
+  // Shared by the on-page bar's Enter key AND the popup's own BRN tab
+  // ("Quick Send", via the BRN_QUICK_SEARCH message below) — same hotel
+  // lookup, date math, and URL-building either way, so the two can never
+  // drift out of sync. Returns { ok, error } instead of toasting directly
+  // (unlike makeDates' own internal +days-format toast, which still fires
+  // on-page — harmless either way, just redundant with the popup's own
+  // toast when this is reached via a message) so each caller can show the
+  // failure wherever the user is actually looking.
+  function performSearch(hotelName, dates, fullTalab) {
+    const hotelId = hotels[hotelName];
+    if (!hotelId) return { ok: false, error: "Hotel not found in list." };
+
+    let d1, d2;
+    if (/^\d{1,4}$/.test(dates)) { d1 = `${dates}+${defaultNights}`; d2 = null; }
+    else if (dates.includes("+")) { d1 = dates; d2 = null; }
+    else {
+      [d1, d2] = dates.split(" ");
+      if (!d1 || !d2) return { ok: false, error: "Enter dates as: 28 05 or 22+18 (to add days in 1st date)" };
+    }
+
+    const parsed = makeDates(d1, d2);
+    if (!parsed) return { ok: false, error: "Invalid date." };
+    const { start, end } = parsed;
+
+    const url = fullTalab
+      ? `https://masar.nusuk.sa/umrah/housing-agreement/create-agreement?hotelId=${hotelId}&start=${start}&end=${end}&startTime=12:00:00&endTime=10:00:00&hotelName=${encodeURIComponent(hotelName)}`
+      : `https://masar.nusuk.sa/umrah/service-providers/housing/hotel/${hotelId}?from=${start}&to=${end}`;
+
+    chrome.storage.local.set({ [LAST_KEY]: { hotel: hotelName, date: dates, fullTalab } });
+    window.location.href = url;
+    return { ok: true };
+  }
+
   // ── Wire the bar's Enter-to-navigate behavior (once, at inject time) ───
   function wireBar() {
     const hotelBox = document.getElementById("nkBrnHotel");
@@ -228,38 +261,23 @@
 
     dateBox.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
-
-      const hotelName = hotelBox.value.trim();
-      const hotelId = hotels[hotelName];
-      const dates = dateBox.value.trim();
-
-      if (!hotelId) { alert("❌ Hotel not found in list."); return; }
-
-      let d1, d2;
-      if (/^\d{1,4}$/.test(dates)) { d1 = `${dates}+${defaultNights}`; d2 = null; }
-      else if (dates.includes("+")) { d1 = dates; d2 = null; }
-      else {
-        [d1, d2] = dates.split(" ");
-        if (!d1 || !d2) { alert("⚠️ Enter dates as: 28 05 or 22+18 [to add days in 1st date]"); return; }
-      }
-
-      const parsed = makeDates(d1, d2);
-      if (!parsed) return;
-      const { start, end } = parsed;
-      const fullTalab = fullChk.checked;
-
-      const url = fullTalab
-        ? `https://masar.nusuk.sa/umrah/housing-agreement/create-agreement?hotelId=${hotelId}&start=${start}&end=${end}&startTime=12:00:00&endTime=10:00:00&hotelName=${encodeURIComponent(hotelName)}`
-        : `https://masar.nusuk.sa/umrah/service-providers/housing/hotel/${hotelId}?from=${start}&to=${end}`;
-
-      chrome.storage.local.set({ [LAST_KEY]: { hotel: hotelName, date: dates, fullTalab } });
-
+      const result = performSearch(hotelBox.value.trim(), dateBox.value.trim(), fullChk.checked);
+      if (!result.ok) { window.nkToast(result.error, "error"); return; }
       hideBar();
       hotelBox.value = "";
       dateBox.value = "";
-      window.location.href = url;
     });
   }
+
+  // Lets the popup's BRN tab trigger the exact same search/navigate from its
+  // own "Quick Send" box — the popup has no page of its own to navigate, so
+  // it messages whichever Masar tab is active instead. Synchronous (no
+  // `return true`): performSearch resolves immediately, no async work inside.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (!msg || msg.action !== "BRN_QUICK_SEARCH") return;
+    if (!moduleEnabled) { sendResponse({ ok: false, error: "BRN Request is off, or not included in your license." }); return; }
+    sendResponse(performSearch(String(msg.hotelName || "").trim(), String(msg.dates || "").trim(), !!msg.fullTalab));
+  });
 
   document.addEventListener("keydown", (e) => {
     if (!moduleEnabled) return;

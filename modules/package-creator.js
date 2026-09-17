@@ -1463,7 +1463,7 @@
         localStorage.removeItem(BRN_QUEUE_KEY);
         localStorage.removeItem(BRN_INDEX_KEY);
         pkgLog("🎉 ALL BRNS FINISHED");
-        alert("✅ All BRN packages created successfully");
+        window.nkToast("All BRN packages created successfully", "success");
       }
     }
     if (url.includes("create-package") && queue && state.step === STEPS.IDLE && !executing) execute();

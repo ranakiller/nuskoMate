@@ -105,7 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const apiKey = await getApiKey();
     if (!(window.NkLicense && window.NkLicense.enforced()) && !apiKey) {
       bulkLog("Bulk parse refused — no local ocr.space API key set (Settings → OCR)", "warn");
-      alert("Please add your ocr.space API key in Settings to use Bulk Parser.");
+      window.nkToast("Please add your ocr.space API key in Settings to use Bulk Parser.", "error");
       progress.style.display = "none";
       fileInput.disabled = false;
       return;
@@ -169,9 +169,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // Pick via the file dialog
   fileInput.addEventListener("change", (e) => processFiles(e.target.files));
 
-  // Drag & drop: accept images dropped anywhere on the popup (or on the button)
+  // Drag & drop: accept images dropped anywhere on the popup, but ONLY while
+  // Passport is the tab actually showing — this used to fire no matter which
+  // tab was open (even mid-drag over JPG & PDF Tools' own drop zones, since
+  // preventDefault() doesn't stop an event from bubbling up to document the
+  // way stopPropagation() does), which silently hijacked every drop in the
+  // whole popup into a passport scan. See also file-tools.js's own drop
+  // handlers, which now stopPropagation() so a drop they claim never reaches
+  // this listener in the first place — this active-tab check is the second,
+  // independent layer: any OTHER tab's drop should just do nothing here.
   const dropZone = document.querySelector(".bulk-pick");
+  const passportIsActive = () => { const p = document.getElementById("panel-passport"); return !!p && p.classList.contains("tab-panel-active"); };
   document.addEventListener("dragover", (e) => {
+    if (!passportIsActive()) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     if (dropZone) dropZone.classList.add("drag-over");
@@ -181,13 +191,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.relatedTarget === null && dropZone) dropZone.classList.remove("drag-over");
   });
   document.addEventListener("drop", (e) => {
+    if (!passportIsActive()) return;
     e.preventDefault();
     if (dropZone) dropZone.classList.remove("drag-over");
     const dt = e.dataTransfer;
     if (!dt || !dt.files || !dt.files.length) return;
-    // Jump to the Passport tab so the user sees the results build up
-    const tab = document.querySelector('[data-tab="passport"]');
-    if (tab) tab.click();
     processFiles(dt.files);
   });
 
@@ -283,8 +291,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("bulk-dl-raw").addEventListener("click", () => {
     if (results.length) download(new Blob([rawText()], { type: "text/plain" }), "passports-raw.txt");
   });
-  document.getElementById("bulk-clear").addEventListener("click", () => {
-    if (results.length && !confirm(`Clear all ${results.length} saved conversions?`)) return;
+  document.getElementById("bulk-clear").addEventListener("click", async () => {
+    if (results.length && !(await window.nkConfirm(`Clear all ${results.length} saved conversions?`, { confirmText: "Clear", danger: true }))) return;
     results = [];
     chrome.storage.local.remove(HISTORY_KEY);
     tbody.innerHTML = "";

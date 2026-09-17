@@ -241,6 +241,7 @@
     const t = document.body.innerText;
     return (t.includes("Mutamers List") || t.includes("Mutamer List")) && findPassportLines().length > 0;
   }
+  window.nkIsMutamerListPage = isMutamerListPage; // shared with modules/masar-group-reply.js — see buildMutamerListText above
 
   function extractGroupNameNumber(pageText) {
     const m = pageText.match(/Group Details\s+(.+?)\s+(\d{9,})/);
@@ -288,11 +289,15 @@
     return mutamers;
   }
 
-  function copyMutamerListDetails() {
+  // Pure text-building half of Scenario B, split out so it can be reused by
+  // automation (the WhatsApp pipeline's reply-caption step) without the
+  // clipboard/toast side effects the hotkey/button version wants. Returns
+  // null when there's nothing to build (caller decides how to report that).
+  function buildMutamerListText() {
     const pageText = document.body.innerText;
     const filteredLines = pageText.split("\n").map((l) => l.trim()).filter((l) => l !== "");
     const mutamers = extractMutamers(filteredLines);
-    if (!mutamers.length) { showToast("No mutamers found on this page", true); return; }
+    if (!mutamers.length) return null;
 
     const { groupName, groupNumber } = extractGroupNameNumber(pageText);
     const daysText = computeDaysText(groupName);
@@ -325,9 +330,20 @@
       blocks.push(listLines.join("\n"));
     }
     if (fieldOn("mutamerList.shirkaName")) blocks.push(shirkaName);
-    const output = blocks.join("\n\n");
+    return { text: blocks.join("\n\n"), count: mutamers.length, groupName, groupNumber };
+  }
+  // Exposed for modules/masar-group-reply.js (Phase 5 of the WhatsApp
+  // automation plan) — content scripts on the same page share one isolated
+  // world, so this is directly callable from another module file without
+  // duplicating the extraction logic. Available regardless of this module's
+  // own enabled toggle (the hotkey/button UI is what's gated, not the pure
+  // text-building this wraps).
+  window.nkBuildMutamerListText = buildMutamerListText;
 
-    copyToClipboard(output, `Copied ${mutamers.length} mutamer(s)`);
+  function copyMutamerListDetails() {
+    const built = buildMutamerListText();
+    if (!built) { showToast("No mutamers found on this page", true); return; }
+    copyToClipboard(built.text, `Copied ${built.count} mutamer(s)`);
   }
 
   /* ============================================================

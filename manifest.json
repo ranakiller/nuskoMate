@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "3.7.0",
+  "version": "3.11.16",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtdv544TV/9vlf06XH5R1J9yVGFBq1K8XRUmgu6iIU05OHExaTRTOrKh41i1t3KlAn9rhBOc/CnHip0x2RcyzeVmiz0H2s9DCqZtknHbRrzOmTmG/n2t0CdOq29BgQEf+2+6YcLYg6GGxLvu0oLjQpIC/upP0c/7ofr4ATmD6HQlRvBx/28NvY0QNWOkLfNTO4PWDtHOjZ0nsk3pPWRaBOEYvxEMjjPfCM0Bq65IIDTydS/F/lI/54e4lF9DHfpjyomdmuVmSon1O/j0k1sv5RYHKP8ZLkIKuN+ZJPcrVkKdI74X7cmGWjOYu3soIb7VrvpqAvZyIYSNEwUNd4Al7XQIDAQAB",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite", "sidePanel", "alarms", "nativeMessaging", "downloads"],
-  "host_permissions": ["https://translate.googleapis.com/*", "https://api.ocr.space/*", "https://*.workers.dev/*", "https://api.github.com/*"],
+  "host_permissions": ["<all_urls>"],
   "icons": {
     "16":  "images/icon16.png",
     "32":  "images/icon32.png",
@@ -37,6 +37,12 @@
   "side_panel": {
     "default_path": "popup/popup.html?panel=1"
   },
+  "commands": {
+    "nk-webshot-start": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Start Element Screenshot on the current page"
+    }
+  },
   "web_accessible_resources": [
     {
       "resources": ["images/vaccine.jpg"],
@@ -48,12 +54,14 @@
       "matches": ["https://masar.nusuk.sa/*"],
       "js": [
         "utils/logger.js",
+        "utils/notify.js",
         "utils/license.js",
         "utils/route-watcher.js",
         "utils/angular-simulator.js",
         "utils/dropdown-helper.js",
         "utils/element-type-detector.js",
         "utils/inspector.js",
+        "utils/url-match.js",
         "utils/countries.js",
         "utils/passport-parser.js",
         "modules/auto-reload.js",
@@ -70,7 +78,18 @@
         "modules/mv-totals.js",
         "modules/talab-copy.js",
         "modules/auto-date-picker.js",
-        "modules/package-creator.js"
+        "modules/package-creator.js",
+        "modules/masar-add-mutamer.js",
+        "modules/masar-group.js",
+        "modules/masar-group-reply.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://setup.nebraspk.com/*"],
+      "js": [
+        "utils/logger.js",
+        "modules/crm-lookup.js"
       ],
       "run_at": "document_idle"
     }

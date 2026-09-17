@@ -33,6 +33,13 @@ const EXCLUDE = new Set([
 // logic is never distributed to customers. window.NkPassport still exists
 // (no-op) so script tags / references never break.
 const STUB_FILES = new Set(["passport-parser.js"]);
+
+// Vendored third-party libraries — copied as-is, never obfuscated. They're
+// already minified (obfuscating already-minified code is pure overhead for
+// zero benefit), and javascript-obfuscator's transforms aren't reliable
+// against pdf.js's ES module import/export syntax or its Worker internals —
+// breaking either would fail silently at runtime, not at build time.
+const VENDOR_FILES = new Set(["pdf-lib.min.js", "pdf.min.mjs", "pdf.worker.min.mjs"]);
 const PARSER_STUB =
   "/* Parsing runs on the Nuskomate license server. This stub ships in licensed builds. */\n" +
   "(function(){var s={parse:function(){return{details:{},nameBoxes:{},mrzValid:false,blurry:false};}};" +
@@ -93,10 +100,15 @@ function build() {
     const dest = path.join(DIST, rel);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
 
-    if (rel.endsWith(".js")) {
+    if (rel.endsWith(".js") || rel.endsWith(".mjs")) {
       // Replace protected files with a stub in real (obfuscated) releases.
       if (!RAW && STUB_FILES.has(path.basename(rel))) {
         fs.writeFileSync(dest, PARSER_STUB);
+        jsCount++;
+        continue;
+      }
+      if (VENDOR_FILES.has(path.basename(rel))) {
+        fs.copyFileSync(src, dest);
         jsCount++;
         continue;
       }

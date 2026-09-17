@@ -80,6 +80,18 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
             <span>Package</span>
           </button>
+          <button class="tab" data-tab="filetools" title="PDF-JPG Tools">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="12" y2="11"/></svg>
+            <span>PDF-JPG</span>
+          </button>
+          <button class="tab" data-tab="media" title="Media Grabber">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <span>Media</span>
+          </button>
+          <button class="tab" data-tab="pipeline" title="WhatsApp Pipeline (CRM lookup, Masar feed, group creation, auto-reply)">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+            <span>Pipeline</span><span class="tab-badge" id="tab-pipeline-count"></span>
+          </button>
           <!-- Any future tab goes here, right before Logs — Logs always
                stays the last item in this scrollable group. -->
           <button class="tab" data-tab="logs" title="Logs">
@@ -557,6 +569,39 @@
       </div>
     </div>
 
+    <!-- Section: Sites — where Nuskomate runs besides Masar (popup/sites.js) -->
+    <div class="section" id="sites-section">
+      <div class="section-title">Sites <button id="sites-info-btn" class="info-btn" type="button" title="How sites work" aria-label="How sites work">i</button></div>
+      <ul class="info-panel" id="sites-info-panel" style="display:none;">
+        <li>Nuskomate runs on every site by default — Masar always, everywhere else automatically.</li>
+        <li>Rules/workflows still only run on the URLs in their own <b>Runs on</b> list — running everywhere doesn't switch every rule on everywhere.</li>
+        <li>On pages where no rule applies, Nuskomate stays idle.</li>
+        <li>Add a site to <b>Never run on</b> to stop Nuskomate there entirely. That list syncs across your devices.</li>
+        <li>Chrome's own pages (new tab, settings, the Web Store) never allow extensions, regardless of this list.</li>
+      </ul>
+
+      <!-- The site open in this tab -->
+      <div class="site-current" id="site-current">
+        <span class="act-dot" id="site-current-dot"></span>
+        <div class="site-current-text">
+          <div class="site-current-host" id="site-current-host">This tab</div>
+          <div class="site-current-state" id="site-current-state">Checking…</div>
+        </div>
+        <button type="button" class="site-btn site-btn-ghost" id="site-current-btn2" hidden>Remove</button>
+      </div>
+
+      <div class="k-mini-label site-list-label">Never run on</div>
+      <div class="email-add-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        <input type="text" id="site-block-input" class="email-input" placeholder="e.g. mybank.com" autocomplete="off" spellcheck="false" />
+        <button id="site-block-current" type="button" class="email-io-btn" title="Block the site open in this tab" aria-label="Block the site open in this tab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </button>
+        <button id="site-block-add" type="button" class="email-save-btn">Add</button>
+      </div>
+      <div class="email-list" id="site-block-list"></div>
+    </div>
+
     <!-- Section: Appearance (theme) -->
     <div class="section">
       <div class="section-title">Appearance</div>
@@ -625,7 +670,212 @@
         <div class="k-hint">Required for Passport OCR, Father Name, and Bulk Parser.</div>
       </div>
     </div>
+
+    <!-- Section: remove.bg (JPG & PDF Tools > Remove Background) -->
+    <div class="section" id="removebg-key-section">
+      <div class="section-title">Background Removal</div>
+      <div class="field-group">
+        <label class="field-label" for="removebg-api-key">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          remove.bg API key (required)
+        </label>
+        <div class="ocr-key-view" id="removebg-key-view" style="display:none;">
+          <span class="ocr-key-masked" id="removebg-key-masked"></span>
+          <button type="button" id="removebg-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </div>
+        <input type="text" id="removebg-api-key" class="field-input"
+          placeholder="Paste your own remove.bg API key" autocomplete="off" />
+        <a href="https://www.remove.bg/api" target="_blank" rel="noopener noreferrer" id="removebg-key-hint" class="ocr-key-hint">Don't have one? Get a free key at remove.bg →</a>
+        <div class="k-hint">Required for PDF-JPG Tools &gt; Remove Background. Free tier is limited — see remove.bg's own pricing.</div>
+      </div>
+    </div>
+
     </div><!-- /panel-settings -->
+
+    <!-- Panel: Pipeline — the WhatsApp -> CRM -> Masar automation, all in one
+         place: what's currently in flight (Queue), what it's been doing
+         (Pipeline Logs), where it's configured, and the per-phase test tools
+         used to build it. See project_whatsapp_automation_plan memory for
+         the full design. -->
+    <div class="tab-panel" id="panel-pipeline">
+
+      <div class="section">
+        <div class="module-card">
+          <div class="module-header">
+            <div class="module-icon clicker-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+            </div>
+            <div class="module-info">
+              <div class="module-name">WhatsApp Pipeline <button id="pipeline-info-btn" class="info-btn" type="button" title="How the WhatsApp Pipeline module switch works" aria-label="How the WhatsApp Pipeline module switch works">i</button></div>
+              <div class="module-desc">Detect passports from WhatsApp, feed Masar, auto-reply</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-pipeline" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <ul class="info-panel" id="pipeline-info-panel" style="display:none;">
+            <li>Master switch for the whole module. <b>Off</b> means Nuskomate doesn't respond to WA-Campaigns at all — no connection, no detection, no CRM/Masar work, no replies — same as if this module wasn't installed.</li>
+            <li>This is separate from <b>Live Sending</b> below: even with this on, Live Sending still gates only the final WhatsApp reply step.</li>
+            <li>The Test Tools further down (CRM Lookup, Masar tests, WA-Campaigns Raw Action Test) keep working either way — they're for verifying wiring independently of the live pipeline.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section" id="pipeline-queue-section">
+        <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Queue</span>
+          <button id="pipeline-queue-refresh" type="button" class="logs-btn" title="Refresh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
+        <div id="pipeline-queue-empty" class="logs-empty">No reservations tracked yet — this fills in as WhatsApp messages get detected and processed.</div>
+        <div id="pipeline-queue-list" class="pipeline-scroll-list"></div>
+      </div>
+
+      <div class="section" id="pipeline-logs-section">
+        <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Pipeline Logs</span>
+          <div class="logs-actions">
+            <button id="pipeline-logs-refresh" type="button" class="logs-btn" title="Refresh">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+            <button id="pipeline-logs-copy" type="button" class="logs-btn" title="Copy pipeline logs">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button id="pipeline-logs-clear" type="button" class="logs-btn logs-btn-danger" title="Clear pipeline logs (leaves other logs alone)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="pipeline-logs-empty" class="logs-empty">No pipeline activity logged yet.</div>
+        <div id="pipeline-logs-list" class="pipeline-scroll-list"></div>
+      </div>
+
+      <!-- Section: CRM login (setup.nebraspk.com) — read by the pipeline's
+           CRM lookup step before anything is fed into Masar. -->
+      <div class="section" id="crm-login-section">
+        <div class="section-title">CRM Login (Nebras)</div>
+        <div class="field-group">
+          <label class="field-label" for="crm-username">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            CRM username
+          </label>
+          <div class="ocr-key-view" id="crm-username-view" style="display:none;">
+            <span class="ocr-key-masked" id="crm-username-masked"></span>
+            <button type="button" id="crm-username-edit-btn" class="logs-btn" title="Edit username" aria-label="Edit username">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+          </div>
+          <input type="text" id="crm-username" class="field-input"
+            placeholder="e.g. Mf-Furqan" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="crm-password">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            CRM password
+          </label>
+          <div class="ocr-key-view" id="crm-password-view" style="display:none;">
+            <span class="ocr-key-masked" id="crm-password-masked"></span>
+            <button type="button" id="crm-password-edit-btn" class="logs-btn" title="Edit password" aria-label="Edit password">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+          </div>
+          <input type="password" id="crm-password" class="field-input"
+            placeholder="CRM password" autocomplete="off" />
+          <div class="k-hint">For setup.nebraspk.com — read before anything is fed into Masar. Stored locally like every other key here, not synced.</div>
+        </div>
+      </div>
+
+      <div class="section" id="pipeline-settings-section">
+        <div class="section-title">Pipeline Settings</div>
+        <div class="field-group">
+          <label class="field-label" style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="wa-pipeline-live" />
+            WhatsApp Pipeline: Live Sending
+          </label>
+          <div class="k-hint"><b>Off by default.</b> While off, the full pipeline (CRM lookup → Masar feed → group creation → reply) still runs end-to-end for real WhatsApp messages, but the final reply step only logs what it WOULD have sent instead of actually calling WA-Campaigns' sendText/sendMedia. Turn this on only after testing a raw send below against a chat you don't mind experimenting in.</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="wa-mention-id">Team WA ID to @mention (for "On hold" reservations)</label>
+          <input type="text" id="wa-mention-id" class="field-input"
+            placeholder="e.g. 923001234567@c.us" autocomplete="off" spellcheck="false" />
+          <div class="k-hint">Left blank = the pipeline just logs a warning and skips replying when a reservation is On hold, instead of guessing who to tag.</div>
+        </div>
+      </div>
+
+      <!-- Section: standalone test harnesses for each phase, so each can be
+           verified on its own. See project_whatsapp_automation_plan memory. -->
+      <div class="section" id="pipeline-test-section">
+        <div class="section-title">Test Tools</div>
+
+        <div class="field-group">
+          <label class="field-label">CRM Lookup</label>
+          <div class="k-row">
+            <input type="text" id="crm-test-resno" class="field-input" style="flex:1;"
+              placeholder="Reservation No, e.g. 106057" autocomplete="off" spellcheck="false" />
+            <button id="crm-test-lookup" type="button" class="act-btn">Look Up</button>
+          </div>
+          <div class="k-hint">Needs a setup.nebraspk.com tab open somewhere (any tab, doesn't have to be active).</div>
+          <pre id="crm-test-result" class="test-result-pre"></pre>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Masar Passport Feed (pick one or more passport images)</label>
+          <div class="k-row">
+            <input type="file" id="masar-test-file" accept="image/png,image/jpeg" multiple style="flex:1;" />
+            <button id="masar-test-run" type="button" class="act-btn">Queue Passport</button>
+          </div>
+          <div class="k-hint">Needs a masar.nusuk.sa tab open on the Add Mutamer page, with the Bulk Passport Parser module on. Hands the picked image to the same queue a manual multi-select uses and returns immediately — it does NOT wait for Masar to finish; watch Pipeline Logs for the OCR result.</div>
+          <pre id="masar-test-result" class="test-result-pre"></pre>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Masar Create Group</label>
+          <input type="text" id="group-test-name" class="field-input" style="margin-bottom:6px;"
+            placeholder="Group name, e.g. NEBRAS 28SEP 18OCT LHE JED LHE PK" autocomplete="off" spellcheck="false" />
+          <input type="text" id="group-test-passports" class="field-input"
+            placeholder="Passport numbers, comma-separated (must already be in the mutamer pool)" autocomplete="off" spellcheck="false" />
+          <div class="k-row" style="margin-top:6px;">
+            <button id="group-test-run" type="button" class="act-btn">Create Group</button>
+          </div>
+          <div class="k-hint">Needs a masar.nusuk.sa tab open, and the given passport numbers already added as mutamers (run the test above first). Confirmed live against the real wizard now — picks a group leader preferring a male mutamer, but this test tool has no gender data to give it (that normally comes from OCR), so it'll just pick the first match here.</div>
+          <pre id="group-test-result" class="test-result-pre"></pre>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Masar Group Reply Assets (caption + screenshot)</label>
+          <input type="text" id="reply-test-groupname" class="field-input"
+            placeholder="Expected group name (optional — blank = newest group)" autocomplete="off" spellcheck="false" />
+          <div class="k-row" style="margin-top:6px;">
+            <button id="reply-test-run" type="button" class="act-btn">Get Reply Assets</button>
+          </div>
+          <div class="k-hint">Opens the group, switches to its Mutamers List tab, builds the WhatsApp caption text, and screenshots the first 5 columns.</div>
+          <pre id="reply-test-result" class="test-result-pre test-result-pre-tall"></pre>
+          <img id="reply-test-img" style="display:none; margin-top:6px; max-width:100%; border-radius:8px; border:1px solid rgba(127,127,127,.3);" />
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">WA-Campaigns Raw Action Test (test before enabling Live Sending above)</label>
+          <input type="text" id="wa-test-waid" class="field-input" style="margin-bottom:6px;"
+            placeholder="Target WhatsApp ID, e.g. 923001234567@c.us" autocomplete="off" spellcheck="false" />
+          <div class="k-row" style="margin-bottom:6px;">
+            <button id="wa-test-openchat" type="button" class="act-btn">Open Chat</button>
+            <button id="wa-test-sendtext" type="button" class="act-btn">Send Test Text</button>
+          </div>
+          <textarea id="wa-test-text" class="field-input" style="margin-bottom:6px; resize:vertical;" rows="2"
+            placeholder="Text to send / caption (supports multiple lines)" spellcheck="false">Nuskomate test message — please ignore.</textarea>
+          <div class="k-row">
+            <input type="file" id="wa-test-mediafile" accept="image/png,image/jpeg" style="flex:1;" />
+            <button id="wa-test-sendmedia" type="button" class="act-btn">Send Test Media</button>
+          </div>
+          <div class="k-hint">Calls WA-Campaigns' real openChat/sendText/sendMedia actions directly — these are real, irreversible WhatsApp sends regardless of the Live Sending toggle above. Only use a WA ID you're OK receiving a test message on.</div>
+          <pre id="wa-test-result" class="test-result-pre"></pre>
+        </div>
+      </div>
+    </div><!-- /panel-pipeline -->
 
     <!-- Panel: Passport -->
     <div class="tab-panel" id="panel-passport">
@@ -1065,6 +1315,7 @@
         </div>
         <ul class="info-panel" id="brn-info-panel" style="display:none;">
           <li>Press the hotkey below on any Masar page to open a floating search bar: type a hotel name (autocomplete from the list below), a date shorthand, tick <b>Full Talab</b> if needed, and press Enter to jump straight to the right agreement page.</li>
+          <li><b>Quick Send</b> below does the exact same thing from right here in the popup — handy when you're not on a Masar tab at all yet; it opens/navigates whichever Masar tab is currently active.</li>
           <li>Date shorthand: a single number (<code>28</code>) means a 3-night stay starting there; <code>22+5</code> means start day 22 for 5 nights; <code>28 05</code> is an explicit start/end day.</li>
           <li>The hotel list fills itself in — just visit any hotel's page on Masar once and it's captured automatically (name + ID). Edit or bulk-replace it below if you ever need to.</li>
           <li>On a Create Agreement page, the price field and regulations checkbox are filled in automatically.</li>
@@ -1097,6 +1348,27 @@
             <label class="k-mini-label" title='Nights added when only a single date is entered, e.g. "28" → 28 + N nights'>Default nights</label>
             <input type="number" id="brn-default-nights" class="field-input" min="1" placeholder="3" autocomplete="off" />
           </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Quick Send</div>
+        <div class="k-row">
+          <div style="flex:1.3; min-width:0;">
+            <label class="k-mini-label">Hotel</label>
+            <input type="text" id="brn-qs-hotel" class="field-input" list="brn-qs-hotel-list" placeholder="Hotel name…" autocomplete="off" />
+            <datalist id="brn-qs-hotel-list"></datalist>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <label class="k-mini-label" title='A single number ("28") means a 3-night stay starting there; "22+5" means start day 22 for 5 nights; "28 05" is an explicit start/end day.'>Dates</label>
+            <input type="text" id="brn-qs-date" class="field-input" placeholder="e.g. 28 05" autocomplete="off" />
+          </div>
+        </div>
+        <div class="k-row" style="align-items:center; margin-top:8px;">
+          <label class="k-check" style="flex:none; margin:0;">
+            <input type="checkbox" id="brn-qs-full" /> Full Talab
+          </label>
+          <button id="brn-qs-send" type="button" class="act-btn" style="margin-left:auto;">Send Request</button>
         </div>
       </div>
 
@@ -1400,6 +1672,114 @@
     </div><!-- /pc-content -->
     </div><!-- /panel-packagecreator -->
 
+    <!-- Panel: JPG & PDF Tools — fully local file conversion (popup/file-tools.js).
+         Nothing here ever leaves the browser; there's no page to inject into,
+         so it works with no Settings > Sites allowance and on any device. -->
+    <div class="tab-panel" id="panel-filetools">
+
+    <div id="ft-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <div class="premium-upsell-title">PDF-JPG Tools is a premium tool</div>
+      <div class="premium-upsell-text">Convert, merge, split and compress images and PDFs — entirely on your device, nothing uploaded anywhere. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="ft-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="ft-content">
+      <div class="section">
+        <div class="k-hint ft-hint">Everything runs on this device — files are never uploaded anywhere. Large files can take a moment; keep this window open (or dock it as a side panel) until a tool finishes.</div>
+      </div>
+
+      <div class="section ft-pane" id="ft-pane-web">
+        <div class="ft-group-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <span>Web Page Screenshot</span>
+        </div>
+        <div id="ft-grid-web" class="ft-grid"></div>
+        <div id="ft-detail-web" class="ft-detail" hidden></div>
+      </div>
+
+      <div class="ft-section-divider" id="ft-divider-web"></div>
+
+      <div class="section ft-pane" id="ft-pane-jpg">
+        <div class="ft-group-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <span>JPG Tools</span>
+        </div>
+        <div id="ft-grid-jpg" class="ft-grid"></div>
+        <div id="ft-detail-jpg" class="ft-detail" hidden></div>
+      </div>
+
+      <div class="ft-section-divider" id="ft-divider"></div>
+
+      <div class="section ft-pane" id="ft-pane-pdf">
+        <div class="ft-group-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>PDF Tools</span>
+        </div>
+        <div id="ft-grid-pdf" class="ft-grid"></div>
+        <div id="ft-detail-pdf" class="ft-detail" hidden></div>
+      </div>
+    </div><!-- /ft-content -->
+    </div><!-- /panel-filetools -->
+
+    <!-- Panel: Media Grabber — every image/video/audio/SVG/document link
+         found on the page open in the current tab, one click to download
+         any one or a batch of them straight from their own source. -->
+    <div class="tab-panel" id="panel-media">
+
+      <div id="mg-upsell" class="premium-upsell" style="display:none;">
+        <div class="premium-upsell-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </div>
+        <div class="premium-upsell-title">Media Grabber is a premium tool</div>
+        <div class="premium-upsell-text">Pick out every image, video, audio, SVG and document on the page you're viewing — including WhatsApp Web — and download any of them in one click. Enter your activation key in <b>Settings</b> to unlock it.</div>
+        <button id="mg-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      </div>
+
+      <div id="mg-content">
+        <div class="section">
+          <div class="k-hint">Scans the page open in your current tab for images, video, audio, SVGs and document links. Nothing is uploaded — everything downloads straight from its own source. <b>On WhatsApp Web</b>, media only becomes readable once it's actually loaded in the chat (WhatsApp keeps it behind in-page <code>blob:</code> links) — scroll through/open items you want first, then Rescan.</div>
+        </div>
+        <div class="mg-toolbar">
+          <div class="mg-count" id="mg-count">Scanning…</div>
+          <button type="button" class="wf-mini" id="mg-rescan">Rescan</button>
+        </div>
+
+        <div class="mg-filters">
+          <div class="mg-type-chips" id="mg-type-chips"></div>
+          <div class="mg-filter-row">
+            <input type="text" id="mg-ext-filter" class="email-input mg-ext-input" placeholder="Filter by extension, e.g. pdf, webp" autocomplete="off" spellcheck="false" />
+            <label class="mg-size-filter" title="Hide images/video smaller than this in either dimension. Set to 0 to include tiny images too.">
+              Min (px)
+              <input type="number" id="mg-min-size" min="0" step="1" value="32" />
+            </label>
+            <label class="mg-size-filter" title="Hide images/video larger than this in either dimension. Leave blank for no upper limit.">
+              Max (px)
+              <input type="number" id="mg-max-size" min="0" step="1" placeholder="&mdash;" />
+            </label>
+            <select id="mg-sort" class="mg-sort-select" title="Sort order">
+              <option value="found">Order found</option>
+              <option value="type">Type</option>
+              <option value="name">Name (A&ndash;Z)</option>
+              <option value="largest">Largest first (px)</option>
+              <option value="smallest">Smallest first (px)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mg-actions">
+          <button type="button" class="act-btn" id="mg-dl-selected" disabled>Download Selected</button>
+          <button type="button" class="wf-mini" id="mg-dl-all" disabled>Download All</button>
+          <button type="button" class="wf-mini" id="mg-select-all" disabled>Select All</button>
+          <button type="button" class="wf-mini" id="mg-select-none" disabled>Select None</button>
+        </div>
+        <div class="mg-grid" id="mg-grid"></div>
+        <div class="mg-empty" id="mg-empty" hidden>No media found on this page.</div>
+      </div>
+    </div>
+
     <!-- panel-mvtotals removed — Mutamer/Voucher Totals is now a module
          card in Modules > Utilities, see below. -->
 
@@ -1473,9 +1853,12 @@
     </div><!-- /layout -->
 
     <script src="../utils/logger.js"></script>
+    <script src="../utils/notify.js"></script>
     <script src="../utils/license.js"></script>
     <script src="../utils/passport-parser.js"></script>
     <script src="../utils/xlsx-mini.js"></script>
+    <script src="../utils/url-match.js"></script>
+    <script src="sites.js"></script>
     <script src="popup.js"></script>
     <script src="bulk.js"></script>
     <script src="keys-admin.js"></script>
@@ -1485,5 +1868,13 @@
     <script src="mv-totals.js"></script>
     <script src="talab-copy.js"></script>
     <script src="package-creator.js"></script>
+    <!-- pdf-lib is a classic UMD build (window.PDFLib) — plain script tag,
+         same as every other vendored library here. pdf.js v6 only ships ES
+         modules, so file-tools.js (which imports it) has to be type=module;
+         it still runs as a normal deferred script and can freely read the
+         window.* globals every other popup script exposes (nkToast, etc). -->
+    <script src="../utils/pdf-lib.min.js"></script>
+    <script type="module" src="file-tools.js"></script>
+    <script src="media-grabber.js"></script>
   </body>
 </html>

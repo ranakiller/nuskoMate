@@ -29,6 +29,8 @@ document.addEventListener("DOMContentLoaded", () => {
     bulk: "Bulk Parser",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
+    filetools: "PDF-JPG Tools",
+    mediagrabber: "Media Grabber",
   };
   // Tools grouped the way they appear in the extension. Each group header is a
   // select-all checkbox: clicking it checks/unchecks every tool inside it.
@@ -41,6 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Automation",           tools: ["autorules", "workflows", "urlshift", "brnrequest", "packagecreator"] },
     { name: "Passport Parser",      tools: ["bulk"] },
     { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy", "autodatepicker"] },
+    { name: "File Tools",           tools: ["filetools", "mediagrabber"] },
   ];
 
   // Icon-only row buttons (Edit/Reset/Revoke/Del) — same visual language as
@@ -405,7 +408,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function resetDevices(k) {
-    if (!confirm(`Free all device seats on ${k.key}?`)) return;
+    if (!(await window.nkConfirm(`Free all device seats on ${k.key}?`, { confirmText: "Reset devices", danger: true }))) return;
     const record = { name: k.name, seats: k.seats || 4, devices: [] };
     if (k.features !== null) record.features = k.features;
     if (k.expires) record.expires = k.expires;
@@ -413,12 +416,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (r && r.ok) refresh(); else setMsg("✗ " + ((r && r.error) || "Failed"), "err");
   }
   async function revokeKey(k) {
-    if (!confirm(`Revoke ${k.key}? It stops working immediately.`)) return;
+    if (!(await window.nkConfirm(`Revoke ${k.key}? It stops working immediately.`, { confirmText: "Revoke", danger: true }))) return;
     const r = await window.NkLicense.adminRevoke(k.key);
     if (r && r.ok) refresh(); else setMsg("✗ " + ((r && r.error) || "Failed"), "err");
   }
   async function deleteKey(k) {
-    if (!confirm(`Delete ${k.key} permanently?`)) return;
+    if (!(await window.nkConfirm(`Delete ${k.key} permanently?`, { confirmText: "Delete", danger: true }))) return;
     const r = await window.NkLicense.adminDelete(k.key);
     if (r && r.ok) refresh(); else setMsg("✗ " + ((r && r.error) || "Failed"), "err");
   }

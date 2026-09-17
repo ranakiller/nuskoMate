@@ -4,6 +4,26 @@
   const RULES_KEY = "autoClickRules";
   const LEGACY_KEY = "autoButtons";
 
+  // ── Where are we? ─────────────────────────────────────────────────────────
+  // This engine runs on Masar (manifest.json) AND on every other site by
+  // default (registered by background.js — Nuskomate has <all_urls> outright
+  // now, no per-site opt-in). Every rule/workflow lists the URLs it runs on
+  // (utils/url-match.js) and only matches there; "Never run on" (Settings →
+  // Sites) is the one remaining site-level override.
+  //
+  // On top of that, a non-Masar page double-checks the block list itself: a
+  // tab that was already open keeps this script after its site is put on
+  // "Never run on", until it reloads — it should stop right away.
+  const U = window.NkUrlMatch;
+  const IS_MASAR = U.isMasarHost(location.hostname);
+  let siteAccess = { blocked: [] };
+
+  function siteAllowedHere() {
+    if (IS_MASAR) return true;
+    return !siteAccess.blocked.some((b) => U.hostMatches(location.hostname, b));
+  }
+  const urlMatches = (item) => siteAllowedHere() && U.matches(item, location);
+
   // Click/fill/select rules used to be 3 separately-licensed categories —
   // merged into one "Rules" tab/toggle/tool-id (autorules). featOK("autorules")
   // also accepts the 3 old tool ids so already-issued keys keep working
@@ -82,7 +102,7 @@
     try {
       return document.querySelector(sel);
     } catch (err) {
-      console.warn("Invalid selector skipped:", sel, err);
+      window.nkLog.warn("Invalid selector skipped:", sel, err);
       return null;
     }
   }
@@ -142,7 +162,7 @@
       const all = [...document.querySelectorAll(sel)];
       return includeHidden ? all : all.filter(isVisible);
     } catch (err) {
-      console.warn("Invalid selector skipped:", sel, err);
+      window.nkLog.warn("Invalid selector skipped:", sel, err);
       return [];
     }
   }
@@ -161,20 +181,12 @@
 
   // ── Path / condition matching ─────────────────────────────────────────────
 
-  function pathMatches(rule) {
-    const pathname = window.location.pathname;
-    const rulePath = rule.pathname || rule.path || "";
-    if (!rulePath) return true;
-    const mode = rule.pathMatch || rule.urlMatch || "exact";
-    return mode === "includes" ? pathname.includes(rulePath) : pathname === rulePath;
-  }
-
   // includeHidden: passed as true only from fireRuleHotkey — lets a hotkey
   // rule match/click a menu item that's still in the DOM but visually hidden
   // inside a closed dropdown (see findByText's comment above). Auto-scanned
   // rules never pass this, so their behavior is unchanged.
   function conditionsPass(rule, includeHidden) {
-    if (!rule.enabled || !pathMatches(rule)) return false;
+    if (!rule.enabled || !urlMatches(rule)) return false;
 
     const requiredSelectors = Array.isArray(rule.requiredElements)
       ? rule.requiredElements
@@ -342,7 +354,7 @@
       case "button":
       default:         clickElement(element);
     }
-    console.log(`Auto-rule [${rule.type || "button"}]:`, rule.name || rule.id);
+    window.nkLog(`Auto-rule [${rule.type || "button"}]:`, rule.name || rule.id);
   }
 
   // ── Rule execution ────────────────────────────────────────────────────────
@@ -452,10 +464,9 @@
       enabled: rule.enabled !== false,
       name: rule.name || rule.text || requiredElements[0] || "Unnamed",
       text: rule.text || "",
-      pathname: rule.pathname !== undefined
-        ? rule.pathname
-        : (rule.path !== undefined ? rule.path : window.location.pathname),
-      pathMatch: rule.pathMatch || rule.urlMatch || "exact",
+      // urls + the old pathname/pathMatch pair kept for older versions (see
+      // urlFields in utils/url-match.js).
+      ...U.urlFields(U.urlsOf(rule)),
       requiredElements,
       forbiddenElements,
       action: normalizeAction(rule),
@@ -523,6 +534,7 @@
     pendingRules.clear();
     lastRunAt.clear();
     refreshHotkeys(); // rule hotkeys live in this same list — keep the combo map current
+    updateEngine();
     scanRules();
     scanTranslateRules();
   }
@@ -587,20 +599,31 @@
 
   // data[0] = translated segments, data[2] = detected source language (only
   // meaningful when sl="auto" was passed). Unofficial endpoint, already
-  // whitelisted in manifest.json's host_permissions.
+  // whitelisted in manifest.json's host_permissions — but the actual fetch
+  // happens in background.js (doTranslate), NOT here. A content-script fetch
+  // is subject to the PAGE's own Content-Security-Policy, and while that
+  // happens to allow this on Masar, a site like web.whatsapp.com allow-lists
+  // only its own domains in connect-src and blocks it outright — the request
+  // never even leaves the browser. A background fetch answers only to this
+  // extension's host_permissions, never a page's CSP, so this works the same
+  // everywhere Nuskomate runs.
   function translateText(text, sl, tl) {
     const toArabic = String(tl || "").toLowerCase().startsWith("ar");
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
-    return fetch(url).then((res) => res.json()).then((data) => {
-      let translated = ((data && data[0]) || []).map((seg) => seg[0]).join("");
-      const detected = (data && data[2]) || (sl === "auto" ? "" : sl);
-      const invalid = !translated || translated.toLowerCase() === text.toLowerCase() || /[a-z]/i.test(translated);
-      if (invalid && toArabic) translated = transliterateToArabic(text);
-      else if (!translated) translated = text;
-      return { translated, detected };
-    }).catch((err) => {
-      if (toArabic) return { translated: transliterateToArabic(text), detected: "" };
-      throw err;
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: "nkTranslate", text, sl, tl }, (resp) => {
+        if (chrome.runtime.lastError || !resp || !resp.ok) {
+          if (toArabic) { resolve({ translated: transliterateToArabic(text), detected: "" }); return; }
+          reject(new Error((resp && resp.error) || (chrome.runtime.lastError && chrome.runtime.lastError.message) || "translate failed"));
+          return;
+        }
+        const data = resp.data;
+        let translated = ((data && data[0]) || []).map((seg) => seg[0]).join("");
+        const detected = (data && data[2]) || (sl === "auto" ? "" : sl);
+        const invalid = !translated || translated.toLowerCase() === text.toLowerCase() || /[a-z]/i.test(translated);
+        if (invalid && toArabic) translated = transliterateToArabic(text);
+        else if (!translated) translated = text;
+        resolve({ translated, detected });
+      });
     });
   }
 
@@ -625,7 +648,7 @@
   function scanTranslateFieldToField() {
     rules.forEach((rule) => {
       if (rule.type !== "translate" || rule.mode === "autoDetect" || !rule.enabled) return;
-      if (!pathMatches(rule)) return;
+      if (!urlMatches(rule)) return;
       const targetEl = getElement(rule.requiredElements[0]);
       const sourceEl = getElement(rule.sourceSelector);
       if (!targetEl || !sourceEl) return;
@@ -946,7 +969,7 @@
   function scanTranslateBroadcast() {
     rules.forEach((rule) => {
       if (rule.type !== "translate" || rule.mode !== "autoDetect" || !rule.enabled) return;
-      if (!pathMatches(rule)) return;
+      if (!urlMatches(rule)) return;
       const sel = (rule.requiredElements[0] || "").trim();
       const elements = sel ? getAllElements(sel, true) : getGlobalTextElements();
       elements.forEach((el) => {
@@ -967,16 +990,16 @@
   async function quickTranslateElement(element) {
     if (!element) return;
     const text = readElementText(element);
-    if (!text) { alert("No text found on that element."); return; }
+    if (!text) { window.nkToast("No text found on that element.", "error"); return; }
     chrome.storage.local.get(["nkLanguage"], async (res) => {
       const targetLang = resolveSystemLanguage(res.nkLanguage);
       try {
         const { translated, detected } = await translateText(text, "auto", targetLang);
-        if (detected && detected === targetLang) { alert("That text already looks like it's in your target language."); return; }
+        if (detected && detected === targetLang) { window.nkToast("That text already looks like it's in your target language.", "info"); return; }
         writeElementText(element, translated);
         applyDir(element, targetLang);
       } catch (_) {
-        alert("Translation failed — check your connection and try again.");
+        window.nkToast("Translation failed — check your connection and try again.", "error");
       }
     });
   }
@@ -993,8 +1016,9 @@
       enabled: true,
       name: text || selector,
       text: elementType === "button" ? text : "",
-      pathname: window.location.pathname,
-      pathMatch: "exact",
+      // Born on this exact page, same as before multi-URL support — more
+      // pages or whole sites get added in the rule's "Runs on" list.
+      urls: [{ match: "page", host: location.hostname, path: location.pathname }],
       requiredElements: [selector],
       forbiddenElements: [],
       action: { type: "run", delayMs: 0 },
@@ -1025,7 +1049,7 @@
       const nextRules = [...(res[RULES_KEY] || []), newRule];
       chrome.storage.local.set({ [RULES_KEY]: nextRules }, () => {
         inspectorDefaults = {};
-        alert(`Rule saved: ${newRule.name}\nType: ${newRule.type}\nPath: ${newRule.pathname}`);
+        window.nkToast(`Rule saved: ${newRule.name}\nType: ${newRule.type}\nRuns on: ${U.summary(newRule)}`, "success");
       });
     });
   }
@@ -1048,7 +1072,7 @@
         return { ...normalized, [key]: next.filter(Boolean) };
       });
       chrome.storage.local.set({ [RULES_KEY]: nextRules }, () => {
-        alert(`Selector saved: ${selection.selector}`);
+        window.nkToast(`Selector saved: ${selection.selector}`, "success");
       });
     });
   }
@@ -1084,7 +1108,7 @@
         if (idx >= 0) steps.splice(idx + 1, 0, step); else steps.push(step);
         return { ...w, steps };
       });
-      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Step added: ${step.name}  (${step.type})`));
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => window.nkToast(`Step added: ${step.name}  (${step.type})`, "success"));
     });
   }
 
@@ -1092,7 +1116,7 @@
     chrome.storage.local.get(["autoWorkflows"], (res) => {
       const wfs = (res.autoWorkflows || []).map((w) =>
         String(w.id) === String(workflowId) ? { ...w, triggerSelector: selection.selector } : w);
-      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Trigger element set: ${selection.selector}`));
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => window.nkToast(`Trigger element set: ${selection.selector}`, "success"));
     });
   }
 
@@ -1100,7 +1124,7 @@
     chrome.storage.local.get(["autoWorkflows"], (res) => {
       const wfs = (res.autoWorkflows || []).map((w) =>
         String(w.id) === String(workflowId) ? { ...w, repeat: { ...(w.repeat || {}), whileSelector: selection.selector } } : w);
-      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Selector set: ${selection.selector}`));
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => window.nkToast(`Selector set: ${selection.selector}`, "success"));
     });
   }
 
@@ -1110,7 +1134,7 @@
     chrome.storage.local.get(["autoWorkflows"], (res) => {
       const wfs = (res.autoWorkflows || []).map((w) =>
         String(w.id) === String(workflowId) ? { ...w, repeat: { ...(w.repeat || {}), matchSelector: selection.selector } } : w);
-      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Match selector set: ${selection.selector}`));
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => window.nkToast(`Match selector set: ${selection.selector}`, "success"));
     });
   }
 
@@ -1121,7 +1145,7 @@
     chrome.storage.local.get(["autoUrlShiftRules"], (res) => {
       const rules = (res.autoUrlShiftRules || []).map((r) =>
         String(r.id) === String(ruleId) ? { ...r, elementSelector: selection.selector } : r);
-      chrome.storage.local.set({ autoUrlShiftRules: rules }, () => alert(`Element selector set: ${selection.selector}`));
+      chrome.storage.local.set({ autoUrlShiftRules: rules }, () => window.nkToast(`Element selector set: ${selection.selector}`, "success"));
     });
   }
 
@@ -1133,7 +1157,7 @@
     chrome.storage.local.get([RULES_KEY], (res) => {
       const rules = (res[RULES_KEY] || []).map((r) =>
         String(r.id) === String(ruleId) ? { ...normalizeRule(r), sourceSelector: selection.selector } : normalizeRule(r));
-      chrome.storage.local.set({ [RULES_KEY]: rules }, () => alert(`Source selector set: ${selection.selector}`));
+      chrome.storage.local.set({ [RULES_KEY]: rules }, () => window.nkToast(`Source selector set: ${selection.selector}`, "success"));
     });
   }
 
@@ -1152,7 +1176,7 @@
             : s),
         };
       });
-      chrome.storage.local.set({ autoWorkflows: wfs }, () => alert(`Selector saved: ${selection.selector}`));
+      chrome.storage.local.set({ autoWorkflows: wfs }, () => window.nkToast(`Selector saved: ${selection.selector}`, "success"));
     });
   }
 
@@ -1323,28 +1347,65 @@
     if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
     recState = null;
     if (!save) { wlog("recording cancelled"); return; }
-    if (!steps.length) { alert("Nothing recorded — no steps were captured."); return; }
+    if (!steps.length) { window.nkToast("Nothing recorded — no steps were captured.", "warning"); return; }
     chrome.storage.local.get(["autoWorkflows"], (res) => {
       const wfs = (res.autoWorkflows || []).map((w) =>
         String(w.id) === String(workflowId) ? { ...w, steps: [...(w.steps || []), ...steps] } : w);
       chrome.storage.local.set({ autoWorkflows: wfs }, () =>
-        alert(`Recording saved — ${steps.length} step(s) added to the workflow.`));
+        window.nkToast(`Recording saved — ${steps.length} step(s) added to the workflow.`, "success"));
     });
   }
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-  const observer = new MutationObserver(() => { scanRules(); scanWorkflows(); scanTranslateRules(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  setInterval(() => { scanRules(); scanWorkflows(); scanTranslateRules(); }, 1000);
+  // The scan loop (a subtree MutationObserver + a 1s tick) is the expensive
+  // part of this engine. On Masar it always runs, as it always has. Anywhere
+  // else — now potentially every open tab, since this injects everywhere by
+  // default — it only starts while some enabled rule or auto-run/hotkey
+  // workflow actually matches this page, and stops again when none does
+  // (route change, rule edited, site blocked). An idle page costs nothing
+  // beyond a storage read.
+  const scanAll = () => { scanRules(); scanWorkflows(); scanTranslateRules(); };
+  const observer = new MutationObserver(scanAll);
+  let engineOn = false;
+  let scanTimer = null;
+
+  function engineNeeded() {
+    if (IS_MASAR) return true;
+    if (!siteAllowedHere()) return false;
+    return rules.some((r) => r.enabled && urlMatches(r)) ||
+      allWfs.some((w) => w.enabled !== false && (w.trigger === "auto" || w.hotkey) && urlMatches(w));
+  }
+
+  function updateEngine() {
+    const need = engineNeeded();
+    if (need === engineOn) return;
+    engineOn = need;
+    if (need) {
+      observer.observe(document.body, { childList: true, subtree: true });
+      scanTimer = setInterval(scanAll, 1000);
+      if (window.NkLicense && window.NkLicense.startHeartbeat) window.NkLicense.startHeartbeat();
+      scanAll();
+    } else {
+      observer.disconnect();
+      clearInterval(scanTimer);
+      scanTimer = null;
+      hideTooltip();
+    }
+  }
 
   window.addEventListener("nusuk-route-change", () => {
     executedRules.clear();
     pendingRules.clear();
     wfArmed.clear();          // re-arm auto-run workflows on a fresh page
+    updateEngine();           // a rule for THIS page may apply now, or stop applying
     scanRules();
     scanWorkflows();
   });
+
+  function setSiteAccess(res) {
+    siteAccess = { blocked: Array.isArray(res.blockedSites) ? res.blockedSites : [] };
+  }
 
   // Premium — click/input/dropdown rules share ONE entitlement now
   // ("autorules"). featOK also accepts the 3 OLD ids (autoclick/fillrules/
@@ -1364,17 +1425,21 @@
     });
   }
 
-  chrome.storage.local.get([RULES_KEY, LEGACY_KEY], (res) => {
+  chrome.storage.local.get([RULES_KEY, LEGACY_KEY, "blockedSites"], (res) => {
+    setSiteAccess(res);
     const initial = res[RULES_KEY] || res[LEGACY_KEY] || [];
     refreshEnabled(() => setRules(initial));
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
+    if (changes.blockedSites) {
+      chrome.storage.local.get(["blockedSites"], (res) => { setSiteAccess(res); updateEngine(); });
+    }
     if (changes.moduleAutoRules || changes.moduleWorkflows || changes.moduleTranslateRules || changes.extensionEnabled) refreshEnabled(scanRules);
     if (changes[RULES_KEY]) setRules(changes[RULES_KEY].newValue || []);
     else if (changes[LEGACY_KEY]) setRules(changes[LEGACY_KEY].newValue || []);
-    else scanRules();
+    else if (engineOn) scanRules();
   });
 
   // React to license activation/deactivation while the page is open.
@@ -1759,6 +1824,10 @@
       const wf = (res[WF_KEY] || []).find((w) => String(w.id) === String(id));
       if (!wf) { wlog("workflow not found"); return; }
       if (wf.enabled === false) { wlog(`"${wf.name}" is turned off`); return; }
+      // Run from the popup is explicit, so it isn't held to the workflow's
+      // URL list — but on an idle non-Masar page the license heartbeat
+      // hasn't started yet (see updateEngine), so start it now.
+      if (window.NkLicense && window.NkLicense.startHeartbeat) window.NkLicense.startHeartbeat();
       runWorkflow(wf);
     });
   }
@@ -1770,6 +1839,7 @@
   // steadily-visible element runs it once, not on every scan. Default trigger
   // selector is the workflow's first actionable step. `trigger === "manual"`
   // (or unset) means Run-button / hotkey only.
+  let allWfs = [];             // every saved workflow — updateEngine() checks their URLs
   let autoWfs = [];            // workflows with trigger === "auto"
   const wfArmed = new Map();   // workflow id → armed to fire (re-armed when trigger gone)
 
@@ -1782,7 +1852,9 @@
 
   function refreshAutoWorkflows() {
     chrome.storage.local.get([WF_KEY], (res) => {
-      autoWfs = (res[WF_KEY] || []).filter((w) => w.enabled !== false && w.trigger === "auto" && wfTriggerSelector(w));
+      allWfs = res[WF_KEY] || [];
+      autoWfs = allWfs.filter((w) => w.enabled !== false && w.trigger === "auto" && wfTriggerSelector(w));
+      updateEngine();
     });
   }
   refreshAutoWorkflows();
@@ -1790,6 +1862,9 @@
   function scanWorkflows() {
     if (!workflowsEnabled || !autoWfs.length || wfState.running) return;
     for (const wf of autoWfs) {
+      // Checked per scan, not when the list is built — the URL changes
+      // under a single-page app without this script reloading.
+      if (!urlMatches(wf)) continue;
       const sel = wfTriggerSelector(wf);
       const visible = isVisible(getElement(sel));
       const armed = wfArmed.get(wf.id) !== false;   // default armed
@@ -1829,18 +1904,21 @@
     if (!key || !mods.length) return "";
     return [...mods, key.length === 1 ? key.toUpperCase() : key].join("+");
   }
-  // Cache combo → { kind: "workflow"|"rule", item } so we don't hit storage
+  // Cache combo → [{ kind: "workflow"|"rule", item }] so we don't hit storage
   // on every keystroke. Rules come from the already-in-memory `rules` array
   // (kept current by setRules(), which calls this on every RULES_KEY
-  // change) rather than a separate storage read. If a rule and a workflow
-  // (or two rules) both claim the same combo, whichever is processed last
-  // here wins — no collision warning UI, just documented behavior.
+  // change) rather than a separate storage read. A combo can belong to
+  // several items as long as they run on different URLs — the keydown
+  // handler takes the first one whose URLs match the current page. If two
+  // match the same page, the one processed LAST here wins (it's unshifted
+  // to the front) — no collision warning UI, just documented behavior.
   let hotkeyMap = {};
   function refreshHotkeys() {
     chrome.storage.local.get([WF_KEY], (res) => {
       hotkeyMap = {};
-      (res[WF_KEY] || []).forEach((w) => { if (w.enabled !== false && w.hotkey) { const k = normHotkey(w.hotkey); if (k) hotkeyMap[k] = { kind: "workflow", item: w }; } });
-      rules.forEach((r) => { if (r.enabled && r.triggerMode === "hotkey" && r.hotkey) { const k = normHotkey(r.hotkey); if (k) hotkeyMap[k] = { kind: "rule", item: r }; } });
+      const add = (combo, entry) => { const k = normHotkey(combo); if (k) (hotkeyMap[k] = hotkeyMap[k] || []).unshift(entry); };
+      (res[WF_KEY] || []).forEach((w) => { if (w.enabled !== false && w.hotkey) add(w.hotkey, { kind: "workflow", item: w }); });
+      rules.forEach((r) => { if (r.enabled && r.triggerMode === "hotkey" && r.hotkey) add(r.hotkey, { kind: "rule", item: r }); });
     });
   }
   refreshHotkeys();
@@ -1852,8 +1930,10 @@
   });
   document.addEventListener("keydown", (e) => {
     const combo = comboFromEvent(e);
-    if (!combo) return;
-    const entry = hotkeyMap[combo];
+    if (!combo || !hotkeyMap[combo]) return;
+    // URL-filtered like everything else — a Masar workflow's Alt+1 must not
+    // swallow that keystroke while you're typing on some other site.
+    const entry = hotkeyMap[combo].find((en) => urlMatches(en.item));
     if (!entry) return;
     if (entry.kind === "workflow") {
       if (!workflowsEnabled) return;
@@ -1866,7 +1946,27 @@
     }
   }, true);
 
+  // Only ever responds to its OWN known actions — this content script is
+  // injected onto every masar.nusuk.sa page alongside several others
+  // (modules/masar-group.js, masar-add-mutamer.js, masar-group-reply.js),
+  // all listening on the same chrome.runtime.onMessage. The old `default:
+  // sendResponse({ok:false})` answered EVERY message it didn't recognize —
+  // including those other files' own message types — with an instant,
+  // synchronous fake failure. Since Chrome resolves the sender's callback
+  // with whichever listener responds first, that instant response could win
+  // the race against a slower, legitimate async handler elsewhere on the
+  // same page, silently replacing its real (eventual) result with this
+  // bogus `{ok:false}` — confirmed live: this is exactly what broke
+  // modules/masar-group-reply.js's "Get Reply Assets" test, which returned
+  // `{ok:false}` with no error message at all (this file's bare fallback,
+  // not that file's own catch block, which always includes one). Returning
+  // here for anything not its own now lets it fall through untouched.
+  const AUTO_CLICKER_ACTIONS = new Set([
+    "START_PICKER", "START_RECORD", "STOP_RECORD", "RUN_WORKFLOW",
+    "STOP_WORKFLOW", "PAUSE_WORKFLOW", "RESUME_WORKFLOW", "HIGHLIGHT_ELEMENT",
+  ]);
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || !AUTO_CLICKER_ACTIONS.has(msg.action)) return;
     switch (msg.action) {
       case "START_PICKER":
         inspectorDefaults = msg.defaults || {};
@@ -1879,7 +1979,6 @@
       case "PAUSE_WORKFLOW": wfState.paused = true;  writeStatus({ paused: true });  sendResponse({ ok: true }); break;
       case "RESUME_WORKFLOW":wfState.paused = false; writeStatus({ paused: false }); sendResponse({ ok: true }); break;
       case "HIGHLIGHT_ELEMENT": sendResponse({ ok: flashElement(getElement(msg.selector)) }); break;
-      default: sendResponse({ ok: false });
     }
     return true; // keep the channel open for async sendResponse
   });

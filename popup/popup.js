@@ -158,7 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now (autorules also
       // accepts the 3 old ids it replaced — see has() above).
-      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"]].forEach(([up, ct, feat]) => {
+      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"], ["ft-upsell", "ft-content", "filetools"], ["mg-upsell", "mg-content", "mediagrabber"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -225,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     if (deactivate) deactivate.addEventListener("click", async () => {
-      if (!confirm("Deactivate premium on this device? It frees the seat for another device.")) return;
+      if (!(await window.nkConfirm("Deactivate premium on this device? It frees the seat for another device.", { confirmText: "Deactivate", danger: true }))) return;
       await window.NkLicense.deactivate();
       msg.textContent = "Deactivated"; msg.className = "act-msg";
       refresh();
@@ -238,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn"].forEach((idb) => {
+    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn", "ft-upsell-btn", "mg-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -465,6 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-talabcopy",   key: "moduleTalabCopy"                   },
     { id: "toggle-autodatepicker", key: "moduleAutoDatePicker"           },
     { id: "toggle-packagecreator", key: "modulePackageCreator", offLabel: true },
+    { id: "toggle-pipeline",    key: "modulePipeline", offLabel: true, lockPanel: "panel-pipeline" },
   ];
 
   // ALL modules default ON for new installs (key never set = treat as true).
@@ -495,8 +496,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Fully locks a tab-panel's OWN body when its module toggle is off — every
+  // input/button/textarea/select inside it is natively `.disabled`'d (blocks
+  // clicks AND keyboard activation, not just a visual cue), and the panel
+  // gets a dimmed look via CSS. The module-card section itself (first .section
+  // child — name, description, the toggle switch, its "i" info button) is
+  // deliberately left untouched, since that's the only way back on.
+  function applyPanelLock(panelId, enabled) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    panel.classList.toggle("module-off-locked", !enabled);
+    const moduleCardSection = panel.querySelector(".section");
+    panel.querySelectorAll("input, button, textarea, select").forEach((el) => {
+      if (moduleCardSection && moduleCardSection.contains(el)) return;
+      el.disabled = !enabled;
+    });
+  }
+
   function initToggles() {
-    toggles.forEach(({ id, key, offLabel }) => {
+    toggles.forEach(({ id, key, offLabel, lockPanel }) => {
       const el = document.getElementById(id);
       if (!el) return;
       chrome.storage.local.get([key], (res) => {
@@ -505,10 +523,12 @@ document.addEventListener("DOMContentLoaded", () => {
         // Persist the default so the content script reads it correctly on next load
         if (!(key in res) && defaultOnKeys.has(key)) chrome.storage.local.set({ [key]: true });
         if (offLabel) reflectModuleOffLabel(el);
+        if (lockPanel) applyPanelLock(lockPanel, val);
       });
       el.addEventListener("change", () => {
         chrome.storage.local.set({ [key]: el.checked });
         if (offLabel) reflectModuleOffLabel(el);
+        if (lockPanel) applyPanelLock(lockPanel, el.checked);
       });
     });
   }
@@ -1169,41 +1189,300 @@ document.addEventListener("DOMContentLoaded", () => {
   // so it's never silently overwritten by another device. Shown masked with
   // an Edit button once saved, same idea as a saved password; the plain
   // input only appears while actively entering/changing it.
-  const ocrApiKeyEl   = document.getElementById("ocr-api-key");
-  const ocrKeyHintEl  = document.getElementById("ocr-key-hint");
-  const ocrKeyViewEl  = document.getElementById("ocr-key-view");
-  const ocrKeyMaskedEl = document.getElementById("ocr-key-masked");
-  const ocrKeyEditBtn = document.getElementById("ocr-key-edit-btn");
-  if (ocrApiKeyEl) {
+  // Shared by every "bring your own API key" field (OCR, remove.bg, …):
+  // masked view + an Edit button once saved, same idea as a saved password;
+  // the plain input only appears while actively entering/changing it.
+  function wireApiKeyField(storageKey, ids) {
+    const input = document.getElementById(ids.input);
+    if (!input) return;
+    const hint = document.getElementById(ids.hint);
+    const view = document.getElementById(ids.view);
+    const masked = document.getElementById(ids.masked);
+    const editBtn = document.getElementById(ids.edit);
     const maskKey = (k) => k.length <= 7 ? "•".repeat(k.length) : k.slice(0, 3) + "•".repeat(Math.max(4, k.length - 6)) + k.slice(-3);
 
     function showKeyView(key) {
-      if (ocrKeyViewEl) { ocrKeyViewEl.style.display = "flex"; if (ocrKeyMaskedEl) ocrKeyMaskedEl.textContent = maskKey(key); }
-      ocrApiKeyEl.style.display = "none";
-      if (ocrKeyHintEl) ocrKeyHintEl.style.display = "none";
+      if (view) { view.style.display = "flex"; if (masked) masked.textContent = maskKey(key); }
+      input.style.display = "none";
+      if (hint) hint.style.display = "none";
     }
     function showKeyEdit() {
-      if (ocrKeyViewEl) ocrKeyViewEl.style.display = "none";
-      ocrApiKeyEl.style.display = "";
-      if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : "";
-      ocrApiKeyEl.focus();
+      if (view) view.style.display = "none";
+      input.style.display = "";
+      if (hint) hint.style.display = input.value.trim() ? "none" : "";
+      input.focus();
     }
 
-    chrome.storage.local.get(["ocrApiKey"], (res) => {
-      ocrApiKeyEl.value = res.ocrApiKey || "";
-      if (res.ocrApiKey) showKeyView(res.ocrApiKey); else showKeyEdit();
+    chrome.storage.local.get([storageKey], (res) => {
+      input.value = res[storageKey] || "";
+      if (res[storageKey]) showKeyView(res[storageKey]); else showKeyEdit();
     });
-    ocrApiKeyEl.addEventListener("input", () => {
-      chrome.storage.local.set({ ocrApiKey: ocrApiKeyEl.value.trim() });
-      if (ocrKeyHintEl) ocrKeyHintEl.style.display = ocrApiKeyEl.value.trim() ? "none" : "";
+    input.addEventListener("input", () => {
+      chrome.storage.local.set({ [storageKey]: input.value.trim() });
+      if (hint) hint.style.display = input.value.trim() ? "none" : "";
     });
-    ocrApiKeyEl.addEventListener("blur", () => {
-      const v = ocrApiKeyEl.value.trim();
-      if (v) showKeyView(v);
-    });
-    ocrApiKeyEl.addEventListener("keydown", (e) => { if (e.key === "Enter") ocrApiKeyEl.blur(); });
-    if (ocrKeyEditBtn) ocrKeyEditBtn.addEventListener("click", showKeyEdit);
+    input.addEventListener("blur", () => { const v = input.value.trim(); if (v) showKeyView(v); });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
+    if (editBtn) editBtn.addEventListener("click", showKeyEdit);
   }
+  wireApiKeyField("ocrApiKey", { input: "ocr-api-key", hint: "ocr-key-hint", view: "ocr-key-view", masked: "ocr-key-masked", edit: "ocr-key-edit-btn" });
+  wireApiKeyField("removeBgApiKey", { input: "removebg-api-key", hint: "removebg-key-hint", view: "removebg-key-view", masked: "removebg-key-masked", edit: "removebg-key-edit-btn" });
+  // CRM login (setup.nebraspk.com) — same masked-view/edit pattern as the API
+  // key fields above, just two fields instead of one. Not read by anything
+  // yet; this is only the storage side, for the WhatsApp automation plan to
+  // use once it's actually built (see project_whatsapp_automation_plan memory).
+  wireApiKeyField("crmUsername", { input: "crm-username", view: "crm-username-view", masked: "crm-username-masked", edit: "crm-username-edit-btn" });
+  wireApiKeyField("crmPassword", { input: "crm-password", view: "crm-password-view", masked: "crm-password-masked", edit: "crm-password-edit-btn" });
+
+  // CRM Lookup test harness — talks to modules/crm-lookup.js on whichever
+  // setup.nebraspk.com tab is open, same "message a Masar tab directly"
+  // pattern as BRN Request's Quick Send (see popup/brn-request.js). Standalone
+  // sanity check for Phase 1 of the WhatsApp automation plan — nothing else
+  // reads this result yet.
+  const crmTestResNo  = document.getElementById("crm-test-resno");
+  const crmTestBtn    = document.getElementById("crm-test-lookup");
+  const crmTestResult = document.getElementById("crm-test-result");
+  function runCrmTestLookup() {
+    const reservationNo = (crmTestResNo && crmTestResNo.value.trim()) || "";
+    if (!reservationNo) { window.nkToast("Enter a reservation number first.", "error"); return; }
+    if (crmTestResult) { crmTestResult.style.display = "block"; crmTestResult.textContent = "Looking up…"; }
+    chrome.tabs.query({ url: "https://setup.nebraspk.com/*" }, (allTabs) => {
+      const tabs = allTabs || [];
+      if (!tabs.length) {
+        window.nkToast("Open a setup.nebraspk.com tab first.", "error");
+        if (crmTestResult) crmTestResult.textContent = "No setup.nebraspk.com tab found — open one first.";
+        return;
+      }
+      // Several CRM tabs can easily be open (stale ones from earlier testing,
+      // a login-page tab, etc.) — prefer whichever one is actually active/
+      // focused right now instead of just picking whatever Chrome lists
+      // first, which has no relation to which tab the user is looking at.
+      const target = tabs.find((t) => t.active) || tabs[0];
+
+      function sendLookup() {
+        chrome.tabs.sendMessage(target.id, { type: "nkCrmLookupReservation", reservationNo }, (resp) => {
+          if (chrome.runtime.lastError) {
+            const msg = "Could not reach the CRM tab — refresh it and try again.";
+            window.nkToast(msg, "error");
+            if (crmTestResult) crmTestResult.textContent = msg;
+            return;
+          }
+          if (crmTestResult) crmTestResult.textContent = JSON.stringify(resp, null, 2);
+          if (resp && resp.ok) window.nkToast(resp.found ? "Found" : "Not found", resp.found ? "success" : "warning");
+          else window.nkToast((resp && resp.error) || "Lookup failed.", "error");
+        });
+      }
+
+      // Chrome throttles timers in tabs that aren't the active tab of a
+      // focused window — this automation leans on setTimeout-based waits
+      // throughout, so an unfocused CRM tab can run noticeably slower/less
+      // reliably. Bring it to the front first (switch to its tab + focus its
+      // window) so the user never has to manually click over to it — the
+      // whole point is this works no matter what tab/window they're on.
+      chrome.tabs.update(target.id, { active: true }, () => {
+        if (target.windowId != null) {
+          chrome.windows.update(target.windowId, { focused: true }, sendLookup);
+        } else {
+          sendLookup();
+        }
+      });
+    });
+  }
+  if (crmTestBtn) crmTestBtn.addEventListener("click", runCrmTestLookup);
+  if (crmTestResNo) crmTestResNo.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runCrmTestLookup(); } });
+
+  // Focuses a tab (and its window) matching `urlPattern` before running
+  // `fn(tab)` against it — background/inactive tabs get their timers
+  // throttled by Chrome, which these automations lean on heavily for their
+  // waits, so this brings the target tab to the front first regardless of
+  // what the user currently has focused. Shared by every pipeline test
+  // harness in this section.
+  function withFocusedTab(urlPattern, notFoundMsg, fn) {
+    chrome.tabs.query({ url: urlPattern }, (allTabs) => {
+      const tabs = allTabs || [];
+      if (!tabs.length) { window.nkToast(notFoundMsg, "error"); fn(null); return; }
+      const target = tabs.find((t) => t.active) || tabs[0];
+      chrome.tabs.update(target.id, { active: true }, () => {
+        if (target.windowId != null) chrome.windows.update(target.windowId, { focused: true }, () => fn(target));
+        else fn(target);
+      });
+    });
+  }
+
+  // Masar Add-Mutamer test — reads the picked file as a data URL (same shape
+  // WA-Campaigns' getMessageMedia will eventually hand over from a real
+  // WhatsApp message) and hands it to modules/masar-add-mutamer.js.
+  const masarTestFile   = document.getElementById("masar-test-file");
+  const masarTestBtn    = document.getElementById("masar-test-run");
+  const masarTestResult = document.getElementById("masar-test-result");
+  function readAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Could not read " + file.name));
+      reader.readAsDataURL(file);
+    });
+  }
+  async function runMasarTest() {
+    const files = masarTestFile && masarTestFile.files ? Array.from(masarTestFile.files) : [];
+    if (!files.length) { window.nkToast("Pick one or more passport images first.", "error"); return; }
+    if (masarTestResult) { masarTestResult.style.display = "block"; masarTestResult.textContent = `Handing ${files.length} passport(s) to the Bulk Passport Parser queue…`; }
+    withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", async (target) => {
+      if (!target) { if (masarTestResult) masarTestResult.textContent = "No masar.nusuk.sa tab found — open one first."; return; }
+      // Sent as ONE batch, same as a manual multi-select — see
+      // batch-passport.js's feedOrQueue for why this must not be split into
+      // one round-trip per file (that's exactly what raced earlier).
+      const items = await Promise.all(files.map(async (file) => ({ dataUrl: await readAsDataUrl(file), filename: file.name })));
+      // Registered BEFORE feeding starts, same order the files will be fed
+      // in — this is what makes the OCR-relay actually log a result back
+      // here instead of silently going nowhere (this test tool messages the
+      // content script directly, same as every other test harness, so
+      // without this the pipeline never learns these are worth tracking).
+      await new Promise((resolve) => chrome.runtime.sendMessage({ type: "nkMasarRegisterTestFeed", labels: items.map((i) => i.filename) }, resolve));
+      chrome.tabs.sendMessage(target.id, { type: "nkMasarQueuePassport", files: items }, (resp) => {
+        if (chrome.runtime.lastError) {
+          const msg = "Could not reach the Masar tab — refresh it and try again.";
+          window.nkToast(msg, "error");
+          if (masarTestResult) masarTestResult.textContent = msg;
+          return;
+        }
+        if (masarTestResult) masarTestResult.textContent = JSON.stringify(resp, null, 2);
+        if (resp && resp.ok) window.nkToast(`Queued ${files.length} passport(s) — watch Pipeline Logs for OCR results.`, "success");
+        else window.nkToast((resp && resp.error) || "Queuing failed.", "error");
+      });
+    });
+  }
+  if (masarTestBtn) masarTestBtn.addEventListener("click", runMasarTest);
+
+  // Masar Create Group test — modules/masar-group.js.
+  const groupTestName      = document.getElementById("group-test-name");
+  const groupTestPassports = document.getElementById("group-test-passports");
+  const groupTestBtn       = document.getElementById("group-test-run");
+  const groupTestResult    = document.getElementById("group-test-result");
+  function runGroupTest() {
+    const groupName = (groupTestName && groupTestName.value.trim()) || "";
+    const passportNumbers = ((groupTestPassports && groupTestPassports.value) || "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+    if (!groupName) { window.nkToast("Enter a group name first.", "error"); return; }
+    if (!passportNumbers.length) { window.nkToast("Enter at least one passport number.", "error"); return; }
+    if (groupTestResult) { groupTestResult.style.display = "block"; groupTestResult.textContent = "Creating group… this can take 20-40s."; }
+    withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", (target) => {
+      if (!target) { if (groupTestResult) groupTestResult.textContent = "No masar.nusuk.sa tab found — open one first."; return; }
+      const mutamers = passportNumbers.map((passportNo) => ({ passportNo }));
+      chrome.tabs.sendMessage(target.id, { type: "nkMasarCreateGroup", groupName, mutamers }, (resp) => {
+        if (chrome.runtime.lastError) {
+          const msg = "Could not reach the Masar tab — refresh it and try again.";
+          window.nkToast(msg, "error");
+          if (groupTestResult) groupTestResult.textContent = msg;
+          return;
+        }
+        if (groupTestResult) groupTestResult.textContent = JSON.stringify(resp, null, 2);
+        if (resp && resp.ok && resp.submitted) window.nkToast(`Group created: ${groupName}`, "success");
+        else if (resp && resp.ok) window.nkToast("Finished but didn't land on Group List — check the result.", "warning");
+        else window.nkToast((resp && resp.error) || "Create group failed.", "error");
+      });
+    });
+  }
+  if (groupTestBtn) groupTestBtn.addEventListener("click", runGroupTest);
+
+  // Masar Group Reply Assets test — modules/masar-group-reply.js.
+  const replyTestGroupName = document.getElementById("reply-test-groupname");
+  const replyTestBtn       = document.getElementById("reply-test-run");
+  const replyTestResult    = document.getElementById("reply-test-result");
+  const replyTestImg       = document.getElementById("reply-test-img");
+  function runReplyTest() {
+    const expectedGroupName = (replyTestGroupName && replyTestGroupName.value.trim()) || undefined;
+    if (replyTestResult) { replyTestResult.style.display = "block"; replyTestResult.textContent = "Fetching caption + screenshot…"; }
+    if (replyTestImg) replyTestImg.style.display = "none";
+    withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", (target) => {
+      if (!target) { if (replyTestResult) replyTestResult.textContent = "No masar.nusuk.sa tab found — open one first."; return; }
+      chrome.tabs.sendMessage(target.id, { type: "nkMasarGetGroupReplyAssets", expectedGroupName }, (resp) => {
+        if (chrome.runtime.lastError) {
+          const msg = "Could not reach the Masar tab — refresh it and try again.";
+          window.nkToast(msg, "error");
+          if (replyTestResult) replyTestResult.textContent = msg;
+          return;
+        }
+        if (resp && resp.ok) {
+          const { screenshotDataUrl, ...rest } = resp;
+          if (replyTestResult) replyTestResult.textContent = JSON.stringify(rest, null, 2);
+          if (replyTestImg && screenshotDataUrl) { replyTestImg.src = screenshotDataUrl; replyTestImg.style.display = "block"; }
+          window.nkToast(`Got assets for ${resp.groupName || "the group"} (${resp.mutamerCount} mutamer(s))`, "success");
+        } else {
+          if (replyTestResult) replyTestResult.textContent = JSON.stringify(resp, null, 2);
+          window.nkToast((resp && resp.error) || "Failed to get reply assets.", "error");
+        }
+      });
+    });
+  }
+  if (replyTestBtn) replyTestBtn.addEventListener("click", runReplyTest);
+
+  // WhatsApp Pipeline: Live Sending toggle + team mention WA ID — plain
+  // storage-backed fields, same load/save pattern used throughout Settings.
+  const waPipelineLiveEl = document.getElementById("wa-pipeline-live");
+  const waMentionIdEl    = document.getElementById("wa-mention-id");
+  chrome.storage.local.get(["waPipelineLive", "waMentionId"], (res) => {
+    if (waPipelineLiveEl) waPipelineLiveEl.checked = !!res.waPipelineLive;
+    if (waMentionIdEl) waMentionIdEl.value = res.waMentionId || "";
+  });
+  if (waPipelineLiveEl) waPipelineLiveEl.addEventListener("change", () => {
+    chrome.storage.local.set({ waPipelineLive: waPipelineLiveEl.checked });
+    window.nkToast(waPipelineLiveEl.checked ? "Live sending ENABLED — real WhatsApp replies will go out." : "Live sending disabled — pipeline replies are dry-run only.", waPipelineLiveEl.checked ? "warning" : "success");
+  });
+  if (waMentionIdEl) waMentionIdEl.addEventListener("change", () => {
+    chrome.storage.local.set({ waMentionId: waMentionIdEl.value.trim() });
+  });
+
+  // WA-Campaigns Raw Action Test — calls background's nkWaCallAction relay,
+  // which calls modules/whatsapp-pipeline.js's callWaAction directly (the
+  // exact same function the real pipeline uses) against WA-Campaigns' real
+  // external API. Deliberately NOT gated by the Live Sending toggle above —
+  // this is meant to be tested BEFORE that toggle is ever turned on.
+  const waTestWaId      = document.getElementById("wa-test-waid");
+  const waTestText      = document.getElementById("wa-test-text");
+  const waTestMediaFile = document.getElementById("wa-test-mediafile");
+  const waTestResult    = document.getElementById("wa-test-result");
+  function showWaTestResult(obj) {
+    if (!waTestResult) return;
+    waTestResult.style.display = "block";
+    waTestResult.textContent = JSON.stringify(obj, null, 2);
+  }
+  function callWaActionFromPopup(action, payload) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "nkWaCallAction", action, payload }, (resp) => {
+        if (chrome.runtime.lastError) { resolve({ ok: false, error: chrome.runtime.lastError.message }); return; }
+        resolve(resp);
+      });
+    });
+  }
+  document.getElementById("wa-test-openchat")?.addEventListener("click", async () => {
+    const waId = (waTestWaId && waTestWaId.value.trim()) || "";
+    if (!waId) { window.nkToast("Enter a WhatsApp ID first.", "error"); return; }
+    const resp = await callWaActionFromPopup("openChat", { waId });
+    showWaTestResult(resp);
+    window.nkToast(resp && resp.ok ? "openChat sent." : (resp && resp.error) || "openChat failed.", resp && resp.ok ? "success" : "error");
+  });
+  document.getElementById("wa-test-sendtext")?.addEventListener("click", async () => {
+    const waId = (waTestWaId && waTestWaId.value.trim()) || "";
+    const text = (waTestText && waTestText.value.trim()) || "";
+    if (!waId || !text) { window.nkToast("Enter a WhatsApp ID and text first.", "error"); return; }
+    const resp = await callWaActionFromPopup("sendText", { waId, text });
+    showWaTestResult(resp);
+    window.nkToast(resp && resp.ok ? "Text sent — check the chat." : (resp && resp.error) || "sendText failed.", resp && resp.ok ? "success" : "error");
+  });
+  document.getElementById("wa-test-sendmedia")?.addEventListener("click", () => {
+    const waId = (waTestWaId && waTestWaId.value.trim()) || "";
+    const file = waTestMediaFile && waTestMediaFile.files && waTestMediaFile.files[0];
+    if (!waId || !file) { window.nkToast("Enter a WhatsApp ID and pick an image first.", "error"); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const resp = await callWaActionFromPopup("sendMedia", { waId, dataUrl: reader.result, filename: file.name, caption: (waTestText && waTestText.value.trim()) || "" });
+      showWaTestResult(resp);
+      window.nkToast(resp && resp.ok ? "Media sent — check the chat." : (resp && resp.error) || "sendMedia failed.", resp && resp.ok ? "success" : "error");
+    };
+    reader.onerror = () => window.nkToast("Could not read the picked file.", "error");
+    reader.readAsDataURL(file);
+  });
 
   const ocrEmptyEl = document.getElementById("ocr-empty");
   const ocrViewEl  = document.getElementById("ocr-view");
@@ -1302,6 +1581,168 @@ document.addEventListener("DOMContentLoaded", () => {
   loadScan();
 
   // ══════════════════════════════════════════════════════════
+
+  // ══════════════════════════════════════════════════════════
+  // ── PIPELINE (Queue + Pipeline Logs) ─────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // Same render-from-storage + chrome.storage.onChanged live-update pattern
+  // as the Logs tab above (fmtLogTime, .log-row/.log-time/.log-msg, .logs-empty
+  // are all reused from there).
+
+  // WhatsApp Pipeline's own "i" info panel — no settings/gear, just this.
+  (function () {
+    const infoBtn = document.getElementById("pipeline-info-btn");
+    const infoPanel = document.getElementById("pipeline-info-panel");
+    if (!infoBtn || !infoPanel) return;
+    infoBtn.addEventListener("click", () => {
+      const open = infoPanel.style.display !== "none";
+      infoPanel.style.display = open ? "none" : "";
+      infoBtn.classList.toggle("info-btn-open", !open);
+    });
+  })();
+
+  const RESERVATIONS_KEY = "waReservations";
+  const pipelineQueueList  = document.getElementById("pipeline-queue-list");
+  const pipelineQueueEmpty = document.getElementById("pipeline-queue-empty");
+  const pipelineQueueRefresh = document.getElementById("pipeline-queue-refresh");
+  const pipelineLogsList   = document.getElementById("pipeline-logs-list");
+  const pipelineLogsEmpty  = document.getElementById("pipeline-logs-empty");
+  const pipelineLogsRefresh = document.getElementById("pipeline-logs-refresh");
+  const pipelineLogsCopy   = document.getElementById("pipeline-logs-copy");
+  const pipelineLogsClear  = document.getElementById("pipeline-logs-clear");
+  const tabPipelineCount   = document.getElementById("tab-pipeline-count");
+
+  const STATUS_COLORS = {
+    confirmed: "#22c55e", cancelled: "#ef4444", conflict: "#ef4444",
+    draft: "#f59e0b", not_found: "#9ca3af", unknown: "#9ca3af",
+  };
+  // Returns an element, not an HTML string — statuses come from this
+  // codebase's own vocabulary so the injection risk is low either way, but
+  // groupName/chatName below are ultimately sourced from CRM/WhatsApp text,
+  // so the whole row is built via DOM APIs (textContent) rather than
+  // innerHTML, matching how renderPipelineLogs already does it below.
+  function statusBadge(status) {
+    const span = document.createElement("span");
+    span.textContent = (status || "unknown").toUpperCase();
+    span.style.cssText = `display:inline-block; padding:1px 7px; border-radius:5px; font-size:10.5px; font-weight:700; color:#fff; background:${STATUS_COLORS[status] || "#9ca3af"};`;
+    return span;
+  }
+
+  function renderPipelineQueue(db) {
+    const records = Object.values(db || {}).sort((a, b) => (b.checkedAt || 0) - (a.checkedAt || 0));
+    if (tabPipelineCount) {
+      const active = records.filter((r) => r.status === "confirmed" && !r.repliedAt).length;
+      tabPipelineCount.textContent = active > 99 ? "99+" : (active || "");
+    }
+    if (!records.length) {
+      if (pipelineQueueEmpty) pipelineQueueEmpty.style.display = "block";
+      if (pipelineQueueList) pipelineQueueList.innerHTML = "";
+      return;
+    }
+    if (pipelineQueueEmpty) pipelineQueueEmpty.style.display = "none";
+    if (!pipelineQueueList) return;
+    const frag = document.createDocumentFragment();
+    for (const r of records) {
+      const row = document.createElement("div");
+      row.className = "log-row";
+
+      // Reservation number is the primary key someone scans this table for —
+      // gets its own bolder class rather than the muted, timestamp-sized
+      // .log-time treatment reused for the actual Logs tab.
+      const resNo = document.createElement("span");
+      resNo.className = "queue-resno";
+      resNo.textContent = `UR-${r.reservationNo}`;
+
+      const msg = document.createElement("span");
+      msg.className = "log-msg";
+      msg.appendChild(statusBadge(r.status));
+      const mutamerCount = (r.mutamers || []).length;
+      const paxLine = r.expectedPax ? ` ${mutamerCount}/${r.expectedPax} mutamer(s)` : ` ${mutamerCount} mutamer(s)`;
+      const groupLine = r.groupName ? ` — group: ${r.groupName}` : "";
+      const repliedTag = r.repliedAt ? " ✓ replied" : "";
+      msg.appendChild(document.createTextNode(paxLine + groupLine + repliedTag));
+
+      row.append(resNo, msg);
+      frag.appendChild(row);
+    }
+    pipelineQueueList.innerHTML = "";
+    pipelineQueueList.appendChild(frag);
+  }
+  function loadPipelineQueue() {
+    chrome.storage.local.get([RESERVATIONS_KEY], (res) => renderPipelineQueue(res[RESERVATIONS_KEY]));
+  }
+  if (pipelineQueueRefresh) pipelineQueueRefresh.addEventListener("click", loadPipelineQueue);
+
+  function renderPipelineLogs(logs) {
+    const pipelineLogs = (Array.isArray(logs) ? logs : []).filter((e) => e.m && e.m.startsWith("Pipeline:"));
+    if (!pipelineLogs.length) {
+      if (pipelineLogsEmpty) pipelineLogsEmpty.style.display = "block";
+      if (pipelineLogsList) pipelineLogsList.innerHTML = "";
+      return;
+    }
+    if (pipelineLogsEmpty) pipelineLogsEmpty.style.display = "none";
+    if (!pipelineLogsList) return;
+    const frag = document.createDocumentFragment();
+    for (let i = pipelineLogs.length - 1; i >= 0; i--) {
+      const entry = pipelineLogs[i];
+      const row = document.createElement("div");
+      row.className = "log-row" + (entry.lvl === "warn" ? " log-warn" : entry.lvl === "error" ? " log-error" : "");
+      const time = document.createElement("span");
+      time.className = "log-time";
+      time.textContent = fmtLogTime(entry.t);
+      const msg = document.createElement("span");
+      msg.className = "log-msg";
+      msg.textContent = entry.m.replace(/^Pipeline:\s*/, "");
+      row.append(time, msg);
+      frag.appendChild(row);
+    }
+    pipelineLogsList.innerHTML = "";
+    pipelineLogsList.appendChild(frag);
+  }
+  function loadPipelineLogs() {
+    chrome.storage.local.get([LOGS_KEY], (res) => renderPipelineLogs(res[LOGS_KEY]));
+  }
+  if (pipelineLogsRefresh) pipelineLogsRefresh.addEventListener("click", loadPipelineLogs);
+
+  if (pipelineLogsCopy) pipelineLogsCopy.addEventListener("click", () => {
+    chrome.storage.local.get([LOGS_KEY], (res) => {
+      const pipelineLogs = (Array.isArray(res[LOGS_KEY]) ? res[LOGS_KEY] : []).filter((e) => e.m && e.m.startsWith("Pipeline:"));
+      if (!pipelineLogs.length) { showToast("No pipeline logs to copy"); return; }
+      const text = pipelineLogs.map((e) => {
+        const tag = e.lvl === "warn" ? " [WARN]" : e.lvl === "error" ? " [ERROR]" : "";
+        return `${fmtLogTime(e.t)}${tag} ${e.m.replace(/^Pipeline:\s*/, "")}`;
+      }).join("\n");
+      navigator.clipboard.writeText(text)
+        .then(() => showToast(`✓ Copied ${pipelineLogs.length} pipeline logs`))
+        .catch(() => showToast("✗ Copy failed"));
+    });
+  });
+
+  // Removes only the Pipeline-prefixed entries from the shared nkLogs array —
+  // NOT the same as the main Logs tab's Clear, which wipes everything. This
+  // section's own log volume can get noisy on its own (e.g. the WA-Campaigns
+  // connect/disconnect churn before that was fixed), and clearing it
+  // shouldn't also blow away unrelated module logs.
+  if (pipelineLogsClear) pipelineLogsClear.addEventListener("click", () => {
+    chrome.storage.local.get([LOGS_KEY], (res) => {
+      const all = Array.isArray(res[LOGS_KEY]) ? res[LOGS_KEY] : [];
+      const kept = all.filter((e) => !(e.m && e.m.startsWith("Pipeline:")));
+      const removed = all.length - kept.length;
+      if (!removed) { showToast("No pipeline logs to clear"); return; }
+      chrome.storage.local.set({ [LOGS_KEY]: kept }, () => {
+        showToast(`✓ Cleared ${removed} pipeline log${removed === 1 ? "" : "s"}`);
+      });
+    });
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[RESERVATIONS_KEY]) renderPipelineQueue(changes[RESERVATIONS_KEY].newValue);
+    if (changes[LOGS_KEY]) renderPipelineLogs(changes[LOGS_KEY].newValue);
+  });
+
+  loadPipelineQueue();
+  loadPipelineLogs();
 
   chrome.storage.local.get(["emailList", "activeEmailId"], (res) => {
     emailList     = res.emailList || [];

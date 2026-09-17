@@ -350,6 +350,15 @@ body {
   margin-top: 1px;
 }
 
+/* A tab-panel whose own module toggle is off — every .section below the
+   module-card itself (which stays full-opacity, since its toggle/info
+   button are the only way back on) is dimmed to visually match the
+   `.disabled` inputs/buttons JS already applied inside them. */
+.module-off-locked > .section:not(:first-child) {
+  opacity: .45;
+  filter: grayscale(.35);
+}
+
 /* Small gear button in a module-card's header, right before the on/off
    toggle — expands/collapses that module's own settings block below
    (Mutamer Details' email/phone, Totals' page list) instead of showing
@@ -909,6 +918,38 @@ input:checked + .slider::before {
 .log-row.log-warn  { background: rgba(249,115,22,.06); }
 .log-row.log-error { background: rgba(231,76,60,.07); }
 
+/* Pipeline tab: Queue + Pipeline Logs lists — same cap on both so a long
+   history in either one scrolls in place instead of stretching the panel. */
+.pipeline-scroll-list { max-height: 220px; overflow: auto; }
+
+/* Pipeline tab: Queue row's reservation number — the primary key someone
+   scans this table for, so it gets more visual weight than .log-time's
+   muted/tiny timestamp styling. */
+.queue-resno {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pipeline tab: Test Tools result output boxes — one shared class instead of
+   repeating the same inline style on every <pre> (display:none is the
+   default here; popup.js's inline style.display toggle still overrides it). */
+.test-result-pre {
+  display: none;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(127,127,127,.12);
+  max-height: 160px;
+  overflow: auto;
+}
+.test-result-pre-tall { max-height: 220px; }
+
 /* ── Bulk Passport Parser ─────────────────────────────────── */
 .bulk-pick {
   display: flex;
@@ -1186,6 +1227,7 @@ input:checked + .slider::before {
 .act-btn {
   padding: 8px 14px; border: none; border-radius: var(--radius-xs);
   background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
 }
 .act-btn:hover { opacity: .9; }
 .act-btn:disabled { opacity: .5; cursor: default; }
@@ -1205,6 +1247,41 @@ input:checked + .slider::before {
 #sync-now-btn.spinning svg { animation: sync-spin 0.8s linear infinite; }
 @keyframes sync-spin { to { transform: rotate(360deg); } }
 #sync-status-text.err { color: var(--overlay-fg); }
+
+/* ── Sites (Settings) ──────────────────────────────────────────────── */
+/* Amber = "on the Never run on list" — the one state that isn't simply on/off. */
+.act-dot.warn { background: var(--accent3); box-shadow: 0 0 0 3px rgba(249,115,22,.18); }
+
+/* The site open in this tab, with the one action that makes sense for it. */
+.site-current {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 10px; margin-bottom: 10px;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-xs);
+}
+.site-current [hidden] { display: none !important; }
+.site-current-text { flex: 1; min-width: 0; }
+.site-current-host {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.site-current-state { font-size: 11px; color: var(--text-muted); line-height: 1.35; }
+.site-btn { flex-shrink: 0; padding: 6px 12px; font-size: 12px; }
+.site-btn-ghost {
+  border: 1.5px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2); color: var(--text-muted); font-weight: 600; cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.site-btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.site-list-label { margin-top: 12px; }
+.site-item { gap: 8px; }
+.site-host { color: var(--text); }
+.site-tag {
+  flex-shrink: 0; font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+  padding: 1px 7px; border-radius: 99px;
+  background: var(--fill-bg); color: var(--fill-fg);
+}
+.site-tag-warn { background: var(--reload-bg); color: var(--reload-fg); }
 
 /* ── Premium locks ─────────────────────────────────────────────────── */
 .module-card.module-locked { position: relative; opacity: .6; }
@@ -1518,10 +1595,14 @@ body { width: 500px; display: flex; flex-direction: column; }
   content: "•"; position: absolute; left: 2px; color: var(--accent); font-weight: 700;
 }
 
-/* Compact single-row toolbar: search box + Add + the 4 icon-only utility
-   buttons (Share / Import link / Export / Import), all in one line. */
-.ac-toolbar-compact { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
-.ac-toolbar-compact .logs-search { flex: 1; min-width: 0; margin: 0; }
+/* Compact toolbar: search box + Add + the icon-only utility buttons
+   (Share / Import link / Export / Import). One line when there's room; at
+   side-panel widths near the 340px floor (popup.css's html.as-panel rule)
+   there usually isn't, so it wraps instead of squeezing/clipping the
+   trailing icon buttons — the search box keeps a usable minimum width
+   rather than collapsing to fit them. */
+.ac-toolbar-compact { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.ac-toolbar-compact .logs-search { flex: 1 1 120px; min-width: 90px; margin: 0; }
 .ac-icon-btn {
   flex-shrink: 0; width: 30px; height: 30px; padding: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1592,10 +1673,30 @@ body { width: 500px; display: flex; flex-direction: column; }
 }
 .rule-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
-/* Path match + Page path sharing one row (see createPathRow) */
-.path-row { display: flex; gap: 8px; }
-.path-row .path-row-match { flex: 0 0 100px; margin-bottom: 0; }
-.path-row .path-row-path { flex: 1; min-width: 0; margin-bottom: 0; }
+/* "Runs on" URL list (see createUrlListField) — match dropdown at a fixed
+   narrow width, the address takes the rest, remove button last. Compound
+   selectors so these beat the plain ".rule-field input/select" width:100%. */
+.rule-field .url-row .url-match-select { flex: 0 0 92px; width: 92px; }
+.rule-field .url-row input { flex: 1; width: auto; min-width: 0; }
+.rule-field .url-row input:disabled { color: var(--text-sub); cursor: not-allowed; }
+.rule-field .url-row input:disabled::placeholder { color: var(--text-sub); font-style: italic; }
+.url-empty {
+  padding: 8px; text-align: center; font-size: 10.5px; color: var(--text-sub);
+  background: var(--surface2); border: 1px dashed var(--border); border-radius: var(--radius-xs);
+}
+.url-add-row { display: flex; gap: 6px; }
+.url-add-row .multi-selector-add { flex: 1; min-width: 0; }
+
+/* Shown under a URL list that names somewhere Nuskomate can't run yet —
+   same amber family as the Sites "blocked" tag, with the fix button inline. */
+.url-access-note {
+  display: grid; gap: 6px; margin-top: 6px; padding: 7px 8px;
+  background: var(--reload-bg); border: 1px solid var(--border); border-left: 3px solid var(--reload-fg);
+  border-radius: var(--radius-xs);
+}
+.url-access-line { display: flex; align-items: center; gap: 8px; }
+.url-access-text { flex: 1; min-width: 0; font-size: 10.5px; line-height: 1.4; color: var(--text); }
+.url-access-line .us-use-btn { background: var(--surface); }
 
 .rule-body { display: grid; grid-template-columns: 1fr 100px; gap: 8px; margin-top: 10px; }
 .rule-body.collapsed { display: none; }
@@ -1829,6 +1930,14 @@ body { width: 500px; display: flex; flex-direction: column; }
 html.as-panel, html.as-panel body { height: 100%; }
 html.as-panel body { width: 100%; min-width: 340px; }
 
+/* .ac-list's 420px cap (below) was sized for the popup's fixed 600px height —
+   a side panel is user-resizable and often much taller, so that cap left a
+   card cut off mid-row with its own tiny internal scrollbar while the rest
+   of the (much taller) panel sat empty below it. In panel mode, drop the cap
+   and let .content's own scroll (same as .email-list — BRN's hotel list —
+   which never had this problem) handle it instead. */
+html.as-panel .ac-list { max-height: none; }
+
 .header-actions { display: flex; align-items: center; gap: 8px; }
 .ui-mode-btn:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .ui-mode-btn {
@@ -1887,3 +1996,259 @@ html.as-panel body { width: 100%; min-width: 340px; }
 .pc-inline-toggle .field-input { flex: 1; min-width: 0; max-width: 150px; }
 .pc-inline-text { font-size: 12px; color: var(--text-muted); }
 .pc-inline-toggle:has(input:checked) .pc-inline-text { color: var(--text); }
+
+/* ── JPG & PDF Tools ──────────────────────────────────────────────────── */
+/* Both groups sit in one continuous scroll (JPG above, PDF below, a bold
+   divider between) rather than behind a tab switcher — one less click, and
+   nothing hides while a tool from the OTHER group happens to be open (see
+   .ft-pane-collapsed, toggled by openTool()/closeTool() in file-tools.js so
+   only the group actually in use is visible while a tool panel is open). */
+.ft-hint { margin-top: 2px; }
+.ft-pane { display: block; padding-top: 0; }
+.ft-pane-collapsed { display: none; }
+
+.ft-group-title {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.ft-group-title svg { color: var(--accent); flex-shrink: 0; }
+
+/* A real, visible break between the two groups — solid and noticeably
+   thicker than the dashed .field-divider used for in-card sections, on
+   purpose: this is the top level of structure on the whole page (JPG tools
+   vs. PDF tools), not a minor field grouping, so it should read as one at a
+   glance while scrolling past it. */
+.ft-section-divider {
+  height: 3px; margin: 20px 14px; border-radius: 2px;
+  background: var(--accent); opacity: .35;
+}
+.ft-section-divider[hidden] { display: none; }
+
+/* Home screen: a responsive grid of tool buttons — CSS grid rather than
+   literal flex-wrap so every button in a row stays the SAME width even when
+   the last row isn't full (flex-wrap's items stretch to fill leftover space
+   on a partial row, which reads as uneven/awkward); auto-fill still gives
+   the same practical result the user asked for — around 3 per row at the
+   normal popup width, reflowing to more as the panel gets wider (e.g. docked
+   as a side panel), never fewer than fits at ~92px each. */
+.ft-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; transition: opacity .15s ease; }
+.ft-grid[hidden] { display: none; }
+.ft-grid-hidden { opacity: 0; pointer-events: none; } /* mid-morph: still laid out (so its rect stays known) but invisible */
+.ft-grid-entering { animation: ft-grid-in .2s ease both; }
+@keyframes ft-grid-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
+
+.ft-grid-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center;
+  padding: 12px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .08s;
+}
+.ft-grid-btn:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.ft-grid-btn:active { transform: scale(.96); }
+.ft-grid-icon { width: 34px; height: 34px; }
+.ft-grid-label { font-size: 10.5px; font-weight: 600; line-height: 1.25; }
+
+/* Detail panel — the one tool currently open, morphed in from its grid
+   button (see openTool() in file-tools.js). No border/background of its own
+   at rest (position/size are pinned inline mid-animation instead); once
+   settled it's just a plain block occupying the pane. */
+.ft-detail[hidden] { display: none; }
+.ft-detail-leaving { animation: ft-detail-out .16s ease both; }
+@keyframes ft-detail-out { from { opacity: 1; } to { opacity: 0; } }
+.ft-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color .15s, background .15s; }
+.ft-panel.ft-panel-drag-over { border-color: var(--accent); background: var(--accent-soft); }
+.ft-panel-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px; border-bottom: 1px dashed var(--border);
+}
+.ft-back-btn {
+  flex-shrink: 0; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--surface2); color: var(--text-muted); cursor: pointer;
+}
+.ft-back-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ft-tool-body { padding: 13px; }
+
+/* File drop/pick zone — dashed like .multi-selector-add and .premium-upsell,
+   the extension's existing "optional/inactive area" visual language. */
+.ft-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  padding: 18px 12px; border: 1.5px dashed var(--border); border-radius: var(--radius-xs);
+  background: var(--surface2); color: var(--text-muted); cursor: pointer; transition: all .15s;
+}
+.ft-drop:hover, .ft-drop.ft-drop-over { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.ft-drop svg { color: var(--accent); }
+.ft-drop-label { font-size: 12px; font-weight: 600; }
+.ft-drop-hint { font-size: 10.5px; color: var(--text-sub); }
+
+/* Picked-file chips — same row language as .email-item. */
+.ft-files { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ft-file {
+  display: flex; align-items: center; gap: 7px; padding: 6px 9px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs);
+}
+.ft-file-name { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-file-size { flex-shrink: 0; font-size: 10.5px; color: var(--text-sub); }
+.ft-file-move, .ft-file-del {
+  flex-shrink: 0; width: 20px; height: 20px; padding: 0; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 5px; background: transparent; color: var(--text-sub); cursor: pointer;
+}
+.ft-file-move:hover { background: var(--accent-soft); color: var(--accent); }
+.ft-file-del:hover { background: var(--overlay-bg); color: var(--overlay-fg); }
+.ft-file-move:disabled { opacity: .3; cursor: default; }
+
+.ft-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.ft-fields .rule-field { margin-bottom: 0; }
+.ft-note { grid-column: 1 / -1; font-size: 10.5px; color: var(--text-sub); line-height: 1.4; margin-top: -2px; }
+
+/* Keyboard-shortcut row (Element Screenshot) — a live-read display of
+   Chrome's own command binding, not an editable field: see the comment in
+   file-tools.js's buildToolPanel for why this can only show/change-via-link
+   rather than record a combo the way the Auto Clicker/BRN/Talab Copy
+   hotkeys do. */
+.ft-hotkey-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11.5px; color: var(--text-muted); }
+.ft-hotkey-kbd {
+  font: 600 11px/1 ui-monospace, "Cascadia Code", Consolas, monospace;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px 7px; color: var(--text);
+}
+
+.ft-run-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.ft-run-btn { flex-shrink: 0; }
+.ft-run-btn:disabled { opacity: .5; cursor: default; }
+.ft-extra-btn { flex-shrink: 0; }
+.ft-extra-btn:disabled { opacity: .4; cursor: default; }
+.ft-progress { flex: 1; min-width: 0; font-size: 11px; color: var(--text-muted); }
+.ft-progress.ft-progress-err { color: var(--overlay-fg); }
+.ft-progress.ft-progress-ok { color: var(--fill-fg); font-weight: 600; }
+
+/* Result grid — a single-output tool gets one wide card; PDF→JPG's page
+   thumbnails use the same tile, just narrower and with an image preview. */
+.ft-results { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 10px; }
+.ft-results.ft-results-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+.ft-result {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px; text-align: center;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs);
+}
+.ft-results:not(.ft-results-grid) .ft-result { flex-direction: row; align-items: center; text-align: left; }
+.ft-result-thumb {
+  width: 100%; aspect-ratio: 3 / 4; object-fit: contain; border-radius: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.ft-result-info { flex: 1; min-width: 0; }
+.ft-result-name { font-size: 10.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-result-size { font-size: 9.5px; color: var(--text-sub); }
+.ft-result-btns { display: flex; gap: 4px; flex-shrink: 0; }
+.ft-results-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.ft-dl-one-btn, .ft-apply-btn { flex-shrink: 0; }
+
+/* "Apply another tool"'s own screen — a second, filtered ft-grid, not a
+   dropdown; morphs open the same way the main grid -> tool panel does (see
+   pushFrame in file-tools.js), just nested one level deeper. Plain .ft-panel
+   styling is enough — it already reads as "a screen", no extra chrome needed. */
+.ft-chain-panel .ft-grid { margin-top: 2px; }
+
+/* Text-output results (OCR Image, Extract Text) — a readonly preview right
+   in the card, since "read the text now" matters more here than "here's a
+   file to save"; the normal download/copy buttons stay available too. */
+.ft-result-textbox {
+  width: 100%; margin-top: 5px; padding: 6px 8px; font-size: 11px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--surface); color: var(--text);
+  resize: vertical;
+}
+
+/* Multi-line field (Text -> PDF) — same look as every other field input,
+   just taller and allowed to grow. */
+.ft-textarea {
+  width: 100%; box-sizing: border-box; padding: 8px; font-size: 12px; font-family: inherit;
+  border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--surface2); color: var(--text);
+  resize: vertical;
+}
+.ft-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* ── Interactive region selector (Crop, Blur/Pixelate) ──────────────────── */
+.ft-region-wrap { position: relative; margin-top: 10px; max-width: 100%; line-height: 0; user-select: none; }
+/* Crosshair, not the default arrow — the standard "click and drag to select
+   an area" pointer (Photoshop/GIMP's marquee, the OS's own screenshot-region
+   picker) so it's obvious you can draw a box here before you even try. */
+.ft-region-img { max-width: 100%; max-height: 260px; display: block; border-radius: var(--radius-xs); border: 1px solid var(--border); cursor: crosshair; }
+.ft-region-box {
+  position: absolute; border: 2px dashed var(--accent); background: rgba(79, 110, 247, .15); cursor: move; box-sizing: border-box;
+}
+.ft-region-box[hidden] { display: none; }
+.ft-region-handle {
+  position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 3px;
+  background: var(--accent); border: 2px solid var(--surface); cursor: nwse-resize;
+}
+
+/* ── Interactive page manager (Reorder / Delete Pages) ──────────────────── */
+.ft-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; margin-top: 10px; }
+.ft-page-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs);
+}
+.ft-page-thumb { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; }
+.ft-page-num { font-size: 9.5px; color: var(--text-sub); }
+.ft-page-controls { display: flex; gap: 3px; }
+
+/* ── Media Grabber — every image/video/audio/SVG/document found on the
+   page open in the current tab (popup/media-grabber.js) ──────────────── */
+.mg-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 8px; }
+.mg-count { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
+
+/* Filters — type chips (toggle which types show), extension text filter,
+   min-size threshold (0 reveals the tiny images/icons a scan otherwise
+   still captured but the default 32px hides), and a sort order — all pure
+   client-side re-filters over the already-scanned list, no rescan needed. */
+.mg-filters { margin-bottom: 10px; }
+.mg-type-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.mg-chip {
+  font-size: 10.5px; font-weight: 600; padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer;
+  transition: all .12s;
+}
+.mg-chip:hover { border-color: var(--accent); color: var(--text); }
+.mg-chip-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mg-filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mg-ext-input { flex: 1; min-width: 130px; }
+.mg-size-filter {
+  display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-muted); white-space: nowrap;
+}
+.mg-size-filter input {
+  width: 52px; padding: 5px 6px; border-radius: var(--radius-xs); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 11px;
+}
+.mg-sort-select {
+  padding: 5px 7px; border-radius: var(--radius-xs); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 11px; cursor: pointer;
+}
+
+.mg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.mg-actions .act-btn { flex-shrink: 0; }
+
+.mg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.mg-card {
+  position: relative; display: flex; flex-direction: column; gap: 4px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 6px;
+}
+.mg-card.mg-unavailable { opacity: .55; }
+.mg-thumb {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: 4px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.mg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mg-thumb-icon { display: flex; align-items: center; justify-content: center; color: var(--text-sub); }
+.mg-select {
+  position: absolute; top: 9px; left: 9px; z-index: 1;
+  width: 17px; height: 17px; display: flex; align-items: center; justify-content: center;
+}
+.mg-select input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+.mg-dl-btn {
+  position: absolute; top: 9px; right: 9px; z-index: 1;
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; padding: 0;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.mg-dl-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mg-dl-btn:disabled { opacity: .4; cursor: default; }
+.mg-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 9.5px; color: var(--text-sub); padding: 0 1px; }
+.mg-type { font-weight: 600; }
+.mg-empty { text-align: center; color: var(--text-sub); font-size: 12px; padding: 30px 0; }

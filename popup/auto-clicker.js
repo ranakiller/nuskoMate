@@ -116,6 +116,9 @@ document.addEventListener("DOMContentLoaded", () => {
     return { type: "run", delayMs: oldDelay };
   }
 
+  // Where a rule/workflow runs — its "Runs on" URL list (utils/url-match.js).
+  const U = window.NkUrlMatch;
+
   function normalizeRule(rule) {
     const requiredElements = normalizeSelectorArray(
       rule.requiredElements || rule.requiredElement || rule.selector || [],
@@ -133,8 +136,10 @@ document.addEventListener("DOMContentLoaded", () => {
       enabled: rule.enabled !== false,
       name: rule.name || rule.text || requiredElements[0] || "Unnamed",
       text: rule.text || "",
-      pathname: rule.pathname !== undefined ? rule.pathname : (rule.path !== undefined ? rule.path : ""),
-      pathMatch: rule.pathMatch || rule.urlMatch || "exact",
+      // urls + the old pathname/pathMatch pair kept for older versions (see
+      // urlFields in utils/url-match.js). A rule from before multi-URL
+      // support reads back as the one Masar URL it always meant.
+      ...U.urlFields(U.urlsOf(rule)),
       requiredElements,
       forbiddenElements,
       action: normalizeAction(rule.action),
@@ -233,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function matchesSearch(rule, search) {
     return [
-      rule.name, rule.type, rule.pathname, rule.pathMatch, rule.fillValue, rule.selectValue,
+      rule.name, rule.type, ...rule.urls.map(U.label), rule.fillValue, rule.selectValue,
       rule.sourceSelector, ...(rule.targetLangs || []),
       ...rule.requiredElements, ...rule.forbiddenElements,
     ].filter(Boolean).join(" ").toLowerCase().includes(search);
@@ -275,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function copyText(text, okMsg) {
     const fallback = () => window.prompt("Copy this link:", text);
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => alert(okMsg), fallback);
+      navigator.clipboard.writeText(text).then(() => window.nkToast(okMsg, "success"), fallback);
     } else fallback();
   }
 
@@ -283,7 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // per-group Share buttons across click/fill/select AND URL Shifter — same
   // short-link-first, long-link-fallback flow, just given a smaller array.
   async function shareRuleArray(rules, btnEl) {
-    if (!rules.length) { alert("No rules to share."); return; }
+    if (!rules.length) { window.nkToast("No rules to share.", "error"); return; }
     if (btnEl) btnEl.disabled = true;
     if (window.NkLicense && window.NkLicense.shareRules) {
       const r = await window.NkLicense.shareRules(rules);
@@ -292,7 +297,7 @@ document.addEventListener("DOMContentLoaded", () => {
         copyText(r.url, `Short link copied — ${rules.length} rule(s), valid 180 days.\nAnyone imports it with "Import link".`);
         return;
       }
-      if (!confirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`)) return;
+      if (!(await window.nkConfirm(`Could not create a short link (${(r && r.error) || "server unreachable"}).\nCopy a long offline link instead?`, { confirmText: "Copy offline link" }))) return;
     } else if (btnEl) btnEl.disabled = false;
     copyText(encodeRulesLink(rules), `Long link copied — ${rules.length} rule(s). Paste it to anyone; they import it with "Import link".`);
   }
@@ -463,20 +468,135 @@ document.addEventListener("DOMContentLoaded", () => {
     return wrapper;
   }
 
-  // Path match + Page path share one row — the dropdown stays a fixed
-  // narrow width, the path input takes the rest. Reuses createField for
-  // each half so the actual save/change wiring stays identical everywhere
-  // else it's used; this just repackages the two into one flex row.
-  function createPathRow(rule, rules) {
+  // ── "Runs on" URL list — shared by rule cards and workflow settings ───────
+  // One row per URL: how to match (narrow dropdown) + the address + remove.
+  // `onSave(nextUrls)` persists the whole list; the caller re-renders, which
+  // rebuilds this field from storage.
+  const URL_MATCH_OPTIONS = [
+    { value: "site", label: "Whole site" },
+    { value: "page", label: "This page" },
+    { value: "contains", label: "Contains" },
+    { value: "any", label: "Any site" },
+  ];
+  const URL_PLACEHOLDER = {
+    site: "example.com",
+    page: "example.com/some/page",
+    contains: "text in the address",
+    any: "Every site Nuskomate is allowed on",
+  };
+  // "<ownerKey>|<index>" of the row "+ Add URL" just created — focused once
+  // the re-render puts it on screen, so you can type straight away.
+  let focusUrlRow = null;
+
+  function createUrlListField(ownerKey, urls, onSave, labelText) {
     const wrapper = document.createElement("div");
-    wrapper.className = "rule-field full path-row";
-    const matchField = createField(rule, "pathMatch", "Path match", "select", rules, ["exact", "includes"]);
-    matchField.classList.add("path-row-match");
-    const pathField = createField(rule, "pathname", "Page path", "input", rules);
-    pathField.classList.add("path-row-path");
-    wrapper.append(matchField, pathField);
+    wrapper.className = "rule-field full url-list-field";
+    const label = document.createElement("label");
+    label.textContent = labelText || "Runs on";
+    const list = document.createElement("div");
+    list.className = "multi-selector-list";
+
+    const replaceAt = (index, entry) => { const next = [...urls]; next[index] = entry; onSave(next); };
+
+    urls.forEach((entry, index) => {
+      const row = document.createElement("div");
+      row.className = "multi-selector-row url-row";
+
+      const sel = document.createElement("select");
+      sel.className = "url-match-select";
+      sel.title = "How this URL is matched";
+      URL_MATCH_OPTIONS.forEach((o) => {
+        const opt = document.createElement("option");
+        opt.value = o.value; opt.textContent = o.label; sel.appendChild(opt);
+      });
+      sel.value = entry.match;
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.spellcheck = false;
+      input.value = U.inputValue(entry);
+      input.placeholder = URL_PLACEHOLDER[entry.match] || "";
+      input.disabled = entry.match === "any";
+      input.title = U.label(entry);
+
+      // Switching the match keeps whatever address is typed, re-read for the
+      // new mode (e.g. This page → Whole site drops the path).
+      sel.addEventListener("change", () => replaceAt(index, { match: sel.value, ...U.parseInput(input.value, sel.value) }));
+      input.addEventListener("change", () => replaceAt(index, { match: entry.match, ...U.parseInput(input.value, entry.match) }));
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+
+      const removeBtn = iconMini("trash", "Remove this URL", () => {
+        const next = [...urls]; next.splice(index, 1); onSave(next);
+      }, true);
+
+      row.append(sel, input, removeBtn);
+      list.appendChild(row);
+      if (focusUrlRow === `${ownerKey}|${index}`) { focusUrlRow = null; setTimeout(() => input.focus(), 0); }
+    });
+
+    if (!urls.length) {
+      const empty = document.createElement("div");
+      empty.className = "url-empty";
+      empty.textContent = "No URLs — this won't run anywhere until you add one.";
+      list.appendChild(empty);
+    }
+
+    const addRow = document.createElement("div");
+    addRow.className = "url-add-row";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button"; addBtn.className = "multi-selector-add"; addBtn.textContent = "+ Add URL";
+    addBtn.title = "Add another site or page this should run on";
+    addBtn.addEventListener("click", () => {
+      focusUrlRow = `${ownerKey}|${urls.length}`;
+      onSave([...urls, { match: "site", host: "", path: "" }]);
+    });
+    const curBtn = document.createElement("button");
+    curBtn.type = "button"; curBtn.className = "multi-selector-add"; curBtn.textContent = "+ Add current URL";
+    curBtn.title = "Add the page open in this tab";
+    curBtn.addEventListener("click", () => {
+      getActiveTabUrl((url) => {
+        if (!url) { window.nkToast("Couldn't read this tab's address — type it in with + Add URL instead.", "error"); return; }
+        const entry = U.fromUrl(url, "page");
+        if (!entry) { window.nkToast("That's a browser page — open the website you want first.", "error"); return; }
+        if (urls.some((u) => u.match === entry.match && u.host === entry.host && u.path === entry.path)) {
+          window.nkToast("This page is already in the list.", "info"); return;
+        }
+        onSave([...urls, entry]);
+      });
+    });
+    addRow.append(addBtn, curBtn);
+
+    wrapper.append(label, list, addRow);
+    const note = createUrlAccessNote(urls);
+    if (note) wrapper.append(note);
     return wrapper;
   }
+
+  // Warns when a URL list names a site on "Never run on" — Nuskomate runs
+  // everywhere else by default now, so that's the only reason a rule's own
+  // URLs might not actually take effect somewhere. Nothing is shown when
+  // everything's fine.
+  function createUrlAccessNote(urls) {
+    const SA = window.NkSiteAccess;
+    if (!SA || !SA.get().loaded) return null;
+    const { hosts } = U.hostsNeeded({ urls });
+    const blocked = hosts.filter((h) => SA.isBlocked(h));
+    if (!blocked.length) return null;
+
+    const note = document.createElement("div");
+    note.className = "url-access-note";
+    const line = (text) => {
+      const l = document.createElement("div"); l.className = "url-access-line";
+      const t = document.createElement("span"); t.className = "url-access-text"; t.textContent = text;
+      l.appendChild(t);
+      note.appendChild(l);
+    };
+    const names = (list) => list.length > 2 ? `${list.slice(0, 2).join(", ")} +${list.length - 2} more` : list.join(" and ");
+
+    line(`${names(blocked)} ${blocked.length > 1 ? "are" : "is"} on your Never run on list, so it won't run there.`);
+    return note;
+  }
+  if (window.NkSiteAccess) window.NkSiteAccess.onChange(() => { renderRules(); renderWorkflows(); });
 
   function createMultiSelectorField(rule, key, labelText, rules, placeholder, mode) {
     const wrapper = document.createElement("div");
@@ -735,7 +855,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const delayText = rule.action.type === "delay" ? ` ${rule.action.delayMs / 1000}s` : "";
         const repeatText = rule.repeat ? ` | repeat ${rule.repeatIntervalMs / 1000}s` : "";
         const hotkeyText = rule.triggerMode === "hotkey" ? ` | ⌨ ${rule.hotkey || "not set"}` : "";
-        summary.textContent = `${rule.action.type}${delayText}${repeatText}${hotkeyText} | ${rule.pathMatch}: ${rule.pathname || "any path"}`;
+        summary.textContent = `${rule.action.type}${delayText}${repeatText}${hotkeyText} | ${U.summary(rule)}`;
 
         const actions = document.createElement("div");
         actions.className = "rule-actions";
@@ -756,7 +876,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const body = document.createElement("div");
         body.className = collapsedRuleIds.has(id) ? "rule-body collapsed" : "rule-body";
         body.append(
-          createPathRow(rule, rules),
+          createUrlListField("rule" + id, rule.urls, (next) => {
+            saveRules(rules.map((r) => String(r.id) === id ? { ...r, ...U.urlFields(next) } : r), renderRules);
+          }),
           createMultiSelectorField(rule, "requiredElements", requiredLabel, rules, ".btn, [data-action]", "required"),
         );
         if (!isTranslate) {
@@ -824,25 +946,33 @@ document.addEventListener("DOMContentLoaded", () => {
           e.textContent = catRules.length ? "No rules match your search." : cfg.empty;
           listEl.appendChild(e); return;
         }
+        // Grouped by the rule's WHOLE URL list — two rules share a group only
+        // when they run in exactly the same places. The header names the
+        // first URL (+N more); hovering it shows the full list.
         const groups = new Map();
-        displayed.forEach((rule) => { const key = (rule.pathname || "").trim() || "__any__"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(rule); });
+        displayed.forEach((rule) => {
+          const key = rule.urls.map(U.label).join("\n") || "__none__";
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(rule);
+        });
         wireExpandToggle(cfg.expandToggle, [...groups.keys()].map((k) => cfg.cat + "|" + k), collapsedGroups, renderRules, "groups");
 
         groups.forEach((grpRules, key) => {
           const gkey = cfg.cat + "|" + key;
-          const label = key === "__any__" ? "Any page" : key;
+          const label = U.summary(grpRules[0]);
           const gh = document.createElement("div"); gh.className = "rule-group-head";
           const gcol = collapsedGroups.has(gkey);
           const caret = document.createElement("span"); caret.className = "rule-group-caret"; caret.textContent = gcol ? "▸" : "▾";
           const gt = document.createElement("span"); gt.className = "rule-group-title"; gt.textContent = label;
+          if (grpRules[0].urls.length > 1) gt.title = grpRules[0].urls.map(U.label).join("\n");
           const gc = document.createElement("span"); gc.className = "rule-group-count"; gc.textContent = grpRules.length;
           const gShare = iconMini("share", `Share all ${grpRules.length} rule(s) in "${label}" as a link`, (e) => {
             e.stopPropagation();
             shareRuleArray(grpRules, null);
           });
-          const gDel = iconMini("trash", `Delete all ${grpRules.length} rule(s) in "${label}"`, (e) => {
+          const gDel = iconMini("trash", `Delete all ${grpRules.length} rule(s) in "${label}"`, async (e) => {
             e.stopPropagation();
-            if (!confirm(`Delete all ${grpRules.length} rule(s) under "${label}"? This can be undone with Ctrl+Z.`)) return;
+            if (!(await window.nkConfirm(`Delete all ${grpRules.length} rule(s) under "${label}"? This can be undone with Ctrl+Z.`, { confirmText: "Delete", danger: true }))) return;
             const ids = new Set(grpRules.map((r) => String(r.id)));
             saveRules(rules.filter((r) => !ids.has(String(r.id))), renderRules);
           }, true);
@@ -900,7 +1030,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0] || !tabs[0].id) return;
       chrome.tabs.sendMessage(tabs[0].id, { action: "START_PICKER", ...payload }, () => {
-        if (chrome.runtime.lastError) alert("Open a Masar page and refresh it before using the picker.");
+        if (chrome.runtime.lastError) window.nkToast("Nuskomate isn't running on this tab. Open Masar or a site allowed in Settings → Sites, then refresh the page.", "error");
         else window.close();
       });
     });
@@ -931,7 +1061,7 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => {
       const s = (getSelector() || "").trim();
       if (s) sendToPage({ action: "HIGHLIGHT_ELEMENT", selector: s });
-      else alert("Set a selector first.");
+      else window.nkToast("Set a selector first.", "error");
     });
     return b;
   }
@@ -988,11 +1118,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // (they share the same RULES_KEY array) are left untouched.
     const delAllBtn = document.getElementById(cfg.delAll);
     if (delAllBtn) delAllBtn.onclick = () => {
-      chrome.storage.local.get([RULES_KEY], (res) => {
+      chrome.storage.local.get([RULES_KEY], async (res) => {
         const all = res[RULES_KEY] || [];
         const count = all.filter((r) => categoryOf(normalizeRule(r)) === cfg.cat).length;
-        if (!count) { alert("No rules to delete."); return; }
-        if (!confirm(`Delete all ${count} rule(s) in this tab? This can be undone with Ctrl+Z.`)) return;
+        if (!count) { window.nkToast("No rules to delete.", "error"); return; }
+        if (!(await window.nkConfirm(`Delete all ${count} rule(s) in this tab? This can be undone with Ctrl+Z.`, { confirmText: "Delete", danger: true }))) return;
         saveRules(all.filter((r) => categoryOf(normalizeRule(r)) !== cfg.cat), renderRules);
       });
     };
@@ -1007,15 +1137,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
         const r = await window.NkLicense.fetchSharedRules(code);
         if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
-        else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+        else if (!/[#?&]r=/.test(text)) { window.nkToast("Import failed: " + ((r && r.error) || "server unreachable"), "error"); return; }
       }
       if (!imported) {
-        try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+        try { imported = decodeRulesLink(text); } catch (err) { window.nkToast("Import failed: " + err.message, "error"); return; }
       }
-      if (!imported.length) { alert("That link has no rules."); return; }
+      if (!imported.length) { window.nkToast("That link has no rules.", "error"); return; }
       chrome.storage.local.get([RULES_KEY], (res) => {
         const merged = [...(res[RULES_KEY] || []), ...imported];
-        saveRules(merged, () => { alert(`Imported ${imported.length} rule(s) from link.`); renderRules(); });
+        saveRules(merged, () => { window.nkToast(`Imported ${imported.length} rule(s) from link.`, "success"); renderRules(); });
       });
     };
 
@@ -1023,7 +1153,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (expBtn) expBtn.onclick = () => {
       chrome.storage.local.get([RULES_KEY], (res) => {
         const rules = (res[RULES_KEY] || []).filter((r) => categoryOf(normalizeRule(r)) === cfg.cat);
-        if (!rules.length) { alert("No rules to export."); return; }
+        if (!rules.length) { window.nkToast("No rules to export.", "error"); return; }
         const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a"); a.href = url; a.download = `${cfg.file}-${new Date().toISOString().slice(0, 10)}.json`;
@@ -1043,9 +1173,9 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
           chrome.storage.local.get([RULES_KEY], (res) => {
             const merged = [...(res[RULES_KEY] || []), ...imported];
-            saveRules(merged, () => { alert(`Imported ${imported.length} rule(s).`); renderRules(); });
+            saveRules(merged, () => { window.nkToast(`Imported ${imported.length} rule(s).`, "success"); renderRules(); });
           });
-        } catch (err) { alert(`Import failed: ${err.message}`); }
+        } catch (err) { window.nkToast(`Import failed: ${err.message}`, "error"); }
       };
       reader.readAsText(file); impFile.value = "";
     });
@@ -1094,7 +1224,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0] || !tabs[0].id) { if (cb) cb(false); return; }
       chrome.tabs.sendMessage(tabs[0].id, payload, () => {
-        if (chrome.runtime.lastError) { alert("Open a Masar page and refresh it before running / highlighting."); if (cb) cb(false); }
+        if (chrome.runtime.lastError) { window.nkToast("Nuskomate isn't running on this tab. Open Masar or a site allowed in Settings → Sites, then refresh the page.", "error"); if (cb) cb(false); }
         else if (cb) cb(true);
       });
     });
@@ -1180,8 +1310,8 @@ document.addEventListener("DOMContentLoaded", () => {
     else step = { id: uid(), type, name: type === "waitFor" ? "Wait for element" : "Wait until gone", requiredElements: [""], selector: "", timeoutMs: 15000 };
     addStepAt(wfId, step, afterId);
   }
-  function deleteWorkflow(wfId) {
-    if (!confirm("Delete this workflow?")) return;
+  async function deleteWorkflow(wfId) {
+    if (!(await window.nkConfirm("Delete this workflow?", { confirmText: "Delete", danger: true }))) return;
     withWorkflows((wfs) => saveWorkflows(wfs.filter((w) => String(w.id) !== String(wfId)), renderWorkflows));
   }
   function duplicateWorkflow(wfId) {
@@ -1201,7 +1331,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   function addWorkflow() {
-    withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, enabled: true, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
+    // Starts out running on the whole site open right now (Masar if the tab
+    // isn't a website), so a workflow built somewhere else doesn't auto-run
+    // or grab its hotkey over on Masar. Editable under ⚙ → Runs on.
+    getActiveTabUrl((url) => {
+      const here = U.fromUrl(url, "site");
+      const urls = [here || { match: "site", host: U.MASAR_HOST, path: "" }];
+      withWorkflows((wfs) => { const wf = { id: uid(), name: `Workflow ${wfs.length + 1}`, enabled: true, urls, steps: [] }; saveWorkflows([...wfs, wf], renderWorkflows); });
+    });
   }
   function reorderWorkflows(srcId, targetId) {
     withWorkflows((wfs) => {
@@ -1534,6 +1671,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const repeat = wf.repeat || { mode: "off" };
     const data = wf.data || { columns: [], rows: [] };
 
+    // Where its auto-run trigger and hotkey work. The Run button is an
+    // explicit "run it here, now", so it works on any page regardless.
+    panel.append(createUrlListField("wf" + wf.id, U.urlsOf(wf), (next) => patchWorkflow(wf.id, { urls: U.urlFields(next).urls }), "Runs on (auto-run and hotkey)"));
+
     // Run mode: manual (Run button / hotkey) or auto (fires when an element
     // appears, like a reactive rule).
     panel.append(fieldRow("Run", sel(wf.trigger === "auto" ? "auto" : "manual", ["manual", "auto"], (v) => patchWorkflow(wf.id, { trigger: v }))));
@@ -1752,7 +1893,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const rp = wf.repeat && wf.repeat.mode && wf.repeat.mode !== "off" ? ` · repeat: ${wf.repeat.mode}` : "";
       const hk = wf.hotkey ? ` · ${wf.hotkey}` : "";
       const au = wf.trigger === "auto" ? " · ⚡ auto-run" : "";
-      status.textContent = `${(wf.steps || []).length} step(s)${rp}${hk}${au}`;
+      // Hidden for the default (all of Masar) — the overwhelming majority, so
+      // labelling those adds noise for everyone who never leaves Masar.
+      const wu = U.urlsOf(wf);
+      const allMasar = wu.length === 1 && wu[0].match === "site" && wu[0].host === U.MASAR_HOST;
+      const st = allMasar ? "" : ` · ${U.summary(wf)}`;
+      status.textContent = `${(wf.steps || []).length} step(s)${rp}${hk}${au}${st}`;
     }
 
     // settings panel (collapsible)
@@ -1854,20 +2000,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
       const r = await window.NkLicense.fetchSharedRules(code);
       if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
-      else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+      else if (!/[#?&]r=/.test(text)) { window.nkToast("Import failed: " + ((r && r.error) || "server unreachable"), "error"); return; }
     }
     if (!imported) {
-      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+      try { imported = decodeRulesLink(text); } catch (err) { window.nkToast("Import failed: " + err.message, "error"); return; }
     }
-    if (!imported.length) { alert("That link has no workflows."); return; }
-    withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { alert(`Imported ${imported.length} workflow(s) from link.`); renderWorkflows(); }));
+    if (!imported.length) { window.nkToast("That link has no workflows.", "error"); return; }
+    withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { window.nkToast(`Imported ${imported.length} workflow(s) from link.`, "success"); renderWorkflows(); }));
   };
 
   const wfExportBtn = document.getElementById("wf-export");
   if (wfExportBtn) wfExportBtn.onclick = () => {
     chrome.storage.local.get([WF_KEY], (res) => {
       const wfs = res[WF_KEY] || [];
-      if (!wfs.length) { alert("No workflows to export."); return; }
+      if (!wfs.length) { window.nkToast("No workflows to export.", "error"); return; }
       const blob = new Blob([JSON.stringify(wfs, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `workflows-${new Date().toISOString().slice(0, 10)}.json`;
@@ -1885,8 +2031,8 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const imported = JSON.parse(ev.target.result);
         if (!Array.isArray(imported)) throw new Error("Expected an array of workflows.");
-        withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { alert(`Imported ${imported.length} workflow(s).`); renderWorkflows(); }));
-      } catch (err) { alert(`Import failed: ${err.message}`); }
+        withWorkflows((wfs) => saveWorkflows([...wfs, ...imported], () => { window.nkToast(`Imported ${imported.length} workflow(s).`, "success"); renderWorkflows(); }));
+      } catch (err) { window.nkToast(`Import failed: ${err.message}`, "error"); }
     };
     reader.readAsText(file); wfImportFile.value = "";
   });
@@ -1937,7 +2083,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.title = kind === "path" ? "Insert the active tab's current page path" : "Insert the active tab's current full URL";
     btn.addEventListener("click", () => {
       getActiveTabUrl((url) => {
-        if (!url) { alert("Could not read the active tab's URL — open a Masar page first."); return; }
+        if (!url) { window.nkToast("Could not read the active tab's URL — open a Masar page first.", "error"); return; }
         let val = url;
         try { val = kind === "path" ? new URL(url).pathname : url; } catch (_) {}
         input.value = val;
@@ -1994,8 +2140,8 @@ document.addEventListener("DOMContentLoaded", () => {
       saveUsRules(next, renderUsRules);
     });
   }
-  function deleteUsRule(id) {
-    if (!confirm("Delete this redirect rule?")) return;
+  async function deleteUsRule(id) {
+    if (!(await window.nkConfirm("Delete this redirect rule?", { confirmText: "Delete", danger: true }))) return;
     withUsRules((rules) => saveUsRules(rules.filter((r) => String(r.id) !== String(id)), renderUsRules));
   }
   function patchUsRule(id, patch) {
@@ -2137,9 +2283,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const usDelAllBtn = document.getElementById("us-delete-all");
   if (usDelAllBtn) usDelAllBtn.onclick = () => {
-    withUsRules((rules) => {
-      if (!rules.length) { alert("No redirect rules to delete."); return; }
-      if (!confirm(`Delete all ${rules.length} redirect rule(s)? This can be undone with Ctrl+Z.`)) return;
+    withUsRules(async (rules) => {
+      if (!rules.length) { window.nkToast("No redirect rules to delete.", "error"); return; }
+      if (!(await window.nkConfirm(`Delete all ${rules.length} redirect rule(s)? This can be undone with Ctrl+Z.`, { confirmText: "Delete", danger: true }))) return;
       saveUsRules([], renderUsRules);
     });
   };
@@ -2153,20 +2299,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (code && window.NkLicense && window.NkLicense.fetchSharedRules) {
       const r = await window.NkLicense.fetchSharedRules(code);
       if (r && r.ok && Array.isArray(r.rules)) imported = r.rules;
-      else if (!/[#?&]r=/.test(text)) { alert("Import failed: " + ((r && r.error) || "server unreachable")); return; }
+      else if (!/[#?&]r=/.test(text)) { window.nkToast("Import failed: " + ((r && r.error) || "server unreachable"), "error"); return; }
     }
     if (!imported) {
-      try { imported = decodeRulesLink(text); } catch (err) { alert("Import failed: " + err.message); return; }
+      try { imported = decodeRulesLink(text); } catch (err) { window.nkToast("Import failed: " + err.message, "error"); return; }
     }
-    if (!imported.length) { alert("That link has no rules."); return; }
-    withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { alert(`Imported ${imported.length} rule(s) from link.`); renderUsRules(); }));
+    if (!imported.length) { window.nkToast("That link has no rules.", "error"); return; }
+    withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { window.nkToast(`Imported ${imported.length} rule(s) from link.`, "success"); renderUsRules(); }));
   };
 
   const usExportBtn = document.getElementById("us-export");
   if (usExportBtn) usExportBtn.onclick = () => {
     chrome.storage.local.get([US_KEY], (res) => {
       const rules = res[US_KEY] || [];
-      if (!rules.length) { alert("No redirect rules to export."); return; }
+      if (!rules.length) { window.nkToast("No redirect rules to export.", "error"); return; }
       const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `redirect-rules-${new Date().toISOString().slice(0, 10)}.json`;
@@ -2184,8 +2330,8 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const imported = JSON.parse(ev.target.result);
         if (!Array.isArray(imported)) throw new Error("Expected an array of rules.");
-        withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { alert(`Imported ${imported.length} rule(s).`); renderUsRules(); }));
-      } catch (err) { alert(`Import failed: ${err.message}`); }
+        withUsRules((rules) => saveUsRules([...rules, ...imported.map(usNormalizeRule)], () => { window.nkToast(`Imported ${imported.length} rule(s).`, "success"); renderUsRules(); }));
+      } catch (err) { window.nkToast(`Import failed: ${err.message}`, "error"); }
     };
     reader.readAsText(file); usImportFile.value = "";
   });

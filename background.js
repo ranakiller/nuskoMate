@@ -8,6 +8,14 @@
  * sites like masar.nusuk.sa). The target URL is passed in each message, so
  * there is a single source of truth (utils/license.js → LICENSE_SERVER).
  */
+
+// Classic (non-module) service worker — importScripts, not ES import.
+// modules/whatsapp-automation.js is the WhatsApp/passport-detection side of
+// the automation plan; kept in its own file rather than growing this one
+// further, given how much more is planned to land there (CRM lookup, Masar
+// feeding, group creation) as that pipeline gets built out.
+importScripts("modules/whatsapp-pipeline.js", "modules/whatsapp-automation.js");
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === "nkUi") {                       // UI mode switch (popup ↔ side panel)
@@ -21,6 +29,53 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "nkSyncNow") {                  // "Sync now" button — push whatever's pending, then pull
     clearTimeout(pushDebounce);                    // don't also fire the debounced auto-push a moment later
     autoPushIfEnabled().then(() => pollPull(false)).finally(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg.type === "nkTranslate") {                // Translation Rules — see doTranslate()/queueTranslate() below
+    queueTranslate(msg.text, msg.sl, msg.tl)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkRemoveBg") {                 // JPG & PDF Tools > Remove Background — see removeBackground() below
+    removeBackground(msg.fileB64, msg.fileType)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkWebshotSelected") {          // Element Screenshot — see runWebshotCapture() below
+    const tabId = _sender.tab && _sender.tab.id;
+    runWebshotCapture(tabId, msg.rect, msg.dpr || 1, msg.pageTitle || "screenshot")
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        if (tabId != null) chrome.tabs.sendMessage(tabId, { type: "nkWebshotFailed", error: err && err.message }).catch(() => {});
+        sendResponse({ ok: false, error: err && err.message });
+      });
+    return true;
+  }
+  if (msg.type === "nkWaCallAction") {              // raw WA-Campaigns action relay for the popup's test harness — modules/whatsapp-pipeline.js's callWaAction, exposed to popup.js
+    WA_PIPELINE.callWaAction(msg.action, msg.payload || {})
+      .then((resp) => sendResponse({ ok: true, resp }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkWebshotCaptureForAutomation") { // same capture pipeline, dataUrl handed back instead of downloaded/copied/opened — Phase 5 of the WhatsApp automation plan
+    const tabId = _sender.tab && _sender.tab.id;
+    runWebshotCapture(tabId, msg.rect, msg.dpr || 1, msg.pageTitle || "screenshot", "return")
+      .then((dataUrl) => sendResponse({ ok: true, dataUrl }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkMasarPassportScanned") {      // OCR-scan relay from modules/masar-add-mutamer.js — resumes whichever reservation queued this passport
+    WA_PIPELINE.handleMasarScanResult(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkMasarRegisterTestFeed") {     // popup's "Masar Passport Feed" test — registers with the OCR-relay tracker the same way a real WhatsApp event would, so testing shows real Pipeline Log results
+    WA_PIPELINE.registerTestFeed(msg.labels || [])
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
   if (msg.type !== "nkLicense") return;            // not for us
@@ -70,9 +125,39 @@ const DEFAULT_TRANSLATE_RULES = [
   { name: "Family Name (EN → AR)", source: 'div[formgroupname="familyName"] input[formcontrolname="en"]', target: 'div[formgroupname="familyName"] input[formcontrolname="ar"]' },
 ];
 
+// Stored shape of a rule's URL list — see utils/url-match.js, which this
+// service worker doesn't load. NO_MASAR_PATH is that file's constant of the
+// same name: the pathname older Nuskomate versions see for a rule that has
+// no Masar URL, so they never run it.
+const NO_MASAR_PATH = "/__nuskomate_other_sites__";
+const WA_HOST = "web.whatsapp.com";
+
+// A ready-made starting point for WhatsApp Web. Seeded once (see the flag
+// below), and it only does anything after WhatsApp Web is allowed in
+// Settings → Sites.
+//
+// Ships DISABLED — it would otherwise start translating every message in
+// every chat the moment someone allows the site, which is a surprising thing
+// to do on a messaging app. Flip it on in Translation Rules.
+//
+// Two deliberate choices in this rule's shape:
+//   • ".selectable-text" is WhatsApp's own long-standing class on message
+//     text. It isn't a documented API and could change on any WhatsApp
+//     build; if it does, this rule quietly stops matching (no breakage
+//     elsewhere) and the selector can be re-picked with the element picker.
+//   • displayMode "tooltip", NOT "replace" — WhatsApp Web is a React app
+//     that owns its DOM and re-renders over anything we write into a message
+//     bubble. Tooltip mode never touches the page's own text: the
+//     translation shows on hover, with a "Replace text" button if you do
+//     want it committed for that one message.
+const DEFAULT_WA_TRANSLATE_RULE = {
+  name: "Translate incoming messages (hover)",
+  selector: ".selectable-text",
+};
+
 async function seedDefaultTranslateRules() {
   try {
-    const res = await chrome.storage.local.get(["autoClickRules", "moduleTranslate", "moduleTranslateRules"]);
+    const res = await chrome.storage.local.get(["autoClickRules", "moduleTranslate", "moduleTranslateRules", "waTranslateRuleSeeded"]);
     const rules = Array.isArray(res.autoClickRules) ? res.autoClickRules : [];
     const existingSources = new Set(rules.filter((r) => r && r.type === "translate").map((r) => r.sourceSelector));
     const missing = DEFAULT_TRANSLATE_RULES.filter((d) => !existingSources.has(d.source));
@@ -82,8 +167,10 @@ async function seedDefaultTranslateRules() {
     // blank pathname is presumed unmodified (a real edit would have set
     // something) and gets pinned to the intended page instead.
     let patched = false;
+    // Only rules from before multi-URL support — a rule with a `urls` list
+    // was saved by a version that already had this fix.
     const patchedRules = rules.map((r) => {
-      if (r && r.type === "translate" && !r.pathname && DEFAULT_TRANSLATE_RULES.some((d) => d.source === r.sourceSelector)) {
+      if (r && r.type === "translate" && !r.pathname && !Array.isArray(r.urls) && DEFAULT_TRANSLATE_RULES.some((d) => d.source === r.sourceSelector)) {
         patched = true;
         return { ...r, pathname: DEFAULT_TRANSLATE_PATH, pathMatch: "exact" };
       }
@@ -91,22 +178,49 @@ async function seedDefaultTranslateRules() {
     });
 
     const updates = {};
-    if (missing.length || patched) {
-      const added = missing.map((d) => ({
+    const added = missing.map((d) => ({
+      id: Date.now() + Math.random(),
+      type: "translate",
+      mode: "fieldToField",
+      enabled: true,
+      name: d.name,
+      urls: [{ match: "page", host: "masar.nusuk.sa", path: DEFAULT_TRANSLATE_PATH }],
+      pathname: DEFAULT_TRANSLATE_PATH,
+      pathMatch: "exact",
+      requiredElements: [d.target],
+      sourceSelector: d.source,
+      sourceLang: "en",
+      targetLang: "ar",
+    }));
+
+    // Seeded once, ever — tracked by its own flag rather than by "is a rule
+    // with this selector present?" like the Masar block above, so deleting it
+    // actually sticks instead of it reappearing on the next browser start.
+    //
+    // The hasWaRule check is the Cloud Sync case: a second device pulls the
+    // rule down in the synced autoClickRules snapshot while its own flag is
+    // still unset, and would otherwise seed a duplicate and push that back.
+    const hasWaRule = rules.some((r) => r && r.type === "translate" &&
+      (r.site === "whatsapp" || (Array.isArray(r.urls) && r.urls.some((u) => u && u.host === WA_HOST))));
+    if (!res.waTranslateRuleSeeded) {
+      if (!hasWaRule) added.push({
         id: Date.now() + Math.random(),
         type: "translate",
-        mode: "fieldToField",
-        enabled: true,
-        name: d.name,
-        pathname: DEFAULT_TRANSLATE_PATH,
+        mode: "autoDetect",
+        enabled: false,            // opt-in — see DEFAULT_WA_TRANSLATE_RULE
+        name: DEFAULT_WA_TRANSLATE_RULE.name,
+        urls: [{ match: "site", host: WA_HOST, path: "" }],   // whole site — WhatsApp Web is a single-route SPA
+        pathname: NO_MASAR_PATH,
         pathMatch: "exact",
-        requiredElements: [d.target],
-        sourceSelector: d.source,
-        sourceLang: "en",
-        targetLang: "ar",
-      }));
-      updates.autoClickRules = [...patchedRules, ...added];
+        requiredElements: [DEFAULT_WA_TRANSLATE_RULE.selector],
+        sourceLang: "auto",
+        targetLangs: [],           // empty = translate into the Settings language
+        displayMode: "tooltip",
+      });
+      updates.waTranslateRuleSeeded = true;
     }
+
+    if (added.length || patched) updates.autoClickRules = [...patchedRules, ...added];
 
     // One-time carry-over: if the old always-on module was enabled, turn on
     // Translation Rules too so the equivalent behavior keeps working.
@@ -119,6 +233,350 @@ async function seedDefaultTranslateRules() {
 chrome.runtime.onInstalled.addListener(seedDefaultTranslateRules);
 chrome.runtime.onStartup.addListener(seedDefaultTranslateRules);
 seedDefaultTranslateRules();
+
+// ── Sites: runs everywhere by default, "Never run on" is the only control ──
+// (2026-09-16 — was opt-in per site via a runtime Chrome permission prompt;
+// now `<all_urls>` is a REQUIRED manifest host permission, so Nuskomate has
+// full site access outright and there's nothing left to ask Chrome for at
+// runtime.) The only site-level lever the user has now is a plain
+// storage-backed blocklist (blockedSites, "Never run on") — everything else
+// runs everywhere, always. That's applied as excludeMatches on ONE dynamic
+// content-script registration covering every site except Masar (already
+// covered by the manifest's own static content_scripts, so it isn't
+// injected twice there) and anything on the blocklist.
+const SITE_SCRIPT_ID = "nk-sites";
+// The portable part of the Masar stack — the rules/workflows engine and
+// what it needs. Everything Masar-specific (autofill, OCR, BRN, …) stays out.
+const SITE_SCRIPT_FILES = [
+  "utils/logger.js", "utils/notify.js", "utils/license.js", "utils/route-watcher.js",
+  "utils/element-type-detector.js", "utils/inspector.js", "utils/url-match.js",
+  "modules/auto-clicker.js",
+];
+const MASAR_PATTERN = "*://masar.nusuk.sa/*";
+const ALL_SITES_PATTERN = "*://*/*";
+const VALID_HOST = /^([a-z0-9-]+\.)*[a-z0-9-]+$/i;
+const sitePattern = (host) => `*://*.${host}/*`;
+
+// Serialized — unregister+register from two overlapping calls would race
+// into a "duplicate script id" error.
+let siteSyncChain = Promise.resolve();
+function syncSiteAccess() {
+  siteSyncChain = siteSyncChain.then(syncSiteAccessNow, syncSiteAccessNow);
+  return siteSyncChain;
+}
+async function syncSiteAccessNow() {
+  try {
+    const cfg = await chrome.storage.local.get(["blockedSites"]);
+    const blocked = (Array.isArray(cfg.blockedSites) ? cfg.blockedSites : []).filter((h) => VALID_HOST.test(h || ""));
+    const excludeMatches = [MASAR_PATTERN, ...blocked.map(sitePattern)];
+    const [existing] = await chrome.scripting.getRegisteredContentScripts({ ids: [SITE_SCRIPT_ID] });
+    // The worker wakes up constantly (messages, the sync alarm) and runs this
+    // each time — leave an already-correct registration alone.
+    const same = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
+    if (existing && same(existing.excludeMatches, excludeMatches) && same(existing.js, SITE_SCRIPT_FILES)) return;
+    if (existing) await chrome.scripting.unregisterContentScripts({ ids: [SITE_SCRIPT_ID] });
+    await chrome.scripting.registerContentScripts([{
+      id: SITE_SCRIPT_ID,
+      matches: [ALL_SITES_PATTERN],
+      excludeMatches,
+      js: SITE_SCRIPT_FILES,
+      runAt: "document_idle",
+      persistAcrossSessions: true,
+    }]);
+  } catch (err) {
+    console.warn("[Nuskomate] site access sync failed:", err && err.message);
+  }
+}
+
+// A site just removed from "Never run on" should start working in tabs
+// already open on it, not only after the next reload — check every open
+// tab (probing first so a tab that already has the stack isn't re-injected).
+async function injectIntoOpenTabs() {
+  try {
+    const { blockedSites } = await chrome.storage.local.get(["blockedSites"]);
+    const blocked = Array.isArray(blockedSites) ? blockedSites : [];
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      let host = "";
+      try { const u = new URL(tab.url || ""); if (/^https?:$/.test(u.protocol)) host = u.hostname.toLowerCase(); } catch (_) {}
+      if (!host || host === "masar.nusuk.sa") continue;
+      if (blocked.some((b) => host === b || host.endsWith("." + b))) continue;
+      const target = { tabId: tab.id };
+      // Content scripts share one isolated world, so a NkLicense global
+      // there means this tab already has the stack — don't run it twice.
+      const [probe] = await chrome.scripting.executeScript({ target, func: () => !!window.NkLicense }).catch(() => []);
+      if (!probe || probe.result) continue;
+      await chrome.scripting.executeScript({ target, files: SITE_SCRIPT_FILES }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  // One-time cleanup — allowedSites/allowAllSites mirrored the old
+  // per-site Chrome permission grants, which no longer exist now that
+  // <all_urls> is unconditional; nothing reads these keys anymore.
+  chrome.storage.local.remove(["allowedSites", "allowAllSites"]);
+  syncSiteAccess().then(() => injectIntoOpenTabs());
+});
+chrome.runtime.onStartup.addListener(() => syncSiteAccess());
+chrome.storage.onChanged.addListener((c, a) => { if (a === "local" && c.blockedSites) syncSiteAccess().then(() => injectIntoOpenTabs()); });
+syncSiteAccess();
+
+// Google's unofficial (but widely used) translate endpoint, called from here
+// instead of modules/auto-clicker.js directly. It used to fetch() straight
+// from the content script, which happened to work on Masar but silently (or
+// not so silently — see quickTranslateElement's error toast) fails on any
+// site with a stricter Content-Security-Policy: web.whatsapp.com's connect-src
+// allow-lists only WhatsApp/Facebook domains, so a content-script fetch to
+// translate.googleapis.com is blocked by the PAGE itself before it ever
+// leaves the browser. A background fetch is governed only by this
+// extension's host_permissions (already declared), never by any page's CSP —
+// same reasoning as every other network call in this file.
+async function doTranslate(text, sl, tl) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url);
+  try {
+    return await res.json();
+  } catch (_) {
+    // This unofficial endpoint returns an HTML "unusual traffic" page instead
+    // of JSON when Google's abuse detection trips (a shared/VPN IP, or too
+    // many requests too fast) — surface that plainly instead of a raw JSON
+    // parse error, since translateText()'s caller shows this to the user.
+    throw new Error(res.ok ? "Google's translate service is temporarily blocking this connection" : `Translate request failed (${res.status})`);
+  }
+}
+
+// ── Throttling ───────────────────────────────────────────────────────────
+// A single Masar field-to-field rule translates one field at a time as the
+// user types — never enough requests at once to matter. An "auto-detect"
+// rule on a busy WhatsApp chat is a different story: it scans every visible
+// message in one pass, so opening a chat with 30 messages fired 30
+// simultaneous requests at Google's free, unofficial, quota-less endpoint —
+// which is exactly the "unusual traffic" burst it exists to block. Every
+// nkTranslate message funnels through this ONE queue (shared across every
+// tab and every rule) so a burst is spread out instead of fired all at once.
+//
+// A small cache sits in front of it: forwarded messages (the same paragraph
+// appearing 3 times in a row, as WhatsApp shows them) are a real, common
+// case, and translating identical text 3 times is pure waste that only adds
+// to the burst.
+const TRANSLATE_MAX_CONCURRENT = 2;
+const TRANSLATE_STAGGER_MS = 200;
+const TRANSLATE_CACHE_MAX = 300;
+const TRANSLATE_CACHE_TTL_MS = 10 * 60 * 1000; // long chats keep reusing the same forwarded text
+
+let translateActive = 0;
+const translateQueue = [];
+const translateCache = new Map(); // "sl|tl|text" -> { at, data }
+
+function drainTranslateQueue() {
+  if (translateActive >= TRANSLATE_MAX_CONCURRENT || !translateQueue.length) return;
+  const job = translateQueue.shift();
+  translateActive++;
+  doTranslate(job.text, job.sl, job.tl)
+    .then((data) => {
+      translateCache.set(job.key, { at: Date.now(), data });
+      // Map preserves insertion order — evicting the first key is evicting
+      // the oldest, a cheap approximation of LRU that's good enough here.
+      if (translateCache.size > TRANSLATE_CACHE_MAX) translateCache.delete(translateCache.keys().next().value);
+      job.resolve(data);
+    }, job.reject)
+    .finally(() => { translateActive--; setTimeout(drainTranslateQueue, TRANSLATE_STAGGER_MS); });
+  // Also try to fill the next concurrent slot, staggered rather than instant.
+  setTimeout(drainTranslateQueue, TRANSLATE_STAGGER_MS);
+}
+
+function queueTranslate(text, sl, tl) {
+  const key = `${sl}|${tl}|${text}`;
+  const hit = translateCache.get(key);
+  if (hit && Date.now() - hit.at < TRANSLATE_CACHE_TTL_MS) return Promise.resolve(hit.data);
+  return new Promise((resolve, reject) => {
+    translateQueue.push({ key, text, sl, tl, resolve, reject });
+    drainTranslateQueue();
+  });
+}
+
+// Uint8Array -> base64, without FileReader (service workers don't have one —
+// that's a Window/dedicated-Worker API only). Chunked so a large image
+// doesn't blow the call stack going through String.fromCharCode(...bytes).
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(binary);
+}
+
+// remove.bg — the customer's OWN API key (Settings > JPG & PDF Tools), same
+// "bring your own key" pattern as ocr.space: no shared/fallback key, so one
+// install's usage never eats into another's free-tier quota. Called straight
+// from here (not proxied through the Nuskomate license server, unlike OCR) —
+// there's no server-side secret to protect for a plain image-in/image-out
+// call, so keeping it a direct background fetch is simpler. A background
+// fetch with this host in host_permissions also sidesteps whatever CORS
+// policy remove.bg does or doesn't set, the same reasoning as every other
+// network call in this file.
+async function removeBackground(fileB64, fileType) {
+  const key = (await chrome.storage.local.get(["removeBgApiKey"])).removeBgApiKey || "";
+  if (!key.trim()) throw new Error("Add your remove.bg API key in Settings to use this tool");
+  const bytes = Uint8Array.from(atob(fileB64 || ""), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.append("image_file", new Blob([bytes], { type: fileType || "image/jpeg" }), "image");
+  fd.append("size", "auto");
+  const res = await fetch("https://api.remove.bg/v1.0/removebg", { method: "POST", headers: { "X-Api-Key": key.trim() }, body: fd });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body && body.errors && body.errors[0] && body.errors[0].title;
+    throw new Error(detail || `remove.bg request failed (${res.status})`);
+  }
+  const out = new Uint8Array(await res.arrayBuffer());
+  return { fileB64: bytesToBase64(out), fileType: "image/png" };
+}
+
+// ── Element Screenshot ────────────────────────────────────────────────────
+// utils/webshot-picker.js (injected on demand — see popup/file-tools.js's
+// "webshot" tool) reports back a target rectangle in PAGE (document, not
+// viewport) coordinates once the user drags from one element to another.
+// Getting an image of a region bigger than one screenful means scrolling the
+// page through a grid of stops, capturing chrome.tabs.captureVisibleTab() at
+// each one (it can only ever see what's currently on screen — there's no
+// "capture the whole document" API), then stitching the results back
+// together. Each tile is cropped to just the slice that falls inside the
+// target rectangle using where the page ACTUALLY ended up scrolled to, not
+// where it was asked to go — a short page clamps scrollTo() before reaching
+// the last row/column's requested position, and using the real value is what
+// keeps the seams lined up correctly at those edges.
+const WEBSHOT_MAX_TILES = 80;       // a runaway selection (say, a whole huge table) shouldn't hang the browser capturing hundreds of times
+const WEBSHOT_CAPTURE_GAP_MS = 550; // chrome.tabs.captureVisibleTab is rate-limited to roughly 2/sec
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+function makeScreenshotFilename(title) {
+  const slug = String(title || "screenshot").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "screenshot";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `${slug}-${stamp}.png`;
+}
+
+// One retry, on the specific rate-limit error only — everything else (the
+// tab closed mid-capture, permission revoked) should fail immediately rather
+// than silently eat another half-second first.
+async function captureVisibleTabSafe(windowId) {
+  try {
+    return await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+  } catch (err) {
+    if (err && /MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND/i.test(err.message || "")) {
+      await sleep(1000);
+      return await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+    }
+    throw err;
+  }
+}
+
+async function runWebshotCapture(tabId, rect, dpr, pageTitle, deliverOverride) {
+  if (!tabId) throw new Error("Lost track of the source tab");
+  const tab = await chrome.tabs.get(tabId);
+  const windowId = tab.windowId;
+
+  const prep = await chrome.tabs.sendMessage(tabId, { type: "nkWebshotPrepare" });
+  if (!prep) throw new Error("Couldn't prepare the page for capture");
+  const vw = prep.vw, vh = prep.vh;
+
+  const cols = Math.max(1, Math.ceil(rect.width / vw));
+  const rows = Math.max(1, Math.ceil(rect.height / vh));
+  if (cols * rows > WEBSHOT_MAX_TILES) {
+    await chrome.tabs.sendMessage(tabId, { type: "nkWebshotRestore" }).catch(() => {});
+    throw new Error("That selection is too large to capture in one go — try a smaller region");
+  }
+
+  const tiles = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const targetX = rect.x + col * vw, targetY = rect.y + row * vh;
+      const scrolled = await chrome.tabs.sendMessage(tabId, { type: "nkWebshotScrollTo", x: targetX, y: targetY });
+      await sleep(WEBSHOT_CAPTURE_GAP_MS);
+      const dataUrl = await captureVisibleTabSafe(windowId);
+      tiles.push({ dataUrl, actualX: scrolled.actualX, actualY: scrolled.actualY });
+    }
+  }
+
+  await chrome.tabs.sendMessage(tabId, { type: "nkWebshotRestore" }).catch(() => {});
+
+  // OffscreenCanvas works directly in a service worker — no need for the
+  // extra chrome.offscreen document some other MV3 canvas work requires.
+  const pxW = Math.max(1, Math.round(rect.width * dpr)), pxH = Math.max(1, Math.round(rect.height * dpr));
+  const canvas = new OffscreenCanvas(pxW, pxH);
+  const ctx = canvas.getContext("2d");
+  for (const tile of tiles) {
+    const overlapX0 = Math.max(rect.x, tile.actualX), overlapX1 = Math.min(rect.x + rect.width, tile.actualX + vw);
+    const overlapY0 = Math.max(rect.y, tile.actualY), overlapY1 = Math.min(rect.y + rect.height, tile.actualY + vh);
+    if (overlapX1 <= overlapX0 || overlapY1 <= overlapY0) continue; // this tile ended up clamped entirely outside the target — nothing of it belongs in the final image
+    const blob = await (await fetch(tile.dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    const srcX = (overlapX0 - tile.actualX) * dpr, srcY = (overlapY0 - tile.actualY) * dpr;
+    const srcW = (overlapX1 - overlapX0) * dpr, srcH = (overlapY1 - overlapY0) * dpr;
+    const destX = (overlapX0 - rect.x) * dpr, destY = (overlapY0 - rect.y) * dpr;
+    ctx.drawImage(bitmap, srcX, srcY, srcW, srcH, destX, destY, srcW, srcH);
+    bitmap.close && bitmap.close();
+  }
+
+  const finalBlob = await canvas.convertToBlob({ type: "image/png" });
+  const bytes = new Uint8Array(await finalBlob.arrayBuffer());
+  const dataUrl = "data:image/png;base64," + bytesToBase64(bytes);
+  const filename = makeScreenshotFilename(pageTitle);
+
+  const { ftScreenshotDelivery } = await chrome.storage.local.get(["ftScreenshotDelivery"]);
+  const mode = deliverOverride || ftScreenshotDelivery || "tool";
+
+  // Used by automation (e.g. modules/masar-group-reply.js, WhatsApp pipeline
+  // Phase 5) that needs the actual image data back to attach elsewhere —
+  // skips every user-facing delivery side effect (download/clipboard/tab/
+  // badge) entirely, since none of those make sense for a caller that isn't
+  // the person sitting at the keyboard.
+  if (mode === "return") {
+    return dataUrl; // silent — no user-facing toast, this call has no person watching for one
+  }
+
+  if (mode === "download") {
+    await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
+  } else if (mode === "clipboard") {
+    await chrome.tabs.sendMessage(tabId, { type: "nkWebshotCopyClipboard", dataUrl }).catch(() => {});
+  } else if (mode === "tab") {
+    await chrome.storage.session.set({ nkPendingScreenshot: { dataUrl, filename, at: Date.now() } });
+    await chrome.tabs.create({ url: chrome.runtime.getURL("popup/screenshot-viewer.html") });
+  } else {
+    await chrome.storage.session.set({ nkPendingScreenshot: { dataUrl, filename, at: Date.now() } });
+    try { await chrome.action.setBadgeText({ text: "1" }); await chrome.action.setBadgeBackgroundColor({ color: "#4f6ef7" }); } catch (_) {}
+  }
+
+  // The clipboard path already shows its own toast from inside the content
+  // script's write attempt (success OR failure) — a second one here would
+  // just be noise, and worse, a false "delivered" if the write itself failed.
+  if (mode !== "clipboard") {
+    await chrome.tabs.sendMessage(tabId, { type: "nkWebshotDelivered", mode }).catch(() => {});
+  }
+}
+
+// Global hotkey (Settings > default Alt+Shift+S, user-changeable at
+// chrome://extensions/shortcuts — see popup/file-tools.js's hotkey row,
+// which reads the live binding back with chrome.commands.getAll() since
+// there's no event for "the user just changed it") — same injection
+// popup/file-tools.js's own "Capture Elements" button does, just triggered
+// by a keyboard command instead of a click. chrome.commands firing via its
+// real keyboard shortcut counts as a user gesture in its own right, so
+// activeTab is granted here exactly as it would be from a popup click —
+// no extra permission needed, and this works with the popup closed (the
+// whole point of a global shortcut).
+async function startWebshotFromCommand() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id || !/^https?:/.test(tab.url || "")) return; // a chrome:// page, the new-tab page, etc. — nothing scriptable here, so just do nothing
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["utils/notify.js", "utils/webshot-picker.js"] });
+  } catch (err) {
+    console.warn("[Nuskomate] Element Screenshot hotkey failed:", err && err.message);
+  }
+}
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "nk-webshot-start") startWebshotFromCommand();
+});
 
 async function handle(msg) {
   const base = String(msg.base || "").replace(/\/+$/, "");
@@ -252,11 +710,16 @@ const SYNC_KEYS = [
   // Old per-category toggles kept syncing too (read by the one-time
   // moduleAutoRules migration in popup.js) — harmless once migrated.
   "moduleAutoClicker", "moduleAutoFillRules", "moduleAutoSelect",
-  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "moduleAutoDatePicker", "modulePackageCreator", "pkgCreatorSettings", "extensionEnabled",
+  "moduleWorkflows", "moduleUrlShift", "moduleBrnRequest", "moduleTranslateRules", "moduleMvTotals", "moduleGroupsExport", "moduleTalabCopy", "talabCopyFields", "talabCopyHotkey", "moduleAutoDatePicker", "modulePackageCreator", "pkgCreatorSettings", "modulePipeline", "extensionEnabled",
   "reloadInterval", "batchDelay", "batchFieldSelector",
   "emailList", "activeEmailId", "email", "mobile",
   "brnHotelList", "brnLastUsed", "brnHotkey", "brnDefaultPrice", "brnDefaultNights",
   "nkLanguage", "mvTotalsUrls",
+  // "Never run on" is a plain preference, so it travels. Allowed sites do
+  // NOT: each one is a Chrome permission that has to be granted on every
+  // device separately — rules naming a site that isn't allowed here yet
+  // show an Allow button right on the rule instead.
+  "blockedSites",
 ];
 
 // True only while WE are writing a just-pulled snapshot back to storage, so
