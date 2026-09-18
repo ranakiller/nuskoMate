@@ -812,6 +812,24 @@
             placeholder="e.g. 923001234567@c.us" autocomplete="off" spellcheck="false" />
           <div class="k-hint">Left blank = the pipeline just logs a warning and skips replying when a reservation is On hold, instead of guessing who to tag.</div>
         </div>
+        <div class="field-group">
+          <label class="field-label" for="wa-skip-keywords">Skip words — don't auto-process if the message contains these</label>
+          <textarea id="wa-skip-keywords" class="field-input" rows="2" spellcheck="false"
+            placeholder="cancel, cancellation, refund, reschedule, postpone"></textarea>
+          <div class="k-hint">Comma-separated, not case-sensitive. A reservation number + image is only auto-fed to Masar if NEITHER message contains one of these words — otherwise it's logged (and @mentioned above, if set) for manual handling instead, since it's probably not actually a passport submission.</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Feeding Chats — only these are watched for passports</label>
+          <div class="k-row">
+            <input type="text" id="feeding-chat-search" class="field-input" style="flex:1;"
+              placeholder="Search WhatsApp groups/contacts by name..." autocomplete="off" spellcheck="false" />
+            <button id="feeding-chat-search-btn" type="button" class="act-btn">Search</button>
+          </div>
+          <div id="feeding-chat-results"></div>
+          <div class="k-hint" style="margin-top:6px;">Trusted list:</div>
+          <div id="feeding-chat-list"></div>
+          <div class="k-hint">Pulled live from WhatsApp via WA-Campaigns — search, then add whichever groups/contacts should be watched. <b>Empty list = no restriction</b> (every chat is watched, same as today) — the pipeline only starts filtering once at least one chat is added here.</div>
+        </div>
       </div>
 
       <!-- Section: standalone test harnesses for each phase, so each can be

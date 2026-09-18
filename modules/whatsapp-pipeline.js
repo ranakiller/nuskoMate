@@ -38,6 +38,48 @@ const WA_PIPELINE = (() => {
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  // Waits for the tab to genuinely finish loading rather than guessing with a
+  // fixed sleep — confirmed live: a fixed 3s wait wasn't enough when the CRM
+  // site (setup.nebraspk.com, a slow enterprise DevExpress app) had to be
+  // opened completely fresh, so the message never reached a content script
+  // that hadn't attached yet. Polls chrome.tabs' own `status` field, which
+  // reflects the real browser-level load state regardless of how long that
+  // actually takes on a given day — and requires it to STAY "complete" for a
+  // short stretch, not just touch it once, since a login page auto-
+  // redirecting to a landing page flips back to "loading" again for a moment.
+  // The outer `timeoutMs` is only a last-resort ceiling for a page that's
+  // genuinely stuck/unreachable, not the normal wait — it should rarely, if
+  // ever, actually get hit.
+  // Safety net on top of the pure wait: a tab that's sat non-"complete" for
+  // more than `reloadAfterMs` (a genuinely non-responsive site, as opposed to
+  // one that's just slow-but-progressing) gets reloaded, up to `maxReloads`
+  // times — confirmed by the user this recovers most cases of a page that's
+  // simply hung. Still bounded overall by `timeoutMs`, so a truly dead site
+  // eventually surfaces as a clear error instead of hanging forever.
+  async function waitForTabLoaded(tabId, { timeoutMs = 90000, pollMs = 400, stableMs = 600, reloadAfterMs = 12000, maxReloads = 2 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let stableSince = null;
+    let notCompleteSince = Date.now();
+    let reloads = 0;
+    while (Date.now() < deadline) {
+      let tab;
+      try { tab = await chrome.tabs.get(tabId); } catch (_) { return false; } // tab was closed while waiting
+      if (tab.status === "complete") {
+        if (!stableSince) stableSince = Date.now();
+        if (Date.now() - stableSince >= stableMs) return true;
+      } else {
+        stableSince = null;
+        if (reloads < maxReloads && Date.now() - notCompleteSince >= reloadAfterMs) {
+          reloads++;
+          notCompleteSince = Date.now(); // restart the non-responsive clock for the NEXT reload's own grace period
+          await chrome.tabs.reload(tabId).catch(() => {});
+        }
+      }
+      await sleep(pollMs);
+    }
+    return false;
+  }
+
   // ── Tab management — find a matching tab, or open one; always bring it to
   // the front first, since Chrome throttles setTimeout-based waits (which
   // every content-script automation here leans on) in tabs that aren't the
@@ -46,12 +88,15 @@ const WA_PIPELINE = (() => {
   async function getOrOpenTab(urlPattern, createUrl) {
     const tabs = await chrome.tabs.query({ url: urlPattern });
     let tab = tabs[0];
-    if (!tab) {
-      tab = await chrome.tabs.create({ url: createUrl, active: false });
-      await sleep(3000); // let it start loading before anything tries to message it
-    }
+    if (!tab) tab = await chrome.tabs.create({ url: createUrl, active: false });
     await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
     if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    // Whether just created or already open, it might be mid-navigation right
+    // now (a fresh tab loading for the first time, or an existing one the
+    // user happened to have navigating somewhere else) — wait for it to
+    // genuinely settle before anything tries to message it.
+    const ready = await waitForTabLoaded(tab.id);
+    if (!ready) throw new Error(`The tab for ${urlPattern} still hadn't finished loading after 90s — giving up (check whether the site is reachable/slow right now).`);
     return tab;
   }
 
@@ -158,14 +203,24 @@ const WA_PIPELINE = (() => {
   // stuck IN the tab, not something a plain retry without changing anything
   // would fix — so this reloads the CRM tab once and tries again before
   // giving up for real.
-  async function lookupReservationInCrm(reservationNo, { allowReload = true } = {}) {
+  // Always reloads the CRM tab before every search, not just as failure
+  // recovery — confirmed live: DevExpress's grid can hold onto a stale
+  // client-side dataset that simply doesn't include a reservation
+  // created/updated since the tab was last loaded, so searching an
+  // already-open tab without a fresh reload can wrongly read a real,
+  // freshly-made reservation as "not found". Genuinely waits for that reload
+  // to finish (waitForTabLoaded, same as everywhere else) rather than a
+  // fixed guess — a reload can take anywhere from ~2s to much longer.
+  async function lookupReservationInCrm(reservationNo, { attempt = 1 } = {}) {
     const tab = await getOrOpenTab(CRM_URL_PATTERN, CRM_LOGIN_URL);
+    await chrome.tabs.reload(tab.id).catch(() => {});
+    const ready = await waitForTabLoaded(tab.id);
+    if (!ready) throw new Error("The CRM tab still hadn't finished reloading after 90s — giving up (check whether setup.nebraspk.com is reachable/slow right now).");
+
     const result = await sendToTab(tab, { type: "nkCrmLookupReservation", reservationNo });
-    if ((!result || !result.ok) && allowReload) {
-      await pLog("warn", `Pipeline: CRM tab gave no usable response for ${reservationNo} (got ${JSON.stringify(result)}) — reloading the CRM tab and retrying once.`);
-      await chrome.tabs.reload(tab.id).catch(() => {});
-      await sleep(5000); // let the CRM app finish reloading (+ auto-login, if needed) before messaging it again
-      return lookupReservationInCrm(reservationNo, { allowReload: false });
+    if ((!result || !result.ok) && attempt < 2) {
+      await pLog("warn", `Pipeline: CRM tab gave no usable response for ${reservationNo} (got ${JSON.stringify(result)}) — reloading and retrying once more.`);
+      return lookupReservationInCrm(reservationNo, { attempt: attempt + 1 });
     }
     return result;
   }
@@ -411,7 +466,11 @@ const WA_PIPELINE = (() => {
     // (conflict check, group creation, reply) happens later in
     // continueAfterMasarScan, once the OCR-scan relay reports back which
     // passport number this particular photo turned out to be.
-    await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now() });
+    // `stage`/`stageAt` from here on are purely for the stuck-reservation
+    // watchdog below — they track how far through the flow this reservation
+    // got and when it last actually moved, so a silent stall shows up as a
+    // dated stage instead of nothing at all.
+    await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now() });
 
     let media;
     try {
@@ -479,6 +538,18 @@ const WA_PIPELINE = (() => {
       // The "auto-reply asking for a clearer photo" half of that plan isn't
       // built yet — flagged, not silently skipped.
       await pLog("warn", `Pipeline: OCR couldn't read a passport number for reservation ${reservationNo}'s photo (message ${messageId}${scan.blurry ? ", flagged blurry" : ""}) — needs manual review; not counted toward this booking's pax.`);
+      // Previously this only showed up if someone happened to be reading
+      // Pipeline Logs — a real gap, since a bad/blurry photo otherwise just
+      // silently occupies a Masar batch slot and goes nowhere. Team gets the
+      // same @mention treatment as the other manual-review cases (On hold,
+      // pax mismatch) so it's a visible action item instead.
+      const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+      if (waMentionId) {
+        await sendReply(waId, {
+          text: `A photo sent for reservation ${reservationNo} couldn't be read as a passport${scan.blurry ? " (looked blurry)" : ""} — please check it manually.`,
+          mentionWaId: waMentionId,
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -504,7 +575,7 @@ const WA_PIPELINE = (() => {
     // age/name for group-leader picking) — but DON'T treat "OCR read it" as
     // "ready for group creation" (see CONFIRM_QUEUE_KEY below for why).
     const mutamers = [...(record.mutamers || []), { passportNo: scan.passportNo, name: scan.name, sex: scan.sex || null, age: scan.age ?? null, messageId }];
-    await saveRecord(reservationNo, { mutamers });
+    await saveRecord(reservationNo, { mutamers, stage: "confirming", stageAt: Date.now() });
     await pLog("info", `Pipeline: OCR read mutamer "${scan.name || "(name unknown)"}" (passport ${scan.passportNo}) for reservation ${reservationNo} — waiting for Masar to confirm it's actually saved.`);
 
     // 5) Queue this passport for confirmation instead of deciding readiness
@@ -551,7 +622,7 @@ const WA_PIPELINE = (() => {
     }
 
     await sendReply(waId, { mediaDataUrl: assets.screenshotDataUrl, filename: `${groupName}.png`, caption: assets.caption });
-    await saveRecord(reservationNo, { repliedAt: Date.now() });
+    await saveRecord(reservationNo, { repliedAt: Date.now(), stage: "replied", stageAt: Date.now() });
     await pLog("info", `Pipeline: replied in chat "${chatName}" for reservation ${reservationNo} — done.`);
   }
 
@@ -658,6 +729,7 @@ const WA_PIPELINE = (() => {
         await pLog("info", `Pipeline: reservation ${reservationNo} — all ${expectedPax} expected passports confirmed.`);
       }
 
+      await saveRecord(reservationNo, { stage: "grouping", stageAt: Date.now() });
       const fresh = await getRecord(reservationNo); // re-read: saveRecord above already merged confirmedPassports in
       await createGroupAndReply(reservationNo, fresh);
     });
@@ -686,5 +758,89 @@ const WA_PIPELINE = (() => {
     return withReservationLock(entry.reservationNo, () => continueAfterMasarScan(entry.reservationNo, entry.messageId, scan || {}));
   }
 
-  return { processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed, callWaAction, sendReply, getRecord, clearStuckQueue, clearAllQueue };
+  // ── Stuck-reservation watchdog ───────────────────────────────────────────
+  // The gap the user flagged directly: nothing ever told anyone a reservation
+  // had silently stopped moving — it just sat there until someone happened to
+  // notice, then had to nuke the whole queue to get unstuck. Run periodically
+  // (see background.js's chrome.alarms wiring) against every ACTIVE
+  // reservation (status "confirmed", not yet replied) and flag any that
+  // haven't advanced their `stage` in a while. Only ever flags — never
+  // auto-clears or auto-retries — a human decides what actually happened,
+  // using the per-item Retry button (retryReservation, below) once they've
+  // looked.
+  const STUCK_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes with no stage progress
+  async function checkStuckReservations() {
+    const { [DB_KEY]: db } = await chrome.storage.local.get([DB_KEY]);
+    const records = db || {};
+    const now = Date.now();
+    for (const reservationNo of Object.keys(records)) {
+      const r = records[reservationNo];
+      if (r.status !== "confirmed" || r.repliedAt) continue; // only active, unfinished reservations
+      const lastProgress = r.stageAt || r.checkedAt || 0;
+      if (now - lastProgress < STUCK_THRESHOLD_MS) continue;
+      if (r.stuckNotifiedAt && r.stuckNotifiedAt >= lastProgress) continue; // already flagged since the last real progress — don't re-notify every watchdog tick
+      const minutes = Math.round((now - lastProgress) / 60000);
+      const stageLabel = r.stage || "processing";
+      await saveRecord(reservationNo, { stuckAt: now, stuckNotifiedAt: now });
+      await pLog("warn", `Pipeline: reservation ${reservationNo} looks STUCK — no progress in ${minutes} min (stage: ${stageLabel}). Use the Queue's Retry button, or check Masar/CRM manually.`);
+      const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+      if (waMentionId) {
+        await sendReply(r.waId, { text: `Reservation ${reservationNo} seems stuck in our system (${stageLabel}, ${minutes} min with no progress) — could someone check it?`, mentionWaId: waMentionId }).catch(() => {});
+      }
+    }
+  }
+
+  // Asks modules/masar-add-mutamer.js to immediately re-check the Mutamer
+  // List against whatever's still pending in waMasarConfirmQueue, instead of
+  // waiting for its normal trigger (a route-change landing there on its own).
+  // Covers the case where the passport genuinely WAS saved by Masar but the
+  // route-change relay was missed for some reason (a dropped event, the page
+  // already being on the Mutamer List when it happened, etc.).
+  async function recheckMasarConfirmations() {
+    const tab = await getOrOpenTab(MASAR_URL_PATTERN, MASAR_ADD_MUTAMER_URL);
+    return sendToTab(tab, { type: "nkMasarRecheckConfirmations" });
+  }
+
+  // ── Manual per-item retry (popup's Retry button on a flagged reservation) ──
+  // Deliberately narrow — this can only re-drive steps that are safe to
+  // repeat from data ALREADY saved. It never re-feeds a passport image (that
+  // data is gone once queuePassportToMasar hands it off; recovering from a
+  // lost feed means the customer's photo has to be re-sent, nothing
+  // automatable here). What it picks, based on the record's current stage:
+  //  - "grouping" (or confirmedPassports already has something): the group
+  //    was never successfully created — safe to just try createGroupAndReply
+  //    again with the data already on file.
+  //  - anything earlier ("feeding"/"confirming"): re-check the Mutamer List
+  //    right now in case Masar's own confirmation relay was simply missed.
+  async function retryReservation(reservationNo) {
+    return withReservationLock(reservationNo, async () => {
+      const record = await getRecord(reservationNo);
+      if (!record) return { ok: false, error: "No tracking record for this reservation." };
+      if (record.groupCreatedAt || record.groupName) {
+        return { ok: false, error: `Reservation ${reservationNo} already has a group ("${record.groupName}") — nothing to retry.` };
+      }
+      await saveRecord(reservationNo, { stuckAt: null, stuckNotifiedAt: null });
+
+      if (record.stage === "grouping" || (record.confirmedPassports || []).length > 0) {
+        await pLog("info", `Pipeline: manually retrying group creation for reservation ${reservationNo}.`);
+        await createGroupAndReply(reservationNo, record);
+        return { ok: true, action: "grouping" };
+      }
+
+      await pLog("info", `Pipeline: manually re-checking Masar's Mutamer List for reservation ${reservationNo}'s pending passport(s).`);
+      try {
+        const result = await recheckMasarConfirmations();
+        if (!result || !result.ok) return { ok: false, error: (result && result.error) || "Masar tab didn't confirm the recheck." };
+        return { ok: true, action: "recheck" };
+      } catch (err) {
+        return { ok: false, error: err.message };
+      }
+    });
+  }
+
+  return {
+    processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed,
+    callWaAction, sendReply, getRecord, clearStuckQueue, clearAllQueue,
+    checkStuckReservations, retryReservation,
+  };
 })();

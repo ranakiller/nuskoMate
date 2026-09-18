@@ -316,6 +316,22 @@
       return true;
     }
 
+    if (msg.type === "nkMasarRecheckConfirmations") {
+      // Manual "Retry" button (popup Pipeline Queue) for a reservation that's
+      // been sitting at "feeding"/"confirming" too long — forces the same
+      // check checkMutamerListConfirmations() normally only runs reactively
+      // off a route-change, in case Masar genuinely did save the passport but
+      // that route-change relay was missed.
+      goToMutamerListPage()
+        .then(() => checkMutamerListConfirmations())
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) => {
+          const message = (err && (err.message || err.name)) || String(err) || "Unknown error";
+          sendResponse({ ok: false, error: message });
+        });
+      return true;
+    }
+
     if (msg.type === "nkMasarVerifyMutamers") {
       verifyMutamers(Array.isArray(msg.passportNumbers) ? msg.passportNumbers : [])
         .then((result) => { wlog(`verify → ${JSON.stringify(result)}`); sendResponse(result); })

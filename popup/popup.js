@@ -1434,9 +1434,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // storage-backed fields, same load/save pattern used throughout Settings.
   const waPipelineLiveEl = document.getElementById("wa-pipeline-live");
   const waMentionIdEl    = document.getElementById("wa-mention-id");
-  chrome.storage.local.get(["waPipelineLive", "waMentionId"], (res) => {
+  const waSkipKeywordsEl = document.getElementById("wa-skip-keywords");
+  chrome.storage.local.get(["waPipelineLive", "waMentionId", "waSkipKeywords"], (res) => {
     if (waPipelineLiveEl) waPipelineLiveEl.checked = !!res.waPipelineLive;
     if (waMentionIdEl) waMentionIdEl.value = res.waMentionId || "";
+    if (waSkipKeywordsEl) waSkipKeywordsEl.value = Array.isArray(res.waSkipKeywords) ? res.waSkipKeywords.join(", ") : "cancel, cancellation, refund, reschedule, postpone";
   });
   if (waPipelineLiveEl) waPipelineLiveEl.addEventListener("change", () => {
     chrome.storage.local.set({ waPipelineLive: waPipelineLiveEl.checked });
@@ -1444,6 +1446,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   if (waMentionIdEl) waMentionIdEl.addEventListener("change", () => {
     chrome.storage.local.set({ waMentionId: waMentionIdEl.value.trim() });
+  });
+  if (waSkipKeywordsEl) waSkipKeywordsEl.addEventListener("change", () => {
+    const words = waSkipKeywordsEl.value.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
+    chrome.storage.local.set({ waSkipKeywords: words });
   });
 
   // WA-Campaigns Raw Action Test — calls background's nkWaCallAction relay,
@@ -1495,6 +1501,121 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     reader.onerror = () => window.nkToast("Could not read the picked file.", "error");
     reader.readAsDataURL(file);
+  });
+
+  // ── Feeding Chats — searchable allowlist picker ──────────────────────────
+  // Sourced LIVE from WhatsApp via WA-Campaigns' `getChats` action, not
+  // manual chat-ID entry — the user's explicit spec: search by name (e.g.
+  // "SKYPASS"), see matching groups/contacts, pick one to trust. Empty list
+  // = no restriction (see whatsapp-automation.js's isFeedingChat), so this is
+  // opt-in and never silently breaks an existing setup that hasn't touched it.
+  const FEEDING_CHATS_KEY = "waFeedingChats";
+  const feedingChatSearchEl = document.getElementById("feeding-chat-search");
+  const feedingChatSearchBtnEl = document.getElementById("feeding-chat-search-btn");
+  const feedingChatResultsEl = document.getElementById("feeding-chat-results");
+  const feedingChatListEl = document.getElementById("feeding-chat-list");
+
+  function chatRow(chat, actionLabel, onAction) {
+    const row = document.createElement("div");
+    row.className = "log-row";
+    row.style.cssText = "display:flex; align-items:center; gap:6px;";
+
+    const name = document.createElement("span");
+    name.className = "log-msg";
+    name.style.cssText = "flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+    name.textContent = chat.name || chat.waId;
+
+    const typeTag = document.createElement("span");
+    typeTag.textContent = chat.isGroup ? "GROUP" : "CONTACT";
+    typeTag.style.cssText = "display:inline-block; padding:1px 6px; border-radius:5px; font-size:9.5px; font-weight:700; color:#fff; background:" + (chat.isGroup ? "#3b82f6" : "#9ca3af") + ";";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "act-btn";
+    btn.textContent = actionLabel;
+    btn.addEventListener("click", () => onAction(row));
+
+    row.append(name, typeTag, btn);
+    return row;
+  }
+
+  async function loadFeedingChatList() {
+    if (!feedingChatListEl) return;
+    const { [FEEDING_CHATS_KEY]: list } = await chrome.storage.local.get([FEEDING_CHATS_KEY]);
+    const chats = Array.isArray(list) ? list : [];
+    feedingChatListEl.innerHTML = "";
+    if (!chats.length) {
+      const empty = document.createElement("div");
+      empty.className = "k-hint";
+      empty.textContent = "No chats added yet — every chat is currently watched.";
+      feedingChatListEl.appendChild(empty);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const chat of chats) {
+      frag.appendChild(chatRow(chat, "Remove", async () => {
+        const { [FEEDING_CHATS_KEY]: cur } = await chrome.storage.local.get([FEEDING_CHATS_KEY]);
+        const next = (Array.isArray(cur) ? cur : []).filter((c) => c.waId !== chat.waId);
+        await chrome.storage.local.set({ [FEEDING_CHATS_KEY]: next });
+        window.nkToast(`Removed "${chat.name || chat.waId}" from Feeding Chats.`, "success");
+        loadFeedingChatList();
+      }));
+    }
+    feedingChatListEl.appendChild(frag);
+  }
+  loadFeedingChatList();
+
+  if (feedingChatSearchBtnEl) feedingChatSearchBtnEl.addEventListener("click", async () => {
+    const query = (feedingChatSearchEl && feedingChatSearchEl.value.trim().toLowerCase()) || "";
+    if (!feedingChatResultsEl) return;
+    feedingChatResultsEl.innerHTML = "";
+    feedingChatSearchBtnEl.disabled = true;
+    try {
+      const resp = await callWaActionFromPopup("getChats", {});
+      if (!resp || !resp.ok) {
+        window.nkToast((resp && resp.error) || "Could not reach WA-Campaigns for the chat list.", "error");
+        return;
+      }
+      const all = Array.isArray(resp.chats) ? resp.chats : [];
+      const matches = (query ? all.filter((c) => (c.name || "").toLowerCase().includes(query)) : all).slice(0, 25);
+      if (!all.length) {
+        const none = document.createElement("div");
+        none.className = "k-hint";
+        none.textContent = "WA-Campaigns' getChats returned zero chats total (not just zero matches) — it may need a reload, or WhatsApp Web wasn't fully connected at that moment.";
+        feedingChatResultsEl.appendChild(none);
+        return;
+      }
+      if (!matches.length) {
+        const none = document.createElement("div");
+        none.className = "k-hint";
+        none.textContent = `No matches among the ${all.length} chat(s) WA-Campaigns returned.`;
+        feedingChatResultsEl.appendChild(none);
+        return;
+      }
+      const { [FEEDING_CHATS_KEY]: cur } = await chrome.storage.local.get([FEEDING_CHATS_KEY]);
+      const trustedIds = new Set((Array.isArray(cur) ? cur : []).map((c) => c.waId));
+      const frag = document.createDocumentFragment();
+      for (const chat of matches) {
+        if (trustedIds.has(chat.waId)) continue; // already trusted — no point offering to re-add it
+        frag.appendChild(chatRow(chat, "Add", async () => {
+          const { [FEEDING_CHATS_KEY]: latest } = await chrome.storage.local.get([FEEDING_CHATS_KEY]);
+          const next = Array.isArray(latest) ? latest.slice() : [];
+          if (!next.some((c) => c.waId === chat.waId)) next.push(chat);
+          await chrome.storage.local.set({ [FEEDING_CHATS_KEY]: next });
+          window.nkToast(`Added "${chat.name || chat.waId}" to Feeding Chats.`, "success");
+          loadFeedingChatList();
+          feedingChatSearchBtnEl.click(); // refresh results so the just-added one drops out of the list
+        }));
+      }
+      feedingChatResultsEl.appendChild(frag);
+    } catch (err) {
+      window.nkToast("Could not reach WA-Campaigns: " + (err && err.message), "error");
+    } finally {
+      feedingChatSearchBtnEl.disabled = false;
+    }
+  });
+  if (feedingChatSearchEl) feedingChatSearchEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); feedingChatSearchBtnEl && feedingChatSearchBtnEl.click(); }
   });
 
   const ocrEmptyEl = document.getElementById("ocr-empty");
@@ -1675,9 +1796,36 @@ document.addEventListener("DOMContentLoaded", () => {
       const paxLine = r.expectedPax ? ` ${mutamerCount}/${r.expectedPax} mutamer(s)` : ` ${mutamerCount} mutamer(s)`;
       const groupLine = r.groupName ? ` — group: ${r.groupName}` : "";
       const repliedTag = r.repliedAt ? " ✓ replied" : "";
-      msg.appendChild(document.createTextNode(paxLine + groupLine + repliedTag));
+      const stageTag = r.status === "confirmed" && !r.repliedAt && r.stage ? ` [${r.stage}]` : "";
+      msg.appendChild(document.createTextNode(paxLine + stageTag + groupLine + repliedTag));
 
       row.append(resNo, msg);
+
+      // Watchdog-flagged (see whatsapp-pipeline.js's checkStuckReservations) —
+      // a red badge plus a per-item Retry button, instead of the previous
+      // "no way to tell, have to Clear the whole queue" situation.
+      if (r.stuckAt && r.status === "confirmed" && !r.repliedAt) {
+        const stuckBadge = document.createElement("span");
+        stuckBadge.textContent = "STUCK";
+        stuckBadge.style.cssText = "display:inline-block; margin-left:6px; padding:1px 7px; border-radius:5px; font-size:10.5px; font-weight:700; color:#fff; background:#dc2626;";
+        row.appendChild(stuckBadge);
+
+        const retryBtn = document.createElement("button");
+        retryBtn.type = "button";
+        retryBtn.className = "logs-btn";
+        retryBtn.textContent = "Retry";
+        retryBtn.style.cssText = "margin-left:8px; padding:1px 8px; font-size:10.5px;";
+        retryBtn.addEventListener("click", async () => {
+          retryBtn.disabled = true;
+          const resp = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({ type: "nkPipelineRetry", reservationNo: r.reservationNo }, (res) => resolve(res));
+          });
+          window.nkToast(resp && resp.ok ? `Retry started for ${r.reservationNo} (${resp.action}).` : (resp && resp.error) || "Retry failed.", resp && resp.ok ? "success" : "error");
+          loadPipelineQueue();
+        });
+        row.appendChild(retryBtn);
+      }
+
       frag.appendChild(row);
     }
     pipelineQueueList.innerHTML = "";

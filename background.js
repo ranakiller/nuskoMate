@@ -54,8 +54,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg.type === "nkWaCallAction") {              // raw WA-Campaigns action relay for the popup's test harness — modules/whatsapp-pipeline.js's callWaAction, exposed to popup.js
+    // Passes WA-Campaigns' own response straight through (not nested under a
+    // `resp` key) — every caller (the wa-test-* buttons' resp.ok/resp.error,
+    // the Feeding Chats search's resp.chats) already reads WA-Campaigns'
+    // fields directly off the top level. Wrapping it as { ok: true, resp }
+    // made resp.chats undefined (the real array sat at resp.resp.chats
+    // instead), which is why the Feeding Chats search always reported zero
+    // chats even though WA-Campaigns' getChats was actually returning data.
     WA_PIPELINE.callWaAction(msg.action, msg.payload || {})
-      .then((resp) => sendResponse({ ok: true, resp }))
+      .then((resp) => sendResponse(resp))
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
@@ -96,12 +103,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
+  if (msg.type === "nkPipelineRetry") {             // popup's per-item "Retry" button on a flagged/stuck reservation
+    WA_PIPELINE.retryReservation(msg.reservationNo)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
   if (msg.type !== "nkLicense") return;            // not for us
   handle(msg)
     .then(sendResponse)
     .catch(() => sendResponse({ ok: false, error: "Cannot reach the license server" }));
   return true; // keep the channel open for the async reply
 });
+
+// ── WhatsApp pipeline stuck-reservation watchdog ─────────────────────────
+// Always on (unlike the cloud-sync alarm above, which only runs when the
+// user has turned that feature on) — this is core pipeline reliability, not
+// an opt-in feature. Every 5 minutes, ask whatsapp-pipeline.js to flag any
+// active reservation that's stopped moving; see checkStuckReservations's own
+// comment for what "stuck" means and why this only ever flags, never
+// auto-fixes.
+const PIPELINE_WATCHDOG_ALARM = "nkPipelineWatchdog";
+chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === PIPELINE_WATCHDOG_ALARM) WA_PIPELINE.checkStuckReservations(); });
+function armPipelineWatchdog() { chrome.alarms.create(PIPELINE_WATCHDOG_ALARM, { periodInMinutes: 5 }); }
+chrome.runtime.onInstalled.addListener(armPipelineWatchdog);
+chrome.runtime.onStartup.addListener(armPipelineWatchdog);
 
 // ── UI mode: floating popup (default) or docked side panel ──────────────────
 // Toggled from the popup/side-panel header. When "sidepanel", we clear the

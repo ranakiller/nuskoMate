@@ -111,7 +111,7 @@ function findPairing(waId, newEntry) {
     for (const n of list) {
       if (!n.reservationNumber) continue;
       const gap = Math.abs(newEntry.timestamp - n.timestamp);
-      if (!best || gap < best.gap) best = { mediaEntry: newEntry, reservationNumber: n.reservationNumber, gap };
+      if (!best || gap < best.gap) best = { mediaEntry: newEntry, numberEntry: n, reservationNumber: n.reservationNumber, gap };
     }
     return best;
   }
@@ -121,11 +121,46 @@ function findPairing(waId, newEntry) {
     for (const m of list) {
       if (!PASSPORT_MEDIA_TYPES.has(m.messageType)) continue;
       const gap = Math.abs(newEntry.timestamp - m.timestamp);
-      if (!best || gap < best.gap) best = { mediaEntry: m, reservationNumber: newEntry.reservationNumber, gap };
+      if (!best || gap < best.gap) best = { mediaEntry: m, numberEntry: newEntry, reservationNumber: newEntry.reservationNumber, gap };
     }
     return best;
   }
   return null; // plain text with no number, or a media type we don't treat as a passport (audio/video/sticker/...)
+}
+
+// ── Intent gating ─────────────────────────────────────────────────────────
+// A reservation number sitting near an image doesn't necessarily mean
+// "please feed this passport" — it could be a cancellation request, a
+// question, an unrelated document sent around the same time, etc. Since
+// findPairing above only cares about PROXIMITY, not intent, this is a second,
+// independent check: does either half of the pairing's text mention one of a
+// configurable list of words that mean "this probably isn't a feed request"?
+// User-editable (Settings → Pipeline Settings → Skip words) rather than a
+// fixed list baked into code, since which phrasings actually show up is
+// something only the team using this day to day would know reliably.
+const DEFAULT_SKIP_KEYWORDS = ["cancel", "cancellation", "refund", "reschedule", "postpone"];
+async function getSkipKeywords() {
+  const { waSkipKeywords } = await chrome.storage.local.get(["waSkipKeywords"]);
+  return Array.isArray(waSkipKeywords) ? waSkipKeywords : DEFAULT_SKIP_KEYWORDS;
+}
+function findSkipKeyword(text, keywords) {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  return keywords.find((kw) => kw && lower.includes(kw)) || null;
+}
+
+// ── Feeding Chats allowlist ───────────────────────────────────────────────
+// Which WhatsApp chats the pipeline is even allowed to act on — the user's
+// own spec: staff searches WhatsApp's real chat/group list by name (via
+// WA-Campaigns' `getChats` action, popup.js's own picker) and adds the ones
+// that should be watched, rather than typing in a raw chat ID. An EMPTY list
+// means no restriction at all (today's behavior, unchanged) — this is opt-in
+// so it can never silently break an existing setup that hasn't configured it.
+async function isFeedingChat(waId) {
+  const { waFeedingChats } = await chrome.storage.local.get(["waFeedingChats"]);
+  const list = Array.isArray(waFeedingChats) ? waFeedingChats : [];
+  if (!list.length) return true;
+  return list.some((c) => c.waId === waId);
 }
 
 // ── De-dup: passport MESSAGES already handed to the pipeline ─────────────
@@ -162,6 +197,7 @@ async function markDetected(mediaMessageId) {
 async function handleIncomingMessage(payload) {
   const { waId, isGroup, chatName, fromMe, messageId, messageType, text, timestamp } = payload || {};
   if (!waId || fromMe) return; // never react to the agency's own messages
+  if (!(await isFeedingChat(waId))) return; // not on the Feeding Chats allowlist — ignore entirely, don't even buffer it for pairing
   const now = timestamp || Date.now();
 
   const entry = { waId, messageId, messageType, text, reservationNumber: extractReservationNumber(text), timestamp: now };
@@ -171,6 +207,28 @@ async function handleIncomingMessage(payload) {
   if (!pairing) return; // nothing to act on yet — the matching half may not have arrived
 
   if (await alreadyDetected(pairing.mediaEntry.messageId)) return;
+
+  // Check BOTH halves of the pairing — the wording could be on either the
+  // number-bearing message or the media's own caption (e.g. an image sent
+  // with "please cancel UR-106538" as its caption is self-contained).
+  const skipKeywords = await getSkipKeywords();
+  const hit = findSkipKeyword(pairing.numberEntry.text, skipKeywords) || findSkipKeyword(pairing.mediaEntry.text, skipKeywords);
+  if (hit) {
+    await markDetected(pairing.mediaEntry.messageId); // still dedup — a repeat of the same message shouldn't re-flag every time
+    await bgLog(
+      "warn",
+      `Pipeline: reservation ${pairing.reservationNumber} in ${isGroup ? "group" : "chat"} "${chatName}" mentions "${hit}" — doesn't look like a passport submission, so it was NOT auto-processed. Handle it manually.`
+    );
+    const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+    if (waMentionId) {
+      WA_PIPELINE.sendReply(waId, {
+        text: `Reservation ${pairing.reservationNumber} was mentioned along with an image, but the message contains "${hit}" — skipped auto-processing since this doesn't look like a passport submission. Please check manually.`,
+        mentionWaId: waMentionId,
+      }).catch(() => {});
+    }
+    return;
+  }
+
   await markDetected(pairing.mediaEntry.messageId);
 
   await bgLog(
