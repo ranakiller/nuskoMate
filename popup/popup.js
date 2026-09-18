@@ -1,5 +1,18 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+  // ── Click-feedback pulse for every small icon button (Refresh/Copy/Clear/
+  // Clear Stuck/etc. across Logs, Pipeline Queue, Pipeline Logs, ...) ──────
+  // Delegated once here instead of wired per-button, so it covers every
+  // .logs-btn everywhere in the popup (present and future) with no extra
+  // code at each call site. See popup.css's nk-btn-pulse for the animation.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".logs-btn");
+    if (!btn) return;
+    btn.classList.remove("nk-btn-clicked");
+    void btn.offsetWidth; // force reflow so the animation restarts on a rapid re-click
+    btn.classList.add("nk-btn-clicked");
+  });
+
   // ── Footer version (always reflects the manifest) ────────────
   const verEl = document.getElementById("footer-version");
   if (verEl && chrome.runtime?.getManifest) verEl.textContent = "v" + chrome.runtime.getManifest().version;
@@ -1606,6 +1619,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pipelineQueueEmpty = document.getElementById("pipeline-queue-empty");
   const pipelineQueueRefresh = document.getElementById("pipeline-queue-refresh");
   const pipelineQueueClearStuck = document.getElementById("pipeline-queue-clear-stuck");
+  const pipelineQueueClearAll = document.getElementById("pipeline-queue-clear-all");
   const pipelineLogsList   = document.getElementById("pipeline-logs-list");
   const pipelineLogsEmpty  = document.getElementById("pipeline-logs-empty");
   const pipelineLogsRefresh = document.getElementById("pipeline-logs-refresh");
@@ -1692,6 +1706,24 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res || !res.ok) { window.nkToast(`Failed to clear: ${(res && res.error) || "unknown error"}`, "error"); return; }
       const n = res.clearedReservations.length;
       window.nkToast(`Cleared ${n} stuck reservation${n === 1 ? "" : "s"} and ${res.clearedFeedOrderCount} pending queue entr${res.clearedFeedOrderCount === 1 ? "y" : "ies"}`, "success");
+      loadPipelineQueue();
+    });
+  });
+
+  // Full reset — wipes EVERY tracked reservation, including already-replied
+  // ones, plus the passport-reuse conflict index. For deliberately starting
+  // fresh (clearing out accumulated test data), not routine stuck-reservation
+  // recovery (that's the button above).
+  if (pipelineQueueClearAll) pipelineQueueClearAll.addEventListener("click", async () => {
+    const ok = await window.nkConfirm(
+      "Clear the ENTIRE queue — including already-replied reservations — and the passport-reuse conflict history? This can't be undone. Use this to start completely fresh.",
+      { confirmText: "Clear everything", danger: true }
+    );
+    if (!ok) return;
+    chrome.runtime.sendMessage({ type: "nkPipelineClearAll" }, (res) => {
+      if (!res || !res.ok) { window.nkToast(`Failed to clear: ${(res && res.error) || "unknown error"}`, "error"); return; }
+      const n = res.clearedReservations.length;
+      window.nkToast(`Cleared all ${n} reservation${n === 1 ? "" : "s"} — starting fresh`, "success");
       loadPipelineQueue();
     });
   });

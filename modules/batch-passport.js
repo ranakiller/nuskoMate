@@ -253,6 +253,63 @@
     }
   }
 
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+  async function waitFor(check, { timeout = 8000, interval = 200 } = {}) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (check()) return true;
+      await sleep(interval);
+    }
+    return false;
+  }
+  function findButtonByText(text) {
+    return Array.from(document.querySelectorAll("button, a"))
+      .find((e) => (e.textContent || "").trim() === text) || null;
+  }
+
+  // ── Click through the "Mutamer has been added successfully" screen ──────
+  // Confirmed by the user live: neither this function nor anything else in
+  // this codebase ever auto-clicked either of this screen's two buttons
+  // ("Add Another Mutamer" / "Go To Mutamer List") — a human always had to
+  // click through manually, which is exactly why the WhatsApp pipeline
+  // (unattended by design) stalled here after the first passport of any
+  // multi-pax batch. Fixed generically, for manual AND automated use alike:
+  // if the queue still has more passports, click "Add Another Mutamer" to
+  // loop back to a fresh empty Add Mutamer form for the next one (feeding
+  // itself is still entirely handled by tick()'s own absent→empty
+  // detection above — this only gets the wizard OUT of the success
+  // interstitial and back to that empty form in the first place); once the
+  // queue is empty, click "Go To Mutamer List" instead — the real signal
+  // modules/masar-add-mutamer.js's reactive WhatsApp-pipeline confirmation
+  // check (a separate file) is waiting for.
+  let handlingSuccessScreen = false;
+  async function checkSuccessScreen() {
+    if (!isEnabled || handlingSuccessScreen) return;
+    const addAnotherBtn = findButtonByText("Add Another Mutamer");
+    const goToListBtn = findButtonByText("Go To Mutamer List");
+    if (!addAnotherBtn && !goToListBtn) return;
+    handlingSuccessScreen = true;
+    try {
+      const remaining = await queueCount();
+      const target = (remaining > 0 && addAnotherBtn) ? addAnotherBtn : (goToListBtn || addAnotherBtn);
+      if (!target) return;
+      const label = (target.textContent || "").trim();
+      target.click();
+      log.info(`[Nuskomate Batch] mutamer saved — clicked "${label}" (${remaining} left queued)`);
+      // Wait for the screen to actually go away before allowing another
+      // click attempt — Angular's own navigation can take a moment, and
+      // clicking again before it lands would be a real double-click (this
+      // screen's buttons are not idempotent — clicking "Add Another
+      // Mutamer" twice could skip a queued item's turn), not a harmless
+      // retry, so this waits for confirmed success rather than a fixed delay.
+      await waitFor(() => !findButtonByText("Add Another Mutamer") && !findButtonByText("Go To Mutamer List"));
+    } catch (err) {
+      log.error("[Nuskomate Batch] success-screen click failed:", err);
+    } finally {
+      handlingSuccessScreen = false;
+    }
+  }
+
   // ── External entry point for the WhatsApp pipeline (modules/masar-add-
   // mutamer.js's nkMasarQueuePassport) — feeds a batch of 1+ files exactly
   // the way a manual multi-select already does (onChangeCapture, above):
@@ -299,6 +356,7 @@
     return { ok: true, mode: "queued", queued: files.length };
   }
   window.nkBatchFeedOrQueue = feedOrQueue;
+  window.nkBatchQueueCount = queueCount; // used by modules/masar-add-mutamer.js to decide whether to redirect back to Add Mutamer after a Mutamer List confirmation check
 
   // ── On-page control panel ───────────────────────────────────────────────
   function ensurePanel() {
@@ -362,7 +420,7 @@
     document.addEventListener("change", onChangeCapture, true);
     observer = new MutationObserver(() => { enableMultiple(); });
     observer.observe(document.body, { childList: true, subtree: true });
-    pollTimer = setInterval(() => { enableMultiple(); tick(); }, 1000);
+    pollTimer = setInterval(() => { enableMultiple(); tick(); checkSuccessScreen(); }, 1000);
     enableMultiple();
     updatePanel();
   }

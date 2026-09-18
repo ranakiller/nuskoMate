@@ -866,6 +866,21 @@ input:checked + .slider::before {
   pointer-events: none;
 }
 
+/* Click-feedback pulse — a plain :active only shows while the mouse is
+   still down, which isn't enough to confirm a click actually registered
+   (especially for an action like Refresh/Clear with no other visible
+   result). Triggered via a briefly-added class in popup.js on every
+   .logs-btn click, works the same regardless of a button's own color
+   (danger variants included), since it only animates scale, not background. */
+@keyframes nk-btn-pulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.78); }
+  100% { transform: scale(1); }
+}
+.logs-btn.nk-btn-clicked {
+  animation: nk-btn-pulse .3s ease;
+}
+
 .logs-btn-danger:hover {
   background: var(--overlay-fg);
   border-color: var(--overlay-fg);

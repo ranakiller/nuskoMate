@@ -58,12 +58,34 @@
   function isOnAddMutamerPage() {
     return location.pathname === ADD_MUTAMER_PATH;
   }
+  function isOnMutamerListPage() {
+    return location.pathname === MUTAMER_LIST_PATH;
+  }
 
+  function findAddMutamerButton() {
+    return document.querySelector('button[routerlink="/mutamer/add-mutamer"]') || findByExactText("Add new mutamer");
+  }
+
+  // A hard `location.href` straight to the Add Mutamer URL from an
+  // already-running session errored out live (confirmed by the user) — this
+  // wizard step apparently expects context the Angular app only sets up when
+  // you arrive at it through its own router, not via a cold deep link. The
+  // Mutamer List is a safe page to hard-navigate to, so go there instead and
+  // click its real "Add new mutamer" button to get a normal in-app
+  // (client-side router) transition, exactly like a human would.
   async function goToAddMutamerPage() {
     if (isOnAddMutamerPage()) return;
-    location.href = "https://masar.nusuk.sa" + ADD_MUTAMER_PATH;
+    if (!isOnMutamerListPage()) {
+      location.href = "https://masar.nusuk.sa" + MUTAMER_LIST_PATH;
+      const onList = await waitFor(() => isOnMutamerListPage(), { timeout: 20000 });
+      if (!onList) throw new Error("Could not reach the Mutamer List page.");
+      await sleep(1000);
+    }
+    const btn = await waitFor(() => findAddMutamerButton(), { timeout: 15000 });
+    if (!btn) throw new Error('Could not find the "Add new mutamer" button on the Mutamer List page.');
+    btn.click();
     const ok = await waitFor(() => isOnAddMutamerPage(), { timeout: 20000 });
-    if (!ok) throw new Error("Could not reach the Add Mutamer page.");
+    if (!ok) throw new Error("Could not reach the Add Mutamer page after clicking Add new mutamer.");
     await sleep(1000);
   }
 
@@ -215,31 +237,61 @@
     checkingConfirmations = true;
     try {
       const { [CONFIRM_QUEUE_KEY]: pending } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
-      const list = Array.isArray(pending) ? pending : [];
+      let list = Array.isArray(pending) ? pending : [];
       if (!list.length) return; // nothing we're waiting on — leave the page alone
 
-      await sleep(800); // let the grid finish rendering after the route change
-      const bodyText = document.body.innerText;
-      const stillPending = [];
-      for (const entry of list) {
-        if (entry.passportNo && bodyText.includes(entry.passportNo)) {
-          wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
-          chrome.runtime.sendMessage({
-            type: "nkMasarMutamerConfirmed",
-            reservationNo: entry.reservationNo,
-            messageId: entry.messageId,
-            passportNo: entry.passportNo,
-          }).catch(() => {});
-        } else {
-          stillPending.push(entry);
+      // Retry a few times over a few seconds instead of one snapshot check —
+      // confirmed live that a single check right after landing here could
+      // miss some already-saved passports (the grid hadn't finished
+      // rendering every row yet), leaving them stuck pending until a human
+      // happened to revisit this page manually to finish the job.
+      //
+      // Collect ALL confirmations found in THIS visit, grouped by
+      // reservation, and relay each reservation's whole batch as ONE
+      // message — not one message per passport. The pipeline decides
+      // whether to create a group right after processing a batch (see
+      // whatsapp-pipeline.js's handleMutamerConfirmed), so if 5 passports
+      // for one reservation all get confirmed together here (the normal
+      // case — Masar only shows this page once its OWN queue is empty, so
+      // everything currently known about is already saved by then), they
+      // need to arrive as one batch or the pipeline would see only the
+      // first one and create the group prematurely with just that.
+      const confirmedByReservation = {};
+      for (let attempt = 0; attempt < 4 && list.length; attempt++) {
+        await sleep(attempt === 0 ? 800 : 1200);
+        const bodyText = document.body.innerText;
+        const stillPending = [];
+        for (const entry of list) {
+          if (entry.passportNo && bodyText.includes(entry.passportNo)) {
+            wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
+            (confirmedByReservation[entry.reservationNo] ||= []).push(entry);
+          } else {
+            stillPending.push(entry);
+          }
         }
+        list = stillPending;
+        await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: list });
       }
-      await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: stillPending });
+      for (const [reservationNo, entries] of Object.entries(confirmedByReservation)) {
+        chrome.runtime.sendMessage({
+          type: "nkMasarMutamerConfirmed",
+          reservationNo,
+          confirmations: entries.map((e) => ({ messageId: e.messageId, passportNo: e.passportNo })),
+        }).catch(() => {});
+      }
 
-      // Hand control back to Add Mutamer so the batch queue can feed the
-      // next passport — only reached because something WAS pending above,
-      // so this was genuinely our own automated flow, not a human's visit.
-      await goToAddMutamerPage().catch(() => {});
+      // Only hand control back to Add Mutamer if there's actually something
+      // left to feed — confirmed live that redirecting away unconditionally
+      // was pointless churn once a batch's last passport was already
+      // confirmed (nothing left to feed, so nowhere useful to send the page
+      // back to), and worse, bounced right past the moment group creation
+      // was about to start.
+      const stillQueued = typeof window.nkBatchQueueCount === "function" ? await window.nkBatchQueueCount() : 0;
+      if (stillQueued > 0) {
+        await goToAddMutamerPage().catch(() => {});
+      } else if (list.length) {
+        wlog(`${list.length} passport(s) still not visible on the Mutamer List after retrying — leaving them pending; check manually if this persists.`);
+      }
     } finally {
       checkingConfirmations = false;
     }

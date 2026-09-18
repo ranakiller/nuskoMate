@@ -734,6 +734,9 @@
             <button id="pipeline-queue-clear-stuck" type="button" class="logs-btn logs-btn-danger" title="Clear any reservation stuck mid-processing (e.g. after an error) plus the internal OCR-wait queue — done/replied reservations are left alone">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
+            <button id="pipeline-queue-clear-all" type="button" class="logs-btn logs-btn-danger" title="Clear EVERYTHING in the queue, including already-replied reservations — a full reset to start completely fresh (e.g. after testing). Unlike the trash icon above, this also erases the passport-reuse conflict history.">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </button>
           </div>
         </div>
         <div id="pipeline-queue-empty" class="logs-empty">No reservations tracked yet — this fills in as WhatsApp messages get detected and processed.</div>

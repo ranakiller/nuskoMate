@@ -149,9 +149,25 @@ const WA_PIPELINE = (() => {
   }
 
   // ── CRM lookup ────────────────────────────────────────────────────────
-  async function lookupReservationInCrm(reservationNo) {
+  // Seen live, repeatably, for the SAME reservation across separate attempts:
+  // the CRM tab's content script responds with nothing at all (no error, no
+  // result — `sendToTab` just resolves `undefined`), which reads as "CRM
+  // lookup returned an error ... undefined" in the Pipeline Log. Since it
+  // repeats across independent attempts on the same tab, whatever went wrong
+  // (a stuck DevExpress callback panel, a JS error on the page, etc.) is
+  // stuck IN the tab, not something a plain retry without changing anything
+  // would fix — so this reloads the CRM tab once and tries again before
+  // giving up for real.
+  async function lookupReservationInCrm(reservationNo, { allowReload = true } = {}) {
     const tab = await getOrOpenTab(CRM_URL_PATTERN, CRM_LOGIN_URL);
-    return sendToTab(tab, { type: "nkCrmLookupReservation", reservationNo });
+    const result = await sendToTab(tab, { type: "nkCrmLookupReservation", reservationNo });
+    if ((!result || !result.ok) && allowReload) {
+      await pLog("warn", `Pipeline: CRM tab gave no usable response for ${reservationNo} (got ${JSON.stringify(result)}) — reloading the CRM tab and retrying once.`);
+      await chrome.tabs.reload(tab.id).catch(() => {});
+      await sleep(5000); // let the CRM app finish reloading (+ auto-login, if needed) before messaging it again
+      return lookupReservationInCrm(reservationNo, { allowReload: false });
+    }
+    return result;
   }
 
   // ── Masar feed ────────────────────────────────────────────────────────
@@ -258,6 +274,31 @@ const WA_PIPELINE = (() => {
     await pLog("info", `Pipeline: manually cleared ${stuckNos.length} stuck reservation(s)${stuckNos.length ? ` (${stuckNos.join(", ")})` : ""}, ${feedOrderCount} pending feed-order entr${feedOrderCount === 1 ? "y" : "ies"}, and ${confirmQueueCount} pending confirm-queue entr${confirmQueueCount === 1 ? "y" : "ies"}.`);
     return { ok: true, clearedReservations: stuckNos, clearedFeedOrderCount: feedOrderCount, clearedConfirmQueueCount: confirmQueueCount };
   }
+
+  // ── Manual "Clear All" (popup button) — a full reset, unlike the targeted
+  // clearStuckQueue above ─────────────────────────────────────────────────
+  // Wipes EVERY reservation record regardless of status — including already
+  // -replied ones — plus the passport-reuse index and both internal order
+  // queues. For deliberately starting completely fresh (e.g. clearing out
+  // accumulated test reservations), not for routine "something got stuck"
+  // recovery, which is what the other button is for.
+  async function clearAllQueue() {
+    const { [DB_KEY]: db } = await chrome.storage.local.get([DB_KEY]);
+    const allNos = Object.keys(db || {});
+    await chrome.storage.local.set({ [DB_KEY]: {} });
+    await chrome.storage.local.set({ [PASSPORT_INDEX_KEY]: {} });
+
+    const { [FEED_ORDER_KEY]: feedOrder } = await chrome.storage.local.get([FEED_ORDER_KEY]);
+    const feedOrderCount = Array.isArray(feedOrder) ? feedOrder.length : 0;
+    await chrome.storage.local.set({ [FEED_ORDER_KEY]: [] });
+
+    const { [CONFIRM_QUEUE_KEY]: confirmQueue } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+    const confirmQueueCount = Array.isArray(confirmQueue) ? confirmQueue.length : 0;
+    await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: [] });
+
+    await pLog("info", `Pipeline: manually cleared ALL ${allNos.length} tracked reservation(s), the passport-reuse index, ${feedOrderCount} pending feed-order entr${feedOrderCount === 1 ? "y" : "ies"}, and ${confirmQueueCount} pending confirm-queue entr${confirmQueueCount === 1 ? "y" : "ies"} — starting fresh.`);
+    return { ok: true, clearedReservations: allNos, clearedFeedOrderCount: feedOrderCount, clearedConfirmQueueCount: confirmQueueCount };
+  }
   // `mutamers` here is the full {passportNo, sex, age} array, not just
   // passport numbers — modules/masar-group.js needs `sex` to pick a group
   // leader, since the guide-selection step on that page shows no gender
@@ -298,21 +339,40 @@ const WA_PIPELINE = (() => {
     await pLog("info", `Pipeline: processing reservation ${reservationNo} (chat "${chatName}")`);
 
     // 1) CRM lookup — the four-outcome branch from the pipeline plan.
-    let crm;
-    try {
-      crm = await lookupReservationInCrm(reservationNo);
-    } catch (err) {
-      await pLog("error", `Pipeline: CRM lookup failed for ${reservationNo}: ${err.message}`);
+    // Reuse a prior lookup for this reservation instead of re-searching the
+    // CRM for every single photo — confirmed live: sending 5 passports for
+    // one multi-pax reservation (5 separate WhatsApp messages, same
+    // reservation number) searched the CRM 5 times, once per photo, since
+    // nothing previously checked whether this reservation had already been
+    // resolved. A terminal, non-confirmed outcome (not found/on hold/
+    // cancelled/unrecognized/conflict) is also only ever HANDLED — and
+    // replied to — once; a second photo arriving for an already-on-hold
+    // reservation shouldn't re-send the same @mention notice again.
+    const existing = await getRecord(reservationNo);
+    if (existing && existing.crm && existing.status && existing.status !== "confirmed") {
+      await pLog("info", `Pipeline: reservation ${reservationNo} was already handled as "${existing.status}" — not repeating the CRM search or the reply for this additional photo.`);
       return;
     }
-    if (!crm || !crm.ok) {
-      await pLog("error", `Pipeline: CRM lookup returned an error for ${reservationNo}: ${crm && crm.error}`);
-      return;
+
+    let crm = existing && existing.crm;
+    if (crm) {
+      await pLog("info", `Pipeline: reusing the cached CRM result for reservation ${reservationNo} instead of searching again.`);
+    } else {
+      try {
+        crm = await lookupReservationInCrm(reservationNo);
+      } catch (err) {
+        await pLog("error", `Pipeline: CRM lookup failed for ${reservationNo}: ${err.message}`);
+        return;
+      }
+      if (!crm || !crm.ok) {
+        await pLog("error", `Pipeline: CRM lookup returned an error for ${reservationNo}: ${(crm && crm.error) || `no response even after a reload (got ${JSON.stringify(crm)})`}`);
+        return;
+      }
     }
 
     if (!crm.found) {
       await sendReply(waId, { text: `We couldn't find reservation ${reservationNo} in our system — could you double-check the number?` });
-      await saveRecord(reservationNo, { status: "not_found", waId, chatName, checkedAt: Date.now() });
+      await saveRecord(reservationNo, { status: "not_found", waId, chatName, crm, checkedAt: Date.now() });
       return;
     }
 
@@ -329,20 +389,19 @@ const WA_PIPELINE = (() => {
 
     if (crm.status === "Cancelled") {
       await sendReply(waId, { text: `Reservation ${reservationNo} shows as cancelled in our system.` });
-      const existing = await getRecord(reservationNo);
       if (existing && existing.groupName) {
         // Removing an already-fed mutamer from a Masar group is explicitly
         // NOT built (no walkthrough exists for that flow) — flag for a human
         // instead of attempting undefined DOM automation.
         await pLog("warn", `Pipeline: reservation ${reservationNo} was cancelled AFTER being fed to Masar group "${existing.groupName}" — needs MANUAL removal, this isn't automated yet.`);
       }
-      await saveRecord(reservationNo, { status: "cancelled", waId, chatName, checkedAt: Date.now() });
+      await saveRecord(reservationNo, { status: "cancelled", waId, chatName, crm, checkedAt: Date.now() });
       return;
     }
 
     if (crm.status !== "Confirmed") {
       await pLog("warn", `Pipeline: reservation ${reservationNo} has an unrecognized CRM status "${crm.status}" — stopping here rather than guessing how to handle it.`);
-      await saveRecord(reservationNo, { status: crm.status || "unknown", waId, chatName, checkedAt: Date.now() });
+      await saveRecord(reservationNo, { status: crm.status || "unknown", waId, chatName, crm, checkedAt: Date.now() });
       return;
     }
 
@@ -523,33 +582,80 @@ const WA_PIPELINE = (() => {
     await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: next });
   }
 
-  // Called once a passport's OWN reservation+passport number has been
-  // confirmed visible on the Mutamer List (see masar-add-mutamer.js's
-  // reactive check). Only NOW do we know the mutamer is truly saved and can
-  // count toward expectedPax — this is the actual gate for group creation.
-  async function handleMutamerConfirmed({ reservationNo, messageId, passportNo }) {
+  // Called once a BATCH of this reservation's passports has been confirmed
+  // visible on the Mutamer List in the same visit (see masar-add-mutamer.js's
+  // reactive check, which groups everything it finds per-reservation before
+  // relaying — never one message per passport, so a multi-pax batch that all
+  // lands together doesn't get evaluated one at a time).
+  //
+  // NO WAITING for expectedPax to be reached — explicit decision (2026-09-18):
+  // the user rejected both a fixed timeout AND blocking indefinitely for
+  // more passports ("we cannot specify time limit... what is received gets
+  // processed, what is not, when they get sent by customer we will process
+  // them"). Masar's own "Go To Mutamer List" trigger (batch-passport.js's
+  // checkSuccessScreen, only fires once ITS queue is empty) is already the
+  // real "nothing more immediately incoming" signal — by the time this
+  // fires, everything currently known about has already been fed and saved,
+  // so it's correct to create the group with whatever that turns out to be,
+  // rather than waiting for a specific count. If MORE passports for the same
+  // reservation arrive later (a following day, say), that's a real, accepted
+  // case here, not a bug — see the "already has a group" branch below, which
+  // is what handles it (flagged for manual addition, not automated).
+  async function handleMutamerConfirmed({ reservationNo, confirmations }) {
     return withReservationLock(reservationNo, async () => {
       const record = await getRecord(reservationNo);
       if (!record) {
-        await pLog("warn", `Pipeline: Mutamer List confirmed passport ${passportNo}, but no tracking record exists for reservation ${reservationNo} anymore — ignoring.`);
+        await pLog("warn", `Pipeline: Mutamer List confirmed passport(s) for reservation ${reservationNo}, but no tracking record exists for it anymore — ignoring.`);
         return;
       }
+      const newPassports = (confirmations || []).map((c) => c.passportNo).filter(Boolean);
+
+      // A group was already created for this reservation — the passport(s)
+      // just confirmed arrived AFTER that (e.g. the customer sent the rest
+      // of the group a day later). Adding a mutamer to an EXISTING Masar
+      // group isn't automated (no walkthrough exists for that flow, same
+      // gap as the cancelled-after-feed/rebooking cases) — flag it clearly
+      // for manual handling instead of silently dropping it.
+      if (record.groupCreatedAt || record.groupName) {
+        await pLog("warn", `Pipeline: reservation ${reservationNo} already has a group ("${record.groupName}") — ${newPassports.length} more passport(s) confirmed AFTER the fact (${newPassports.join(", ") || "unreadable"}) — these need MANUAL addition to the group, that isn't automated yet.`);
+        return;
+      }
+
       const confirmed = [...(record.confirmedPassports || [])];
-      if (!confirmed.includes(passportNo)) confirmed.push(passportNo);
+      for (const p of newPassports) { if (!confirmed.includes(p)) confirmed.push(p); }
       await saveRecord(reservationNo, { confirmedPassports: confirmed });
 
+      if (!confirmed.length) return; // shouldn't happen (confirmations always carry a real passportNo), but never create an empty group
+
       const expectedPax = record.expectedPax || (record.crm && record.crm.pax) || null;
-      await pLog("info", `Pipeline: confirmed mutamer ${passportNo} saved in Masar for reservation ${reservationNo} (${confirmed.length}${expectedPax ? `/${expectedPax}` : ""} confirmed).`);
+      if (expectedPax && confirmed.length > expectedPax) {
+        // Real anomaly — MORE passports than the CRM says this booking has.
+        // Unlike "fewer than expected" (safe to proceed with — see below),
+        // this is NOT safe to auto-resolve: one of these passports may
+        // belong to a different booking entirely, and forcing all of them
+        // into one Masar group risks attaching the wrong traveler to it.
+        // Stop and surface it to the team via the same @mention channel
+        // used for On-hold reservations — a human needs to decide which
+        // one(s) don't belong, not something to guess at. Only notifies
+        // once per reservation (paxMismatchNotifiedAt), since every
+        // following passport for this reservation would otherwise re-hit
+        // this same branch and re-send the same notice.
+        if (!record.paxMismatchNotifiedAt) {
+          const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+          const notice = `Reservation ${reservationNo}: CRM expects ${expectedPax} passport(s), but ${confirmed.length} have been received — please check which one(s) don't belong before the group is created.`;
+          if (waMentionId) await sendReply(record.waId, { text: notice, mentionWaId: waMentionId });
+          await pLog("warn", `Pipeline: ${notice}${waMentionId ? "" : " (no team WA ID configured in Settings to @mention — logged only.)"}`);
+          await saveRecord(reservationNo, { paxMismatchNotifiedAt: Date.now() });
+        }
+        return;
+      }
 
       if (!expectedPax) {
-        // CRM's PAX didn't parse — no signal for how many travelers this
-        // reservation has. Proceeding after just one confirmation would
-        // silently treat "unknown" as "just this one," wrong for any
-        // multi-pax booking — flagged instead of guessed.
-        await pLog("warn", `Pipeline: reservation ${reservationNo} has no PAX count from CRM — can't tell if more passports are expected. Creating the group with just the ${confirmed.length} confirmed so far; check manually if this booking has more travelers.`);
+        await pLog("warn", `Pipeline: reservation ${reservationNo} has no PAX count from CRM — can't compare against how many passports arrived. Creating the group with the ${confirmed.length} confirmed.`);
       } else if (confirmed.length < expectedPax) {
-        await pLog("info", `Pipeline: reservation ${reservationNo} has ${confirmed.length}/${expectedPax} passports confirmed — waiting for the rest before creating a group.`);
-        return;
+        await pLog("info", `Pipeline: reservation ${reservationNo} — CRM expects ${expectedPax}, only ${confirmed.length} confirmed so far. Creating the group with what's arrived; more can be added manually later if the rest come in.`);
+      } else {
+        await pLog("info", `Pipeline: reservation ${reservationNo} — all ${expectedPax} expected passports confirmed.`);
       }
 
       const fresh = await getRecord(reservationNo); // re-read: saveRecord above already merged confirmedPassports in
@@ -580,5 +686,5 @@ const WA_PIPELINE = (() => {
     return withReservationLock(entry.reservationNo, () => continueAfterMasarScan(entry.reservationNo, entry.messageId, scan || {}));
   }
 
-  return { processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed, callWaAction, sendReply, getRecord, clearStuckQueue };
+  return { processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed, callWaAction, sendReply, getRecord, clearStuckQueue, clearAllQueue };
 })();

@@ -188,9 +188,30 @@
       }
       if (msg.type === "nkWebshotScrollTo") {
         window.scrollTo(msg.x, msg.y);
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          setTimeout(() => sendResponse({ actualX: window.scrollX, actualY: window.scrollY }), 60);
-        }));
+        // Confirmed live: a fixed ~60ms settle (fine for a plain page
+        // repaint) wasn't enough for Masar's Mutamer table — it's a
+        // virtualized/lazy grid, so rows that just scrolled into view (and
+        // their avatar images) can still be mid-render/mid-load the instant
+        // the scroll itself finishes, which showed up as blank white rows
+        // in the captured screenshot below the first screenful. Wait for an
+        // actual completion signal instead: two animation frames for the
+        // scroll repaint, then poll until every currently-visible <img> has
+        // finished loading (bounded, so a genuinely broken image can't hang
+        // this forever), plus a small buffer for any non-image re-render.
+        (async () => {
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const deadline = Date.now() + 1500;
+          while (Date.now() < deadline) {
+            const visibleImgs = Array.from(document.querySelectorAll("img")).filter((img) => {
+              const r = img.getBoundingClientRect();
+              return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth;
+            });
+            if (visibleImgs.every((img) => img.complete)) break;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          await new Promise((r) => setTimeout(r, 250));
+          sendResponse({ actualX: window.scrollX, actualY: window.scrollY });
+        })();
         return true;
       }
       if (msg.type === "nkWebshotRestore") {

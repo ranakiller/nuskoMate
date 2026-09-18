@@ -78,15 +78,36 @@
     return document.querySelector('input[id$="_DXSE_I"]') || document.querySelector("input[name$='\\$DXSE']");
   }
 
+  const RESERVATION_LIST_URL = "https://setup.nebraspk.com/default.aspx#" + RESERVATION_LIST_HASH;
+
+  // isOnReservationList() used to just check "does a grid search box exist
+  // ANYWHERE on the page" — but every DevExpress list view has one with the
+  // same id suffix, so if the CRM tab was left open on a DIFFERENT list (or
+  // a reservation's Detail View), this returned true anyway and the code
+  // skipped navigation entirely, typing the reservation number into whatever
+  // page happened to be open (confirmed live by the user). The hash actually
+  // identifies which view is loaded — check that first.
+  function isOnReservationListView() {
+    return location.hash.includes("ViewID=UmrReservation_ListView");
+  }
   function isOnReservationList() {
-    return !!getSearchBox();
+    return isOnReservationListView() && !!getSearchBox();
   }
 
   async function goToReservationList() {
     if (isOnReservationList()) return;
-    location.hash = RESERVATION_LIST_HASH;
+    if (!isOnReservationListView()) {
+      // Same-page hash-route jump when we're already inside this SPA shell
+      // (the normal case — default.aspx never fully reloads); fall back to a
+      // real navigation only if some other page entirely is loaded.
+      if (/\/default\.aspx/i.test(location.pathname)) {
+        location.hash = RESERVATION_LIST_HASH;
+      } else {
+        location.href = RESERVATION_LIST_URL;
+      }
+    }
     const ok = await waitFor(() => isOnReservationList(), { timeout: 15000 });
-    if (!ok) throw new Error("Could not reach the Reservations list via hash navigation.");
+    if (!ok) throw new Error("Could not reach the Reservations list — the URL didn't switch to the Reservation view in time.");
     await sleep(500);
   }
 
@@ -172,7 +193,9 @@
       packageCode: detail.packageCode,
       package: detail.package,
       parsedPackage: parsePackage(detail.package),
-      pax: detail.pax,
+      pax: detail.pax, // adults + infants combined — see extractRowFields
+      paxAdults: detail.paxAdults,
+      infants: detail.infants,
     };
   }
 
@@ -217,7 +240,16 @@
     const byHeader = {};
     headers.forEach((h, i) => { if (h && cellTexts[i] !== undefined && cellTexts[i] !== "") byHeader[h] = cellTexts[i]; });
 
-    const paxNum = parseInt(byHeader["PAX"], 10);
+    // "PAX" is adults only — the grid has a SEPARATE "Infants" column right
+    // after it, which was being silently dropped entirely (confirmed live:
+    // this undercounted the real number of mutamers to expect whenever a
+    // reservation included any infants — e.g. PAX 4 + Infants 1 needs 5
+    // passports total, not 4). The total traveler count the pipeline needs
+    // for "how many passports to expect" is the SUM of both.
+    const adultsNum = parseInt(byHeader["PAX"], 10);
+    const infantsNum = parseInt(byHeader["Infants"], 10);
+    const adults = Number.isFinite(adultsNum) ? adultsNum : null;
+    const infants = Number.isFinite(infantsNum) ? infantsNum : 0; // no infants is the normal case, not a parse failure
 
     return {
       status: byHeader["Status"] || null,
@@ -226,7 +258,9 @@
       groupCode: byHeader["Group Code"] || null,
       packageCode: byHeader["Package Code"] || null,
       package: byHeader["Group Title"] || null,
-      pax: Number.isFinite(paxNum) ? paxNum : null,
+      paxAdults: adults,
+      infants: infants,
+      pax: adults !== null ? adults + infants : null,
     };
   }
 

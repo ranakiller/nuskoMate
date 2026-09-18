@@ -84,6 +84,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
+  if (msg.type === "nkPipelineClearAll") {          // popup's "Clear All" button — see modules/whatsapp-pipeline.js's clearAllQueue
+    WA_PIPELINE.clearAllQueue()
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
   if (msg.type === "nkMasarMutamerConfirmed") {     // Mutamer List confirmation relay from modules/masar-add-mutamer.js — the real "this passport is actually saved" signal
     WA_PIPELINE.handleMutamerConfirmed(msg)
       .then(() => sendResponse({ ok: true }))

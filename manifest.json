@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nuskomate",
-  "version": "3.11.22",
+  "version": "3.11.30",
   "description": "Smart automation for Masar Nusuk — autofill, reload, translate 0026 more",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtdv544TV/9vlf06XH5R1J9yVGFBq1K8XRUmgu6iIU05OHExaTRTOrKh41i1t3KlAn9rhBOc/CnHip0x2RcyzeVmiz0H2s9DCqZtknHbRrzOmTmG/n2t0CdOq29BgQEf+2+6YcLYg6GGxLvu0oLjQpIC/upP0c/7ofr4ATmD6HQlRvBx/28NvY0QNWOkLfNTO4PWDtHOjZ0nsk3pPWRaBOEYvxEMjjPfCM0Bq65IIDTydS/F/lI/54e4lF9DHfpjyomdmuVmSon1O/j0k1sv5RYHKP8ZLkIKuN+ZJPcrVkKdI74X7cmGWjOYu3soIb7VrvpqAvZyIYSNEwUNd4Al7XQIDAQAB",
   "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "clipboardWrite", "sidePanel", "alarms", "nativeMessaging", "downloads"],
