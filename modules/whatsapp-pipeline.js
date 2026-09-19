@@ -16,8 +16,6 @@
 // the "WA-Campaigns Raw Action Test" harness in Settings).
 
 const WA_PIPELINE = (() => {
-  const CRM_URL_PATTERN = "https://setup.nebraspk.com/*";
-  const CRM_LOGIN_URL = "https://setup.nebraspk.com/Login.aspx";
   const MASAR_URL_PATTERN = "https://masar.nusuk.sa/*";
   const MASAR_ADD_MUTAMER_URL = "https://masar.nusuk.sa/umrah/mutamer/add-mutamer";
 
@@ -37,6 +35,32 @@ const WA_PIPELINE = (() => {
   }
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  // ── Service-worker keepalive ──────────────────────────────────────────
+  // MV3 can suspend this background service worker mid-flight, discarding
+  // ALL in-memory state (reservationLocks, whatsapp-automation.js's per-chat
+  // buffers, and whatever this exact function was in the middle of) with no
+  // error and nothing to catch — confirmed live as the real cause behind
+  // multi-photo batches that silently died partway through once a single
+  // run (back then including a slow CRM-tab lookup) got long enough to reach
+  // whatever idle/lifetime cap Chrome enforces here.
+  // Wrapping every entry point below in this keeps a trivial chrome.storage
+  // call ticking every 20s for as long as that entry point's own work is
+  // still running, which is the standard "keep touching an extension API so
+  // the worker looks active" approach — not a documented guarantee from
+  // Chrome, so this reduces the risk rather than eliminating it; the stage
+  // watchdog (checkStuckReservations, alarm-driven so it reliably wakes
+  // regardless) is the real safety net if a run dies anyway.
+  function withKeepAlive(fn) {
+    return async (...args) => {
+      const timer = setInterval(() => { chrome.storage.local.get(["__nkKeepAlive"]).catch(() => {}); }, 20000);
+      try {
+        return await fn(...args);
+      } finally {
+        clearInterval(timer);
+      }
+    };
+  }
 
   // Waits for the tab to genuinely finish loading rather than guessing with a
   // fixed sleep — confirmed live: a fixed 3s wait wasn't enough when the CRM
@@ -193,50 +217,86 @@ const WA_PIPELINE = (() => {
     return callWaAction("sendText", { waId, text });
   }
 
-  // ── CRM lookup ────────────────────────────────────────────────────────
-  // Seen live, repeatably, for the SAME reservation across separate attempts:
-  // the CRM tab's content script responds with nothing at all (no error, no
-  // result — `sendToTab` just resolves `undefined`), which reads as "CRM
-  // lookup returned an error ... undefined" in the Pipeline Log. Since it
-  // repeats across independent attempts on the same tab, whatever went wrong
-  // (a stuck DevExpress callback panel, a JS error on the page, etc.) is
-  // stuck IN the tab, not something a plain retry without changing anything
-  // would fix — so this reloads the CRM tab once and tries again before
-  // giving up for real.
-  // Always reloads the CRM tab before every search, not just as failure
-  // recovery — confirmed live: DevExpress's grid can hold onto a stale
-  // client-side dataset that simply doesn't include a reservation
-  // created/updated since the tab was last loaded, so searching an
-  // already-open tab without a fresh reload can wrongly read a real,
-  // freshly-made reservation as "not found". Genuinely waits for that reload
-  // to finish (waitForTabLoaded, same as everywhere else) rather than a
-  // fixed guess — a reload can take anywhere from ~2s to much longer.
-  async function lookupReservationInCrm(reservationNo, { attempt = 1 } = {}) {
-    const tab = await getOrOpenTab(CRM_URL_PATTERN, CRM_LOGIN_URL);
-    await chrome.tabs.reload(tab.id).catch(() => {});
-    const ready = await waitForTabLoaded(tab.id);
-    if (!ready) throw new Error("The CRM tab still hadn't finished reloading after 90s — giving up (check whether setup.nebraspk.com is reachable/slow right now).");
+  // ── CRM lookup — via the separate "Nebras Reservation Bridge" extension ──
+  // The Bridge keeps every reservation row cached from the CRM and answers
+  // from that cache, so a lookup is a millisecond extension message instead
+  // of driving a CRM tab from here (the old tab-scraping approach — slow page
+  // loads, stale grids, and long enough runs that Chrome's MV3 worker
+  // suspension killed them mid-flight — is gone entirely). Its extension ID is
+  // the crmBridgeId Setting. The Bridge does its own live CRM search for a
+  // reservation that isn't cached yet (a brand-new booking).
+  const CRM_BRIDGE_TIMEOUT_MS = 150000; // a live search inside the Bridge (login/route/search) can legitimately take a while — only a last-resort ceiling
+  const CRM_BRIDGE_MAX_AGE_MS = 15 * 60 * 1000; // its full rescan runs every ~10 min, so an older row means scans are failing
+  async function callCrmBridge(payload) {
+    const { crmBridgeId } = await chrome.storage.local.get(["crmBridgeId"]);
+    const id = (crmBridgeId || "").trim();
+    if (!id) return { ok: false, error: "No CRM Bridge extension ID set (Settings → Pipeline → CRM Bridge)." };
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, error: `CRM Bridge didn't answer within ${CRM_BRIDGE_TIMEOUT_MS / 1000}s` }), CRM_BRIDGE_TIMEOUT_MS);
+      try {
+        chrome.runtime.sendMessage(id, payload, (resp) => {
+          clearTimeout(timer);
+          if (chrome.runtime.lastError) { resolve({ ok: false, error: chrome.runtime.lastError.message }); return; }
+          resolve(resp || { ok: false, error: "empty response from CRM Bridge" });
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        resolve({ ok: false, error: (err && err.message) || String(err) });
+      }
+    });
+  }
 
-    const result = await sendToTab(tab, { type: "nkCrmLookupReservation", reservationNo });
-    if ((!result || !result.ok) && attempt < 2) {
-      await pLog("warn", `Pipeline: CRM tab gave no usable response for ${reservationNo} (got ${JSON.stringify(result)}) — reloading and retrying once more.`);
-      return lookupReservationInCrm(reservationNo, { attempt: attempt + 1 });
+  // Returns the Bridge's lookup result ({ok, found, status, pax, ...}, plus
+  // `via: "bridge"`), or { ok: false, error } when it can't answer — callers
+  // treat that as a lookup failure (logged; the reservation stays "checking"
+  // and the watchdog/Retry cover it).
+  async function lookupReservationInCrm(reservationNo) {
+    let r = await callCrmBridge({ type: "getReservation", reservationNo, maxAgeMs: CRM_BRIDGE_MAX_AGE_MS });
+    if (!r || !r.ok) {
+      // One quick second try — a Bridge whose service worker was just waking up
+      // or mid-scan can miss the first message.
+      await sleep(3000);
+      r = await callCrmBridge({ type: "getReservation", reservationNo, maxAgeMs: CRM_BRIDGE_MAX_AGE_MS });
     }
-    return result;
+    if (!r || !r.ok) return { ok: false, error: `CRM Bridge lookup failed: ${(r && r.error) || "no response"} — is the Bridge extension installed, its ID set in Settings, and its CRM tab logged in?` };
+
+    // Anything that isn't plainly Confirmed is what the pipeline stops or
+    // @mentions on, and a status can change inside the cache window — confirm
+    // it against the live CRM before acting on a cached value.
+    if (r.found && r.status !== "Confirmed" && r.source === "cache") {
+      const live = await callCrmBridge({ type: "getReservation", reservationNo, refresh: true });
+      if (live && live.ok) r = live;
+    }
+    const ageSec = Math.round((r.ageMs || 0) / 1000);
+    await pLog("info", `Pipeline: CRM Bridge answered for ${reservationNo} (${r.found ? "found" : "not found"}, ${r.source === "live" ? "live search" : `cache, ${ageSec}s old`}${r.stale ? ", STALE — live refresh failed" : ""}).`);
+    return { ...r, via: "bridge" };
   }
 
   // ── Masar feed ────────────────────────────────────────────────────────
-  // Fire-and-forget: hands the file to modules/batch-passport.js's own queue
-  // (the exact same mechanism a manual multi-select already uses) and
+  // Fire-and-forget: hands the file(s) to modules/batch-passport.js's own
+  // queue (the exact same mechanism a manual multi-select already uses) and
   // returns as soon as it's queued — NOT once Masar has actually finished
   // with it. Whatever already drives that page the rest of the way (OCR
   // autofill, the user's own Auto-Clicker rules) does the actual work; this
   // pipeline finds out the result later via the OCR-scan relay below
   // (nkMasarPassportScanned), matched back to this reservation by feed ORDER
   // — see FEED_ORDER_KEY.
-  async function queuePassportToMasar(dataUrl, filename) {
+  //
+  // Takes an ARRAY, always — even a single photo is `[{dataUrl, filename}]`.
+  // Originally took one file per call, meaning a burst of several photos
+  // arriving together (e.g. one WhatsApp multi-select "album") needed one
+  // separate call PER photo, each its own background-service-worker round
+  // trip. Confirmed live this was a real reliability gap, not just
+  // theoretical: manually multi-selecting the same photos straight into
+  // Masar's own Bulk Passport Parser worked every time, while the pipeline's
+  // one-at-a-time feeding occasionally lost a later photo in the batch when
+  // the service worker got suspended between calls (see the MV3 keepalive
+  // notes above — reduced, not eliminated). Batching every photo that
+  // arrived together into ONE call removes the per-photo survival
+  // requirement for the fetch+feed step entirely, matching the manual path.
+  async function queuePassportToMasar(files) {
     const tab = await getOrOpenTab(MASAR_URL_PATTERN, MASAR_ADD_MUTAMER_URL);
-    return sendToTab(tab, { type: "nkMasarQueuePassport", dataUrl, filename });
+    return sendToTab(tab, { type: "nkMasarQueuePassport", files });
   }
 
   // ── Feed-order tracking — correlates an OCR-scan-completed event back to
@@ -375,7 +435,7 @@ const WA_PIPELINE = (() => {
     const { arrival, departure, route } = parsedPackage;
     if (!arrival || !departure || !route) return null;
     // Route already comes as space-separated (e.g. "LHE JED LHE") from
-    // modules/crm-lookup.js's parsePackage(). Country code isn't in the
+    // the CRM Bridge's parsePackage(). Country code isn't in the
     // Package string at all — every real example seen so far was Pakistani
     // ("PK"), and there's no other signal available yet to derive it
     // per-reservation, so it's hardcoded with this note attached rather than
@@ -383,15 +443,18 @@ const WA_PIPELINE = (() => {
     return `NEBRAS ${arrival} ${departure} ${route} PK`;
   }
 
-  // ── Main orchestration — called once per confirmed passport+reservation
-  // pairing. Wrapped in withReservationLock so concurrent photos for the
-  // same reservation number are processed one at a time, in arrival order. ──
-  function processReservationEvent(ctx, reservationNo) {
-    return withReservationLock(reservationNo, () => runReservationEvent(ctx, reservationNo));
+  // ── Main orchestration — called once per confirmed reservation EVENT,
+  // which may carry one OR SEVERAL passport photos that arrived together
+  // (e.g. one WhatsApp multi-select "album" — see collectPairings in
+  // whatsapp-automation.js). Wrapped in withReservationLock so a second,
+  // separately-timed batch for the same reservation number still waits its
+  // turn rather than racing this one. ──
+  function processReservationEvent(ctx, reservationNo, messageIds) {
+    return withReservationLock(reservationNo, () => runReservationEvent(ctx, reservationNo, messageIds));
   }
 
-  async function runReservationEvent({ waId, isGroup, chatName, messageId }, reservationNo) {
-    await pLog("info", `Pipeline: processing reservation ${reservationNo} (chat "${chatName}")`);
+  async function runReservationEvent({ waId, isGroup, chatName }, reservationNo, messageIds) {
+    await pLog("info", `Pipeline: processing reservation ${reservationNo} (chat "${chatName}") — ${messageIds.length} photo(s) in this batch`);
 
     // 1) CRM lookup — the four-outcome branch from the pipeline plan.
     // Reuse a prior lookup for this reservation instead of re-searching the
@@ -409,6 +472,18 @@ const WA_PIPELINE = (() => {
       return;
     }
 
+    // Visibility stub — written BEFORE the CRM lookup even starts, so a
+    // reservation shows up in the Queue/Live Monitor the instant it's
+    // detected, not only once CRM comes back. Without this, the entire CRM
+    // lookup (the one step confirmed live to sometimes stall — see the
+    // MV3 keepalive notes above) was completely invisible: nothing in
+    // storage yet to show it was even being worked on. Purely informational
+    // (no crm/expectedPax yet) — the real "confirmed" save further down
+    // still happens once CRM actually answers.
+    if (!existing) {
+      await saveRecord(reservationNo, { status: "pending", waId, chatName, stage: "checking", stageAt: Date.now() });
+    }
+
     let crm = existing && existing.crm;
     if (crm) {
       await pLog("info", `Pipeline: reusing the cached CRM result for reservation ${reservationNo} instead of searching again.`);
@@ -420,7 +495,7 @@ const WA_PIPELINE = (() => {
         return;
       }
       if (!crm || !crm.ok) {
-        await pLog("error", `Pipeline: CRM lookup returned an error for ${reservationNo}: ${(crm && crm.error) || `no response even after a reload (got ${JSON.stringify(crm)})`}`);
+        await pLog("error", `Pipeline: CRM lookup returned an error for ${reservationNo}: ${(crm && crm.error) || `no usable response (got ${JSON.stringify(crm)})`}`);
         return;
       }
     }
@@ -470,49 +545,80 @@ const WA_PIPELINE = (() => {
     // watchdog below — they track how far through the flow this reservation
     // got and when it last actually moved, so a silent stall shows up as a
     // dated stage instead of nothing at all.
-    await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now() });
+    // `messageIds` is saved on the record itself (not just held in this
+    // function's closure) specifically so a manual Retry, run later in a
+    // completely separate invocation, can re-fetch and re-feed these exact
+    // photos from WhatsApp if the feed step itself never got through OCR —
+    // see feedMessagesToMasar/retryReservation below. Unioned with anything
+    // already on file rather than overwritten, since more photos can arrive
+    // in a later batch for the same reservation.
+    const allMessageIds = Array.from(new Set([...((existing && existing.messageIds) || []), ...messageIds]));
+    await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now(), messageIds: allMessageIds });
 
-    let media;
-    try {
-      media = await callWaAction("getMessageMedia", { waId, messageId });
-    } catch (err) {
-      await pLog("error", `Pipeline: getMessageMedia failed for reservation ${reservationNo}: ${err.message}`);
-      return;
+    await feedMessagesToMasar(reservationNo, waId, messageIds);
+  }
+
+  // ── Fetches each message's media from WhatsApp and hands the whole batch
+  // to Masar's bulk parser in ONE call — factored out of runReservationEvent
+  // so retryReservation (below) can re-run exactly this step for whichever
+  // of a reservation's photos never made it through OCR, without redoing the
+  // CRM lookup or re-detecting anything. ──
+  async function feedMessagesToMasar(reservationNo, waId, messageIds) {
+    // Fetch every photo's media BEFORE feeding any of them — a single batch
+    // handed to Masar's bulk parser in ONE call, same as a human multi-
+    // selecting several files at once, rather than one call per photo (see
+    // queuePassportToMasar's own comment for why that used to be a real
+    // reliability gap).
+    const files = [];
+    for (const messageId of messageIds) {
+      let media;
+      try {
+        media = await callWaAction("getMessageMedia", { waId, messageId });
+      } catch (err) {
+        await pLog("error", `Pipeline: getMessageMedia failed for reservation ${reservationNo}'s message ${messageId}: ${err.message}`);
+        continue;
+      }
+      if (!media || !media.dataUrl) {
+        await pLog("error", `Pipeline: WA-Campaigns returned no media for reservation ${reservationNo}'s message ${messageId}.`);
+        continue;
+      }
+      files.push({ messageId, dataUrl: media.dataUrl, filename: media.filename || `passport-${reservationNo}-${messageId}.jpg` });
     }
-    if (!media || !media.dataUrl) {
-      await pLog("error", `Pipeline: WA-Campaigns returned no media for reservation ${reservationNo}'s passport message.`);
-      return;
+    if (!files.length) {
+      await pLog("error", `Pipeline: none of reservation ${reservationNo}'s ${messageIds.length} photo(s) could be fetched from WhatsApp — nothing fed to Masar.`);
+      return { ok: false, error: "Could not fetch any of the photo(s) from WhatsApp." };
     }
 
-    // Register the FIFO entry BEFORE sending the feed request, not after —
-    // confirmed live this ordering actually matters: when a passport is fed
-    // DIRECTLY (the upload field was free), nkBatchFeedOrQueue's own call
-    // triggers the OCR scan as part of that same round trip, so the scan can
-    // finish and get relayed to the background BEFORE the tab-messaging
-    // response even makes it back here. With pushFeedOrder called only
-    // AFTER that await, handleMasarScanResult would find nothing queued yet
-    // for this reservation (treating a real result as an untracked manual
-    // upload and dropping it), while this reservation's own entry — pushed
-    // moments too late — sat in the FIFO to be wrongly matched against
-    // whatever unrelated scan happened to complete next. That's what
-    // "instantly went to creating group" was: an old/wrong FIFO entry
-    // getting resolved by a scan that wasn't actually its own.
-    await pushFeedOrder({ reservationNo, messageId });
+    // Register EVERY FIFO entry, IN THE SAME ORDER as `files`, BEFORE
+    // sending the feed request — confirmed live this ordering actually
+    // matters: when a passport is fed DIRECTLY (the upload field was free),
+    // nkBatchFeedOrQueue's own call triggers the FIRST file's OCR scan as
+    // part of that same round trip (the rest queue behind it internally, one
+    // at a time), so that first scan can finish and get relayed to the
+    // background BEFORE the tab-messaging response even makes it back here.
+    // Pushing after the await risked handleMasarScanResult finding nothing
+    // queued yet (treating a real result as an untracked manual upload and
+    // dropping it) — that's what an old version of this bug looked like
+    // ("instantly went to creating group": a wrong/late FIFO entry getting
+    // resolved by a scan that wasn't actually its own).
+    for (const f of files) await pushFeedOrder({ reservationNo, messageId: f.messageId });
 
     let queued;
     try {
-      queued = await queuePassportToMasar(media.dataUrl, media.filename || `passport-${reservationNo}.jpg`);
+      queued = await queuePassportToMasar(files.map(({ dataUrl, filename }) => ({ dataUrl, filename })));
     } catch (err) {
-      await removeFeedOrder(reservationNo, messageId); // the feed never reached Masar — nothing will ever complete this entry, so don't leave it stuck in the queue
-      await pLog("error", `Pipeline: could not hand reservation ${reservationNo}'s passport to Masar's bulk parser: ${err.message}`);
-      return;
+      for (const f of files) await removeFeedOrder(reservationNo, f.messageId); // the feed never reached Masar — nothing will ever complete these entries, so don't leave them stuck in the queue
+      await pLog("error", `Pipeline: could not hand reservation ${reservationNo}'s ${files.length} passport(s) to Masar's bulk parser: ${err.message}`);
+      return { ok: false, error: err.message };
     }
     if (!queued || !queued.ok) {
-      await removeFeedOrder(reservationNo, messageId);
-      await pLog("error", `Pipeline: Masar didn't accept reservation ${reservationNo}'s passport into the queue: ${(queued && queued.error) || "no confirmation"}`);
-      return;
+      for (const f of files) await removeFeedOrder(reservationNo, f.messageId);
+      const error = (queued && queued.error) || "no confirmation";
+      await pLog("error", `Pipeline: Masar didn't accept reservation ${reservationNo}'s passport(s) into the queue: ${error}`);
+      return { ok: false, error };
     }
-    await pLog("info", `Pipeline: reservation ${reservationNo}'s passport (message ${messageId}) handed to Masar's bulk parser (${queued.mode === "fed-directly" ? "fed immediately" : "queued behind others"}) — awaiting OCR result.`);
+    await pLog("info", `Pipeline: reservation ${reservationNo}'s ${files.length} passport(s) handed to Masar's bulk parser in one batch — awaiting OCR results.`);
+    return { ok: true, fed: files.length };
   }
 
   // ── Continuation — resumes a reservation once Masar's OCR scan for one of
@@ -672,7 +778,7 @@ const WA_PIPELINE = (() => {
   // reservation arrive later (a following day, say), that's a real, accepted
   // case here, not a bug — see the "already has a group" branch below, which
   // is what handles it (flagged for manual addition, not automated).
-  async function handleMutamerConfirmed({ reservationNo, confirmations }) {
+  async function handleMutamerConfirmed({ reservationNo, confirmations, stillQueued }) {
     return withReservationLock(reservationNo, async () => {
       const record = await getRecord(reservationNo);
       if (!record) {
@@ -718,6 +824,20 @@ const WA_PIPELINE = (() => {
           await pLog("warn", `Pipeline: ${notice}${waMentionId ? "" : " (no team WA ID configured in Settings to @mention — logged only.)"}`);
           await saveRecord(reservationNo, { paxMismatchNotifiedAt: Date.now() });
         }
+        return;
+      }
+
+      // `stillQueued` — Masar's OWN internal batch-passport.js queue count,
+      // relayed by masar-add-mutamer.js — tells us whether anything else is
+      // still waiting to be fed. This page now gets visited after EVERY
+      // single mutamer submission (2026-09-18: the interstitial's own
+      // auto-click was removed, replaced by the user's Auto-Clicker always
+      // clicking "Go To Mutamer List"), so a single visit's confirmations
+      // are no longer necessarily the WHOLE batch the way they used to be —
+      // still no timeout, still purely driven by Masar's real queue state,
+      // just checked on every visit instead of only the last one.
+      if (stillQueued) {
+        await pLog("info", `Pipeline: reservation ${reservationNo} — ${confirmed.length} confirmed so far, more still queued in Masar — waiting for the rest before creating the group.`);
         return;
       }
 
@@ -769,15 +889,23 @@ const WA_PIPELINE = (() => {
   // using the per-item Retry button (retryReservation, below) once they've
   // looked.
   const STUCK_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes with no stage progress
+  // "pending" (still checking CRM — see the visibility stub in
+  // runReservationEvent above) gets its own, much shorter threshold: a CRM
+  // lookup normally finishes in seconds, so it stalling for minutes is a much
+  // stronger stuck signal than the multi-step confirmed flow ever needing 20.
+  const PENDING_STUCK_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   async function checkStuckReservations() {
     const { [DB_KEY]: db } = await chrome.storage.local.get([DB_KEY]);
     const records = db || {};
     const now = Date.now();
     for (const reservationNo of Object.keys(records)) {
       const r = records[reservationNo];
-      if (r.status !== "confirmed" || r.repliedAt) continue; // only active, unfinished reservations
+      if (r.repliedAt) continue; // already resolved
+      const isPending = r.status === "pending";
+      if (r.status !== "confirmed" && !isPending) continue; // only active, unfinished reservations
       const lastProgress = r.stageAt || r.checkedAt || 0;
-      if (now - lastProgress < STUCK_THRESHOLD_MS) continue;
+      const threshold = isPending ? PENDING_STUCK_THRESHOLD_MS : STUCK_THRESHOLD_MS;
+      if (now - lastProgress < threshold) continue;
       if (r.stuckNotifiedAt && r.stuckNotifiedAt >= lastProgress) continue; // already flagged since the last real progress — don't re-notify every watchdog tick
       const minutes = Math.round((now - lastProgress) / 60000);
       const stageLabel = r.stage || "processing";
@@ -821,10 +949,51 @@ const WA_PIPELINE = (() => {
       }
       await saveRecord(reservationNo, { stuckAt: null, stuckNotifiedAt: null });
 
+      // "pending" (still stuck on the CRM-lookup step — see the visibility
+      // stub in runReservationEvent) — there's no photo to re-feed here even
+      // in principle (queuePassportToMasar was never reached), so the only
+      // safe recovery is re-running the CRM lookup itself and saving whatever
+      // it finds, same as a fresh event would. If it comes back Confirmed,
+      // this still won't have a photo queued — that needs the customer to
+      // resend, flagged clearly rather than silently left half-done.
+      if (record.status === "pending") {
+        await pLog("info", `Pipeline: manually re-running the CRM lookup for reservation ${reservationNo} (was stuck before CRM ever answered).`);
+        let crm;
+        try {
+          crm = await lookupReservationInCrm(reservationNo);
+        } catch (err) {
+          return { ok: false, error: `CRM lookup failed: ${err.message}` };
+        }
+        if (!crm || !crm.ok) return { ok: false, error: (crm && crm.error) || "CRM lookup returned no usable response." };
+        if (crm.found && crm.status === "Confirmed") {
+          await saveRecord(reservationNo, { status: "confirmed", crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now() });
+          await pLog("warn", `Pipeline: reservation ${reservationNo} is Confirmed in CRM, but its original photo(s) were never fed to Masar (the CRM step got stuck before that) — ask the customer to resend the passport photo(s).`);
+        } else {
+          await saveRecord(reservationNo, { status: crm.found ? (crm.status || "unknown") : "not_found", crm, checkedAt: Date.now() });
+        }
+        return { ok: true, action: "recheck_crm" };
+      }
+
       if (record.stage === "grouping" || (record.confirmedPassports || []).length > 0) {
         await pLog("info", `Pipeline: manually retrying group creation for reservation ${reservationNo}.`);
         await createGroupAndReply(reservationNo, record);
         return { ok: true, action: "grouping" };
+      }
+
+      // "feeding"/"confirming" with photo(s) that never produced an OCR
+      // result at all — the previous version of this branch only ever
+      // re-checked the Mutamer List, which does nothing if OCR never ran in
+      // the first place (nothing there yet to find). Re-fetch and re-feed
+      // specifically whichever of this reservation's ORIGINAL messageIds
+      // haven't already produced a mutamer — never the ones that already
+      // did, so a partial success (2 of 3 read) doesn't get double-fed.
+      const alreadyFed = new Set((record.mutamers || []).map((m) => m.messageId).filter(Boolean));
+      const unfed = (record.messageIds || []).filter((id) => !alreadyFed.has(id));
+      if (unfed.length) {
+        await pLog("info", `Pipeline: manually re-feeding ${unfed.length} of reservation ${reservationNo}'s photo(s) to Masar (never produced an OCR result the first time).`);
+        const result = await feedMessagesToMasar(reservationNo, record.waId, unfed);
+        if (!result.ok) return { ok: false, error: result.error };
+        return { ok: true, action: "refeed" };
       }
 
       await pLog("info", `Pipeline: manually re-checking Masar's Mutamer List for reservation ${reservationNo}'s pending passport(s).`);
@@ -839,8 +1008,11 @@ const WA_PIPELINE = (() => {
   }
 
   return {
-    processReservationEvent, handleMasarScanResult, handleMutamerConfirmed, registerTestFeed,
-    callWaAction, sendReply, getRecord, clearStuckQueue, clearAllQueue,
-    checkStuckReservations, retryReservation,
+    processReservationEvent: withKeepAlive(processReservationEvent),
+    handleMasarScanResult: withKeepAlive(handleMasarScanResult),
+    handleMutamerConfirmed: withKeepAlive(handleMutamerConfirmed),
+    retryReservation: withKeepAlive(retryReservation),
+    registerTestFeed, callWaAction, callCrmBridge, lookupReservationInCrm, sendReply, getRecord, clearStuckQueue, clearAllQueue,
+    checkStuckReservations,
   };
 })();

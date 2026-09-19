@@ -1240,18 +1240,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   wireApiKeyField("ocrApiKey", { input: "ocr-api-key", hint: "ocr-key-hint", view: "ocr-key-view", masked: "ocr-key-masked", edit: "ocr-key-edit-btn" });
   wireApiKeyField("removeBgApiKey", { input: "removebg-api-key", hint: "removebg-key-hint", view: "removebg-key-view", masked: "removebg-key-masked", edit: "removebg-key-edit-btn" });
-  // CRM login (setup.nebraspk.com) — same masked-view/edit pattern as the API
-  // key fields above, just two fields instead of one. Not read by anything
-  // yet; this is only the storage side, for the WhatsApp automation plan to
-  // use once it's actually built (see project_whatsapp_automation_plan memory).
-  wireApiKeyField("crmUsername", { input: "crm-username", view: "crm-username-view", masked: "crm-username-masked", edit: "crm-username-edit-btn" });
-  wireApiKeyField("crmPassword", { input: "crm-password", view: "crm-password-view", masked: "crm-password-masked", edit: "crm-password-edit-btn" });
-
-  // CRM Lookup test harness — talks to modules/crm-lookup.js on whichever
-  // setup.nebraspk.com tab is open, same "message a Masar tab directly"
-  // pattern as BRN Request's Quick Send (see popup/brn-request.js). Standalone
-  // sanity check for Phase 1 of the WhatsApp automation plan — nothing else
-  // reads this result yet.
+  // CRM Lookup test — runs the pipeline's own lookup (through the CRM Bridge
+  // extension, see the Settings field below), so it tests exactly what a real
+  // reservation would do.
   const crmTestResNo  = document.getElementById("crm-test-resno");
   const crmTestBtn    = document.getElementById("crm-test-lookup");
   const crmTestResult = document.getElementById("crm-test-result");
@@ -1259,46 +1250,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const reservationNo = (crmTestResNo && crmTestResNo.value.trim()) || "";
     if (!reservationNo) { window.nkToast("Enter a reservation number first.", "error"); return; }
     if (crmTestResult) { crmTestResult.style.display = "block"; crmTestResult.textContent = "Looking up…"; }
-    chrome.tabs.query({ url: "https://setup.nebraspk.com/*" }, (allTabs) => {
-      const tabs = allTabs || [];
-      if (!tabs.length) {
-        window.nkToast("Open a setup.nebraspk.com tab first.", "error");
-        if (crmTestResult) crmTestResult.textContent = "No setup.nebraspk.com tab found — open one first.";
-        return;
-      }
-      // Several CRM tabs can easily be open (stale ones from earlier testing,
-      // a login-page tab, etc.) — prefer whichever one is actually active/
-      // focused right now instead of just picking whatever Chrome lists
-      // first, which has no relation to which tab the user is looking at.
-      const target = tabs.find((t) => t.active) || tabs[0];
-
-      function sendLookup() {
-        chrome.tabs.sendMessage(target.id, { type: "nkCrmLookupReservation", reservationNo }, (resp) => {
-          if (chrome.runtime.lastError) {
-            const msg = "Could not reach the CRM tab — refresh it and try again.";
-            window.nkToast(msg, "error");
-            if (crmTestResult) crmTestResult.textContent = msg;
-            return;
-          }
-          if (crmTestResult) crmTestResult.textContent = JSON.stringify(resp, null, 2);
-          if (resp && resp.ok) window.nkToast(resp.found ? "Found" : "Not found", resp.found ? "success" : "warning");
-          else window.nkToast((resp && resp.error) || "Lookup failed.", "error");
-        });
-      }
-
-      // Chrome throttles timers in tabs that aren't the active tab of a
-      // focused window — this automation leans on setTimeout-based waits
-      // throughout, so an unfocused CRM tab can run noticeably slower/less
-      // reliably. Bring it to the front first (switch to its tab + focus its
-      // window) so the user never has to manually click over to it — the
-      // whole point is this works no matter what tab/window they're on.
-      chrome.tabs.update(target.id, { active: true }, () => {
-        if (target.windowId != null) {
-          chrome.windows.update(target.windowId, { focused: true }, sendLookup);
-        } else {
-          sendLookup();
-        }
-      });
+    chrome.runtime.sendMessage({ type: "nkPipelineCrmLookup", reservationNo }, (resp) => {
+      if (crmTestResult) crmTestResult.textContent = JSON.stringify(resp, null, 2);
+      if (resp && resp.ok) window.nkToast(resp.found ? `Found (${resp.source === "live" ? "live search" : "Bridge cache"})` : "Not found", resp.found ? "success" : "warning");
+      else window.nkToast((resp && resp.error) || "Lookup failed.", "error");
     });
   }
   if (crmTestBtn) crmTestBtn.addEventListener("click", runCrmTestLookup);
@@ -1446,6 +1401,24 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   if (waMentionIdEl) waMentionIdEl.addEventListener("change", () => {
     chrome.storage.local.set({ waMentionId: waMentionIdEl.value.trim() });
+  });
+
+  // CRM Bridge extension ID + a Test button that pings it and reports the
+  // cached row count — same storage-backed pattern as the fields above.
+  const crmBridgeIdEl = document.getElementById("crm-bridge-id");
+  const crmBridgeTestBtn = document.getElementById("crm-bridge-test");
+  const crmBridgeResultEl = document.getElementById("crm-bridge-result");
+  chrome.storage.local.get(["crmBridgeId"], (res) => { if (crmBridgeIdEl) crmBridgeIdEl.value = res.crmBridgeId || ""; });
+  if (crmBridgeIdEl) crmBridgeIdEl.addEventListener("change", () => {
+    chrome.storage.local.set({ crmBridgeId: crmBridgeIdEl.value.trim() });
+  });
+  if (crmBridgeTestBtn) crmBridgeTestBtn.addEventListener("click", async () => {
+    await chrome.storage.local.set({ crmBridgeId: (crmBridgeIdEl.value || "").trim() });
+    crmBridgeResultEl.textContent = "Pinging…";
+    const resp = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "nkCrmBridgeCall", payload: { type: "status" } }, (r) => resolve(r)));
+    crmBridgeResultEl.textContent = resp && resp.ok
+      ? `Connected — ${resp.rowCount} reservations cached, ${resp.phase || "idle"}${resp.message ? " · " + resp.message : ""}, tab ${resp.tabOpen ? "open" : "closed"}.`
+      : `Not connected: ${(resp && resp.error) || "no response"}`;
   });
   if (waSkipKeywordsEl) waSkipKeywordsEl.addEventListener("change", () => {
     const words = waSkipKeywordsEl.value.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
@@ -1749,7 +1722,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const tabPipelineCount   = document.getElementById("tab-pipeline-count");
 
   const STATUS_COLORS = {
-    confirmed: "#22c55e", cancelled: "#ef4444", conflict: "#ef4444",
+    pending: "#4f6ef7", confirmed: "#22c55e", cancelled: "#ef4444", conflict: "#ef4444",
     draft: "#f59e0b", not_found: "#9ca3af", unknown: "#9ca3af",
   };
   // Returns an element, not an HTML string — statuses come from this
@@ -1767,7 +1740,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderPipelineQueue(db) {
     const records = Object.values(db || {}).sort((a, b) => (b.checkedAt || 0) - (a.checkedAt || 0));
     if (tabPipelineCount) {
-      const active = records.filter((r) => r.status === "confirmed" && !r.repliedAt).length;
+      const active = records.filter((r) => (r.status === "confirmed" || r.status === "pending") && !r.repliedAt).length;
       tabPipelineCount.textContent = active > 99 ? "99+" : (active || "");
     }
     if (!records.length) {
@@ -1793,10 +1766,10 @@ document.addEventListener("DOMContentLoaded", () => {
       msg.className = "log-msg";
       msg.appendChild(statusBadge(r.status));
       const mutamerCount = (r.mutamers || []).length;
-      const paxLine = r.expectedPax ? ` ${mutamerCount}/${r.expectedPax} mutamer(s)` : ` ${mutamerCount} mutamer(s)`;
+      const paxLine = r.status === "pending" ? "" : r.expectedPax ? ` ${mutamerCount}/${r.expectedPax} mutamer(s)` : ` ${mutamerCount} mutamer(s)`;
       const groupLine = r.groupName ? ` — group: ${r.groupName}` : "";
       const repliedTag = r.repliedAt ? " ✓ replied" : "";
-      const stageTag = r.status === "confirmed" && !r.repliedAt && r.stage ? ` [${r.stage}]` : "";
+      const stageTag = (r.status === "confirmed" || r.status === "pending") && !r.repliedAt && r.stage ? ` [${r.stage}]` : "";
       msg.appendChild(document.createTextNode(paxLine + stageTag + groupLine + repliedTag));
 
       row.append(resNo, msg);
@@ -1804,7 +1777,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Watchdog-flagged (see whatsapp-pipeline.js's checkStuckReservations) —
       // a red badge plus a per-item Retry button, instead of the previous
       // "no way to tell, have to Clear the whole queue" situation.
-      if (r.stuckAt && r.status === "confirmed" && !r.repliedAt) {
+      if (r.stuckAt && (r.status === "confirmed" || r.status === "pending") && !r.repliedAt) {
         const stuckBadge = document.createElement("span");
         stuckBadge.textContent = "STUCK";
         stuckBadge.style.cssText = "display:inline-block; margin-left:6px; padding:1px 7px; border-radius:5px; font-size:10.5px; font-weight:700; color:#fff; background:#dc2626;";
@@ -1938,14 +1911,189 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // ══════════════════════════════════════════════════════════
+  // ── LIVE MONITOR — real-time visual flow + per-reservation timeline ──
+  // ══════════════════════════════════════════════════════════
+  // Built from the SAME storage the Queue/Pipeline Logs sections above
+  // already read (waReservations + nkLogs) — no new tracking data, just a
+  // different, at-a-glance view of it: a flow diagram showing how many
+  // reservations sit at each stage right now, plus a live card per
+  // in-flight reservation with its own step tracker and elapsed time, so a
+  // stall is visible the moment it happens instead of only showing up once
+  // someone thinks to open the Queue and read status text.
+  const PM_STAGE_LABELS = { checking: "Checking CRM", feeding: "Feeding Masar", confirming: "Confirming", grouping: "Creating Group" };
+  const PM_STAGE_ORDER = ["checking", "feeding", "confirming", "grouping"];
+  const BLOCKED_STATUSES = new Set(["not_found", "cancelled", "draft", "conflict", "unknown"]);
+  const pmFlowEl = document.getElementById("pm-flow");
+  const pmCardsEl = document.getElementById("pm-cards");
+  const pmCardsEmptyEl = document.getElementById("pm-cards-empty");
+
+  function pmFmtElapsed(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+  // Cheap correlation, not a structured join — nkLogs entries are free text,
+  // so this just looks for the reservation number appearing anywhere in the
+  // message (every pipeline log line about a reservation always includes it).
+  function pmLastLogFor(logs, reservationNo) {
+    if (!Array.isArray(logs)) return null;
+    const needle = String(reservationNo);
+    for (let i = logs.length - 1; i >= 0; i--) {
+      if (logs[i] && logs[i].m && logs[i].m.includes(needle)) return logs[i];
+    }
+    return null;
+  }
+  function pmNode(count, label, extraClass) {
+    const node = document.createElement("div");
+    node.className = "pm-node" + (extraClass || "") + (count > 0 ? " pm-node-active" : "");
+    const circle = document.createElement("div");
+    circle.className = "pm-node-circle";
+    circle.textContent = count || "";
+    const lbl = document.createElement("div");
+    lbl.className = "pm-node-label";
+    lbl.textContent = label;
+    node.append(circle, lbl);
+    return node;
+  }
+
+  function renderPipelineMonitor(db, logs) {
+    if (!pmFlowEl) return;
+    const records = Object.values(db || {});
+    const now = Date.now();
+    const active = records.filter((r) => (r.status === "pending" || r.status === "confirmed") && !r.repliedAt);
+    const blocked = records.filter((r) => BLOCKED_STATUSES.has(r.status));
+    const repliedRecently = records.filter((r) => r.repliedAt && now - r.repliedAt < 60 * 60 * 1000);
+
+    const counts = { checking: 0, feeding: 0, confirming: 0, grouping: 0 };
+    for (const r of active) {
+      const stage = r.status === "pending" ? "checking" : (r.stage || "feeding");
+      if (counts[stage] !== undefined) counts[stage]++;
+    }
+
+    pmFlowEl.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    PM_STAGE_ORDER.forEach((key, i) => {
+      if (i > 0) { const a = document.createElement("div"); a.className = "pm-node-arrow"; frag.appendChild(a); }
+      frag.appendChild(pmNode(counts[key], PM_STAGE_LABELS[key]));
+    });
+    { const a = document.createElement("div"); a.className = "pm-node-arrow"; frag.appendChild(a); }
+    frag.appendChild(pmNode(repliedRecently.length, "Replied (1h)"));
+    const blockedNode = pmNode(blocked.length, "Needs Attention", blocked.length > 0 ? " pm-node-blocked" : "");
+    blockedNode.style.marginLeft = "10px";
+    frag.appendChild(blockedNode);
+    pmFlowEl.appendChild(frag);
+
+    if (!active.length) {
+      if (pmCardsEmptyEl) pmCardsEmptyEl.style.display = "block";
+      if (pmCardsEl) pmCardsEl.innerHTML = "";
+      return;
+    }
+    if (pmCardsEmptyEl) pmCardsEmptyEl.style.display = "none";
+    if (!pmCardsEl) return;
+
+    active.sort((a, b) => (b.stageAt || b.checkedAt || 0) - (a.stageAt || a.checkedAt || 0));
+    const cfrag = document.createDocumentFragment();
+    for (const r of active) {
+      const stage = r.status === "pending" ? "checking" : (r.stage || "feeding");
+      const stageIdx = PM_STAGE_ORDER.indexOf(stage);
+      const isStuck = !!r.stuckAt;
+
+      const card = document.createElement("div");
+      card.className = "pm-card" + (isStuck ? " pm-card-stuck" : "");
+
+      const top = document.createElement("div");
+      top.className = "pm-card-top";
+      const title = document.createElement("span");
+      title.className = "pm-card-title";
+      title.textContent = `UR-${r.reservationNo}`;
+      const chat = document.createElement("span");
+      chat.className = "pm-card-chat";
+      chat.textContent = r.chatName || "";
+      title.appendChild(chat);
+      const elapsed = document.createElement("span");
+      elapsed.className = "pm-card-elapsed" + (isStuck ? " pm-elapsed-stuck" : "");
+      const stageAt = r.stageAt || r.checkedAt || now;
+      elapsed.dataset.stageAt = String(stageAt);
+      if (isStuck) elapsed.dataset.stuck = "1";
+      elapsed.textContent = pmFmtElapsed(now - stageAt) + (isStuck ? " — STUCK" : "");
+      top.append(title, elapsed);
+
+      const steps = document.createElement("div");
+      steps.className = "pm-steps";
+      PM_STAGE_ORDER.forEach((key, i) => {
+        if (i > 0) {
+          const line = document.createElement("div");
+          line.className = "pm-step-line" + (i <= stageIdx ? " pm-step-done" : "");
+          steps.appendChild(line);
+        }
+        const dot = document.createElement("div");
+        dot.className = "pm-step-dot" + (i < stageIdx ? " pm-step-done" : i === stageIdx ? " pm-step-current" : "");
+        dot.title = PM_STAGE_LABELS[key];
+        steps.appendChild(dot);
+      });
+
+      const lastLog = pmLastLogFor(logs, r.reservationNo);
+      const lastLogEl = document.createElement("div");
+      lastLogEl.className = "pm-card-lastlog";
+      lastLogEl.textContent = lastLog ? `${fmtLogTime(lastLog.t)} — ${lastLog.m.replace(/^Pipeline:\s*/, "")}` : "";
+
+      // Manual retry — available on any in-flight card, not just ones the
+      // watchdog already flagged STUCK. The threshold before the watchdog
+      // itself flags something (5 min for "checking", 20 min for the rest)
+      // is deliberately generous to avoid false alarms, but there's no
+      // reason someone WATCHING this happen live has to wait that long once
+      // they can see something's off — same nkPipelineRetry action either
+      // way, retryReservation itself decides what's actually safe to redo.
+      const bottom = document.createElement("div");
+      bottom.className = "pm-card-bottom";
+      const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "logs-btn pm-retry-btn";
+      retryBtn.textContent = isStuck ? "Retry" : "Retry now";
+      retryBtn.addEventListener("click", async () => {
+        retryBtn.disabled = true;
+        const resp = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: "nkPipelineRetry", reservationNo: r.reservationNo }, (res) => resolve(res));
+        });
+        window.nkToast(resp && resp.ok ? `Retry started for ${r.reservationNo} (${resp.action}).` : (resp && resp.error) || "Retry failed.", resp && resp.ok ? "success" : "error");
+        retryBtn.disabled = false;
+      });
+      bottom.appendChild(retryBtn);
+
+      card.append(top, steps, lastLogEl, bottom);
+      cfrag.appendChild(card);
+    }
+    pmCardsEl.innerHTML = "";
+    pmCardsEl.appendChild(cfrag);
+  }
+  function loadPipelineMonitor() {
+    chrome.storage.local.get([RESERVATIONS_KEY, LOGS_KEY], (res) => renderPipelineMonitor(res[RESERVATIONS_KEY], res[LOGS_KEY]));
+  }
+  // Ticks the elapsed-time labels every second on their own, independent of
+  // any storage change, so "time in this stage" visibly counts up in real
+  // time instead of only jumping when something else happens to re-render.
+  setInterval(() => {
+    document.querySelectorAll(".pm-card-elapsed[data-stage-at]").forEach((el) => {
+      const stageAt = parseInt(el.dataset.stageAt, 10);
+      if (!stageAt) return;
+      el.textContent = pmFmtElapsed(Date.now() - stageAt) + (el.dataset.stuck ? " — STUCK" : "");
+    });
+  }, 1000);
+
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes[RESERVATIONS_KEY]) renderPipelineQueue(changes[RESERVATIONS_KEY].newValue);
     if (changes[LOGS_KEY]) renderPipelineLogs(changes[LOGS_KEY].newValue);
+    if (changes[RESERVATIONS_KEY] || changes[LOGS_KEY]) loadPipelineMonitor();
   });
 
   loadPipelineQueue();
   loadPipelineLogs();
+  loadPipelineMonitor();
 
   chrome.storage.local.get(["emailList", "activeEmailId"], (res) => {
     emailList     = res.emailList || [];

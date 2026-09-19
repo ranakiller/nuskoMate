@@ -36,8 +36,8 @@
     return !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   }
 
-  // Exact-text match, restricted to visible elements — same technique proven
-  // reliable in modules/crm-lookup.js for clicking ambiguous-tag UI controls
+  // Exact-text match, restricted to visible elements — the technique that
+  // proved reliable for clicking ambiguous-tag UI controls
   // (this site doesn't consistently use real <button> tags for its
   // actions). A real <button>/<a> still counts even with an icon child (an
   // SVG has no text content, so .textContent still equals just the label) —
@@ -238,55 +238,57 @@
     try {
       const { [CONFIRM_QUEUE_KEY]: pending } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
       let list = Array.isArray(pending) ? pending : [];
-      if (!list.length) return; // nothing we're waiting on — leave the page alone
+      const confirmedByReservation = {};
 
       // Retry a few times over a few seconds instead of one snapshot check —
       // confirmed live that a single check right after landing here could
       // miss some already-saved passports (the grid hadn't finished
       // rendering every row yet), leaving them stuck pending until a human
-      // happened to revisit this page manually to finish the job.
-      //
-      // Collect ALL confirmations found in THIS visit, grouped by
-      // reservation, and relay each reservation's whole batch as ONE
-      // message — not one message per passport. The pipeline decides
-      // whether to create a group right after processing a batch (see
-      // whatsapp-pipeline.js's handleMutamerConfirmed), so if 5 passports
-      // for one reservation all get confirmed together here (the normal
-      // case — Masar only shows this page once its OWN queue is empty, so
-      // everything currently known about is already saved by then), they
-      // need to arrive as one batch or the pipeline would see only the
-      // first one and create the group prematurely with just that.
-      const confirmedByReservation = {};
-      for (let attempt = 0; attempt < 4 && list.length; attempt++) {
-        await sleep(attempt === 0 ? 800 : 1200);
-        const bodyText = document.body.innerText;
-        const stillPending = [];
-        for (const entry of list) {
-          if (entry.passportNo && bodyText.includes(entry.passportNo)) {
-            wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
-            (confirmedByReservation[entry.reservationNo] ||= []).push(entry);
-          } else {
-            stillPending.push(entry);
+      // happened to revisit this page manually to finish the job. Skipped
+      // entirely when nothing's pending (a purely manual upload, or simply
+      // nothing to do) — no point waiting on text that was never going to
+      // appear.
+      if (list.length) {
+        for (let attempt = 0; attempt < 4 && list.length; attempt++) {
+          await sleep(attempt === 0 ? 800 : 1200);
+          const bodyText = document.body.innerText;
+          const stillPending = [];
+          for (const entry of list) {
+            if (entry.passportNo && bodyText.includes(entry.passportNo)) {
+              wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
+              (confirmedByReservation[entry.reservationNo] ||= []).push(entry);
+            } else {
+              stillPending.push(entry);
+            }
           }
+          list = stillPending;
+          await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: list });
         }
-        list = stillPending;
-        await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: list });
       }
+
+      // Masar's OWN internal queue count decides whether to auto-continue to
+      // the next mutamer — checked UNCONDITIONALLY (not just when something
+      // was pending in waMasarConfirmQueue above), so a purely MANUAL
+      // multi-select batch — nothing ever goes through that queue for one —
+      // still gets the same auto-continue convenience a WhatsApp-pipeline
+      // feed does (this is what used to live in batch-passport.js's
+      // checkSuccessScreen, removed 2026-09-18 — same decision, just made
+      // here instead, on the Mutamer List page every submission now lands
+      // on). Also relayed as `stillQueued` alongside any pipeline
+      // confirmations below, so handleMutamerConfirmed knows whether this is
+      // genuinely the last one or more are still coming (still no timeout —
+      // purely driven by this real queue state).
+      const stillQueued = typeof window.nkBatchQueueCount === "function" ? await window.nkBatchQueueCount() : 0;
+
       for (const [reservationNo, entries] of Object.entries(confirmedByReservation)) {
         chrome.runtime.sendMessage({
           type: "nkMasarMutamerConfirmed",
           reservationNo,
           confirmations: entries.map((e) => ({ messageId: e.messageId, passportNo: e.passportNo })),
+          stillQueued: stillQueued > 0,
         }).catch(() => {});
       }
 
-      // Only hand control back to Add Mutamer if there's actually something
-      // left to feed — confirmed live that redirecting away unconditionally
-      // was pointless churn once a batch's last passport was already
-      // confirmed (nothing left to feed, so nowhere useful to send the page
-      // back to), and worse, bounced right past the moment group creation
-      // was about to start.
-      const stillQueued = typeof window.nkBatchQueueCount === "function" ? await window.nkBatchQueueCount() : 0;
       if (stillQueued > 0) {
         await goToAddMutamerPage().catch(() => {});
       } else if (list.length) {

@@ -89,43 +89,57 @@ function rememberMessage(entry) {
   list.push(entry);
 }
 
-// Finds the closest-in-time pairing INVOLVING THE JUST-ARRIVED MESSAGE — not
-// a search for the single best pairing anywhere in the whole buffer. That
-// broader search was tried first and had a real bug: once one self-
-// contained pairing (an image sent with the number as its own caption, gap
-// 0) had already been detected and deduped, a LATER, unrelated self-
-// contained pairing arriving in the same chat could tie it on gap (also 0)
-// and lose the tie-break, so the new one was never found at all — the
-// handler kept "discovering" the same already-handled reservation instead
-// of the new one. Anchoring to the message that just arrived sidesteps this
-// entirely: it can only ever pair with something else (or with itself), and
-// old, already-resolved pairings elsewhere in the buffer are irrelevant to
-// it, whichever role it plays in either direction.
-function findPairing(waId, newEntry) {
+// Finds EVERY passport-shaped message in the buffer that belongs to
+// whichever reservation number is "in play" for this chat right now —
+// triggered by the just-arrived message, but not limited to pairing with
+// just that one message. Confirmed live this matters: a customer sending
+// several photos together as one WhatsApp multi-select "album" doesn't
+// necessarily get the typed caption copied onto every photo — often only
+// ONE of them ends up carrying the reservation number, WhatsApp-side, not
+// Nuskomate's. An earlier version of this function paired the number with
+// only the SINGLE closest photo, so every other photo in that same burst —
+// arriving captionless, before the number was known — sat in the buffer
+// forever unpaired (this is what "only feeds one passport then creates the
+// group" turned out to be: only the captioned photo was ever detected).
+//
+// Superseded design note (kept for context): before that, an even earlier
+// version searched the WHOLE buffer for the single best pairing anywhere,
+// which had a different bug — once one self-contained pairing (gap 0) had
+// already been detected and deduped, a LATER, unrelated self-contained
+// pairing in the same chat could tie it on gap and never be found. This
+// version avoids that by still anchoring "which number is in play" to the
+// message that just arrived (itself, if it carries one; otherwise whichever
+// buffered number is closest to it) — but then attaches EVERY not-yet-
+// conflicting photo to that number, not just one.
+function collectPairings(waId, newEntry) {
   const list = recentByChat.get(waId);
-  if (!list) return null;
-  if (PASSPORT_MEDIA_TYPES.has(newEntry.messageType)) {
-    // The new message IS the passport — find the closest reservation number
-    // (its own caption counts, since it's in this same list, at gap 0).
+  if (!list) return [];
+
+  // The number in play: the just-arrived message's own (a number-only text,
+  // or an image with its own caption), or else whichever buffered number is
+  // closest in time to it.
+  let numberEntry = newEntry.reservationNumber ? newEntry : null;
+  if (!numberEntry) {
     let best = null;
     for (const n of list) {
       if (!n.reservationNumber) continue;
       const gap = Math.abs(newEntry.timestamp - n.timestamp);
-      if (!best || gap < best.gap) best = { mediaEntry: newEntry, numberEntry: n, reservationNumber: n.reservationNumber, gap };
+      if (!best || gap < best.gap) best = { entry: n, gap };
     }
-    return best;
+    numberEntry = best && best.entry;
   }
-  if (newEntry.reservationNumber) {
-    // The new message IS the reservation number — find the closest passport-shaped message.
-    let best = null;
-    for (const m of list) {
-      if (!PASSPORT_MEDIA_TYPES.has(m.messageType)) continue;
-      const gap = Math.abs(newEntry.timestamp - m.timestamp);
-      if (!best || gap < best.gap) best = { mediaEntry: m, numberEntry: newEntry, reservationNumber: newEntry.reservationNumber, gap };
-    }
-    return best;
+  if (!numberEntry) return []; // no number known yet anywhere in this chat's recent window
+
+  // Every passport-shaped message that doesn't carry a DIFFERENT number of
+  // its own belongs to this one — a plain captionless photo has
+  // `reservationNumber: null`, which never conflicts with anything.
+  const pairings = [];
+  for (const m of list) {
+    if (!PASSPORT_MEDIA_TYPES.has(m.messageType)) continue;
+    if (m.reservationNumber && m.reservationNumber !== numberEntry.reservationNumber) continue;
+    pairings.push({ mediaEntry: m, numberEntry, reservationNumber: numberEntry.reservationNumber });
   }
-  return null; // plain text with no number, or a media type we don't treat as a passport (audio/video/sticker/...)
+  return pairings;
 }
 
 // ── Intent gating ─────────────────────────────────────────────────────────
@@ -153,13 +167,18 @@ function findSkipKeyword(text, keywords) {
 // Which WhatsApp chats the pipeline is even allowed to act on — the user's
 // own spec: staff searches WhatsApp's real chat/group list by name (via
 // WA-Campaigns' `getChats` action, popup.js's own picker) and adds the ones
-// that should be watched, rather than typing in a raw chat ID. An EMPTY list
-// means no restriction at all (today's behavior, unchanged) — this is opt-in
-// so it can never silently break an existing setup that hasn't configured it.
+// that should be watched, rather than typing in a raw chat ID.
+// FAILS CLOSED (2026-09-18, explicit correction — an earlier version of this
+// treated an empty list as "no restriction", meaning the pipeline still
+// processed every chat until someone opted in): the entire point of this
+// allowlist was "only ever process passports/messages from certain groups or
+// people" — an empty list means nothing has been vetted yet, so nothing
+// should be processed, not everything. Staff must add each real intake chat
+// via the Feeding Chats search picker in Settings before it starts working.
 async function isFeedingChat(waId) {
   const { waFeedingChats } = await chrome.storage.local.get(["waFeedingChats"]);
   const list = Array.isArray(waFeedingChats) ? waFeedingChats : [];
-  if (!list.length) return true;
+  if (!list.length) return false;
   return list.some((c) => c.waId === waId);
 }
 
@@ -193,58 +212,113 @@ async function markDetected(mediaMessageId) {
   }
 }
 
+// ── Dispatch debounce ─────────────────────────────────────────────────────
+// Confirmed live: dispatching to the pipeline the INSTANT a photo is
+// detected loses a real race when a customer sends several photos as one
+// WhatsApp multi-select album with the SAME caption copied onto each photo
+// (self-contained pairing — each gets detected and dispatched individually,
+// a moment apart). The FIRST photo's own CRM lookup can easily take 5-10+
+// seconds; the second photo can't even start its own run until the first
+// one's lock releases — but Masar's own automation (the user's Auto-Clicker
+// rules) can finish processing the first passport and move itself to the
+// Mutamer List well within that window, since nothing was in MASAR'S OWN
+// queue yet for the second photo. The group then gets created with just the
+// first passport. collectPairings() above already handles the OTHER
+// ordering (several captionless photos, revealed all at once when a
+// separate number-only text arrives) — this debounce handles the
+// self-contained-caption case by giving a short window for a burst to fully
+// arrive before ever starting the CRM/Masar work, regardless of which
+// pattern the photos came in as.
+const BATCH_DEBOUNCE_MS = 2000;
+const pendingBatches = new Map(); // reservationNumber -> { messageIds: Set, ctx, timer }
+function scheduleBatch(reservationNumber, messageId, ctx) {
+  let batch = pendingBatches.get(reservationNumber);
+  if (!batch) {
+    batch = { messageIds: new Set(), ctx, timer: null };
+    pendingBatches.set(reservationNumber, batch);
+  }
+  batch.messageIds.add(messageId);
+  batch.ctx = ctx; // keep the most recent chat context (waId/isGroup/chatName don't change per reservation in practice, but no reason not to use the latest)
+  clearTimeout(batch.timer);
+  batch.timer = setTimeout(() => {
+    pendingBatches.delete(reservationNumber);
+    const messageIds = Array.from(batch.messageIds);
+    WA_PIPELINE.processReservationEvent(batch.ctx, reservationNumber, messageIds)
+      .catch((err) => bgLog("error", `Pipeline: failed for reservation ${reservationNumber}: ${(err && err.message) || err}`));
+  }, BATCH_DEBOUNCE_MS);
+}
+
+// Rate-limits the "not on the allowlist" log so a chatty non-trusted group
+// doesn't flood Pipeline Logs with one line per message — still visible
+// (this exact kind of SILENT drop is what the allowlist's own predecessor
+// concern was about — "no way of knowing" a message was ignored), just
+// throttled to once per chat per interval.
+const FEEDING_CHAT_WARN_INTERVAL_MS = 30 * 60 * 1000;
+const feedingChatWarnedAt = new Map(); // waId -> last time this was logged
+
 // ── The actual per-message handler ──────────────────────────────────────
 async function handleIncomingMessage(payload) {
   const { waId, isGroup, chatName, fromMe, messageId, messageType, text, timestamp } = payload || {};
   if (!waId || fromMe) return; // never react to the agency's own messages
-  if (!(await isFeedingChat(waId))) return; // not on the Feeding Chats allowlist — ignore entirely, don't even buffer it for pairing
+  if (!(await isFeedingChat(waId))) {
+    const nowTs = Date.now();
+    const lastWarned = feedingChatWarnedAt.get(waId) || 0;
+    if (nowTs - lastWarned > FEEDING_CHAT_WARN_INTERVAL_MS) {
+      feedingChatWarnedAt.set(waId, nowTs);
+      await bgLog("warn", `Ignoring a message from "${chatName || waId}" — not on the Feeding Chats allowlist (Settings → Pipeline → Feeding Chats). Add it there if this chat should be watched.`);
+    }
+    return; // not trusted — ignore entirely, don't even buffer it for pairing
+  }
   const now = timestamp || Date.now();
 
   const entry = { waId, messageId, messageType, text, reservationNumber: extractReservationNumber(text), timestamp: now };
   rememberMessage(entry);
 
-  const pairing = findPairing(waId, entry);
-  if (!pairing) return; // nothing to act on yet — the matching half may not have arrived
+  const pairings = collectPairings(waId, entry);
+  if (!pairings.length) return; // nothing to act on yet — the matching half may not have arrived
 
-  if (await alreadyDetected(pairing.mediaEntry.messageId)) return;
-
-  // Check BOTH halves of the pairing — the wording could be on either the
-  // number-bearing message or the media's own caption (e.g. an image sent
-  // with "please cancel UR-106538" as its caption is self-contained).
   const skipKeywords = await getSkipKeywords();
-  const hit = findSkipKeyword(pairing.numberEntry.text, skipKeywords) || findSkipKeyword(pairing.mediaEntry.text, skipKeywords);
-  if (hit) {
-    await markDetected(pairing.mediaEntry.messageId); // still dedup — a repeat of the same message shouldn't re-flag every time
-    await bgLog(
-      "warn",
-      `Pipeline: reservation ${pairing.reservationNumber} in ${isGroup ? "group" : "chat"} "${chatName}" mentions "${hit}" — doesn't look like a passport submission, so it was NOT auto-processed. Handle it manually.`
-    );
-    const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
-    if (waMentionId) {
-      WA_PIPELINE.sendReply(waId, {
-        text: `Reservation ${pairing.reservationNumber} was mentioned along with an image, but the message contains "${hit}" — skipped auto-processing since this doesn't look like a passport submission. Please check manually.`,
-        mentionWaId: waMentionId,
-      }).catch(() => {});
+
+  // Every pairing that survives dedup/skip-word checks gets debounced into
+  // its reservation's pending batch (scheduleBatch) rather than dispatched
+  // immediately — see that function's own comment for why.
+  for (const pairing of pairings) {
+    if (await alreadyDetected(pairing.mediaEntry.messageId)) continue; // this specific photo was already handled by an earlier message in the same burst
+
+    // Check BOTH halves of the pairing — the wording could be on either the
+    // number-bearing message or the media's own caption (e.g. an image sent
+    // with "please cancel UR-106538" as its caption is self-contained).
+    const hit = findSkipKeyword(pairing.numberEntry.text, skipKeywords) || findSkipKeyword(pairing.mediaEntry.text, skipKeywords);
+    if (hit) {
+      await markDetected(pairing.mediaEntry.messageId); // still dedup — a repeat of the same message shouldn't re-flag every time
+      await bgLog(
+        "warn",
+        `Pipeline: reservation ${pairing.reservationNumber} in ${isGroup ? "group" : "chat"} "${chatName}" mentions "${hit}" — doesn't look like a passport submission, so it was NOT auto-processed. Handle it manually.`
+      );
+      const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+      if (waMentionId) {
+        WA_PIPELINE.sendReply(waId, {
+          text: `Reservation ${pairing.reservationNumber} was mentioned along with an image, but the message contains "${hit}" — skipped auto-processing since this doesn't look like a passport submission. Please check manually.`,
+          mentionWaId: waMentionId,
+        }).catch(() => {});
+      }
+      continue;
     }
-    return;
+
+    await markDetected(pairing.mediaEntry.messageId);
+    await bgLog(
+      "info",
+      `Pipeline: passport detected — reservation ${pairing.reservationNumber} in ${isGroup ? "group" : "chat"} "${chatName}" (message ${pairing.mediaEntry.messageId}, type ${pairing.mediaEntry.messageType})`
+    );
+
+    // Hands off to modules/whatsapp-pipeline.js (Phase 6): CRM lookup ->
+    // outcome handling -> Masar feed -> conflict check -> group creation ->
+    // reply. Debounced (see scheduleBatch's own comment) rather than fired
+    // immediately, so a burst of several photos for the same reservation —
+    // however they're paired up — gets collected into ONE pipeline run
+    // instead of racing Masar's own automation one photo at a time.
+    scheduleBatch(pairing.reservationNumber, pairing.mediaEntry.messageId, { waId, isGroup, chatName });
   }
-
-  await markDetected(pairing.mediaEntry.messageId);
-
-  await bgLog(
-    "info",
-    `Pipeline: passport detected — reservation ${pairing.reservationNumber} in ${isGroup ? "group" : "chat"} "${chatName}" (message ${pairing.mediaEntry.messageId}, type ${pairing.mediaEntry.messageType})`
-  );
-
-  // Hands off to modules/whatsapp-pipeline.js (Phase 6): CRM lookup ->
-  // outcome handling -> Masar feed -> conflict check -> group creation ->
-  // reply. That module's own `waPipelineLive` gate (Settings) decides
-  // whether the final WhatsApp reply is actually sent or just logged as a
-  // dry run — nothing here needs to know which.
-  WA_PIPELINE.processReservationEvent(
-    { waId, isGroup, chatName, messageId: pairing.mediaEntry.messageId },
-    pairing.reservationNumber
-  ).catch((err) => bgLog("error", `Pipeline: failed for reservation ${pairing.reservationNumber}: ${(err && err.message) || err}`));
 }
 
 // ── Receiving pushed events from WA-Campaigns ────────────────────────────

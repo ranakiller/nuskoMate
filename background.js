@@ -66,6 +66,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
+  if (msg.type === "nkPipelineCrmLookup") {          // popup's CRM Lookup test — the pipeline's own lookupReservationInCrm (via the CRM Bridge)
+    WA_PIPELINE.lookupReservationInCrm(String(msg.reservationNo || "").trim())
+      .then((resp) => sendResponse(resp))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
+  if (msg.type === "nkCrmBridgeCall") {              // popup's "Test bridge" button — modules/whatsapp-pipeline.js's callCrmBridge
+    WA_PIPELINE.callCrmBridge(msg.payload || { type: "ping" })
+      .then((resp) => sendResponse(resp))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
   if (msg.type === "nkWebshotCaptureForAutomation") { // same capture pipeline, dataUrl handed back instead of downloaded/copied/opened — Phase 5 of the WhatsApp automation plan
     const tabId = _sender.tab && _sender.tab.id;
     runWebshotCapture(tabId, msg.rect, msg.dpr || 1, msg.pageTitle || "screenshot", "return")
@@ -855,4 +867,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
     return;
   }
   if (SYNC_KEYS.some((k) => k in changes)) scheduleAutoPush();
+});
+
+// One-time cleanup: the CRM login used to be stored here for the old
+// CRM-tab lookup. Lookups now go through the separate CRM Bridge extension
+// (which holds its own login), so drop the leftover plaintext credentials.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.remove(["crmUsername", "crmPassword"]).catch(() => {});
 });

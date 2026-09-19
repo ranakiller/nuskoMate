@@ -724,6 +724,16 @@
         </div>
       </div>
 
+      <div class="section" id="pipeline-monitor-section">
+        <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Live Monitor</span>
+          <span class="pm-live-dot" title="Updates live as events happen — no refresh needed"></span>
+        </div>
+        <div class="pm-flow" id="pm-flow"></div>
+        <div id="pm-cards-empty" class="logs-empty">Nothing in flight right now — this fills in the moment a WhatsApp message is detected, and updates live as it moves through each step.</div>
+        <div id="pm-cards" class="pm-cards"></div>
+      </div>
+
       <div class="section" id="pipeline-queue-section">
         <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Queue</span>
@@ -762,41 +772,6 @@
         <div id="pipeline-logs-list" class="pipeline-scroll-list"></div>
       </div>
 
-      <!-- Section: CRM login (setup.nebraspk.com) — read by the pipeline's
-           CRM lookup step before anything is fed into Masar. -->
-      <div class="section" id="crm-login-section">
-        <div class="section-title">CRM Login (Nebras)</div>
-        <div class="field-group">
-          <label class="field-label" for="crm-username">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            CRM username
-          </label>
-          <div class="ocr-key-view" id="crm-username-view" style="display:none;">
-            <span class="ocr-key-masked" id="crm-username-masked"></span>
-            <button type="button" id="crm-username-edit-btn" class="logs-btn" title="Edit username" aria-label="Edit username">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            </button>
-          </div>
-          <input type="text" id="crm-username" class="field-input"
-            placeholder="e.g. Mf-Furqan" autocomplete="off" spellcheck="false" />
-        </div>
-        <div class="field-group">
-          <label class="field-label" for="crm-password">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            CRM password
-          </label>
-          <div class="ocr-key-view" id="crm-password-view" style="display:none;">
-            <span class="ocr-key-masked" id="crm-password-masked"></span>
-            <button type="button" id="crm-password-edit-btn" class="logs-btn" title="Edit password" aria-label="Edit password">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            </button>
-          </div>
-          <input type="password" id="crm-password" class="field-input"
-            placeholder="CRM password" autocomplete="off" />
-          <div class="k-hint">For setup.nebraspk.com — read before anything is fed into Masar. Stored locally like every other key here, not synced.</div>
-        </div>
-      </div>
-
       <div class="section" id="pipeline-settings-section">
         <div class="section-title">Pipeline Settings</div>
         <div class="field-group">
@@ -805,6 +780,16 @@
             WhatsApp Pipeline: Live Sending
           </label>
           <div class="k-hint"><b>Off by default.</b> While off, the full pipeline (CRM lookup → Masar feed → group creation → reply) still runs end-to-end for real WhatsApp messages, but the final reply step only logs what it WOULD have sent instead of actually calling WA-Campaigns' sendText/sendMedia. Turn this on only after testing a raw send below against a chat you don't mind experimenting in.</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="crm-bridge-id">CRM Bridge extension ID</label>
+          <div class="k-row">
+            <input type="text" id="crm-bridge-id" class="field-input" style="flex:1;"
+              placeholder="32-letter ID shown in the Nebras Reservation Bridge popup" autocomplete="off" spellcheck="false" />
+            <button id="crm-bridge-test" type="button" class="act-btn">Test</button>
+          </div>
+          <div id="crm-bridge-result" class="k-hint"></div>
+          <div class="k-hint">Required. Every reservation lookup goes through the Nebras Reservation Bridge extension — answered from its cached CRM data (milliseconds), with anything that isn't plainly Confirmed re-checked live. Copy the ID from the Bridge's popup. The CRM login lives in the Bridge, not here.</div>
         </div>
         <div class="field-group">
           <label class="field-label" for="wa-mention-id">Team WA ID to @mention (for "On hold" reservations)</label>
@@ -828,7 +813,7 @@
           <div id="feeding-chat-results"></div>
           <div class="k-hint" style="margin-top:6px;">Trusted list:</div>
           <div id="feeding-chat-list"></div>
-          <div class="k-hint">Pulled live from WhatsApp via WA-Campaigns — search, then add whichever groups/contacts should be watched. <b>Empty list = no restriction</b> (every chat is watched, same as today) — the pipeline only starts filtering once at least one chat is added here.</div>
+          <div class="k-hint">Pulled live from WhatsApp via WA-Campaigns — search, then add whichever groups/contacts should be watched. <b>Empty list = nothing is processed.</b> Nuskomate only acts on messages from chats added here — add your intake group(s)/contact(s) below before expecting anything to be picked up.</div>
         </div>
       </div>
 
@@ -844,7 +829,7 @@
               placeholder="Reservation No, e.g. 106057" autocomplete="off" spellcheck="false" />
             <button id="crm-test-lookup" type="button" class="act-btn">Look Up</button>
           </div>
-          <div class="k-hint">Needs a setup.nebraspk.com tab open somewhere (any tab, doesn't have to be active).</div>
+          <div class="k-hint">Runs the same lookup the pipeline does, through the CRM Bridge above.</div>
           <pre id="crm-test-result" class="test-result-pre"></pre>
         </div>
 
