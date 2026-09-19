@@ -203,7 +203,7 @@ async function imageToJpegBlob(file, quality = 0.92) {
   return { blob: await canvasToBlob(canvas, "image/jpeg", quality), width: canvas.width, height: canvas.height };
 }
 
-// Shared by Crop Image's two ways of landing on a rectangle (the dragged
+// Shared by Cropper's two ways of landing on a rectangle (the dragged
 // region, or Trim Whitespace's auto-detected one) — keeps the file's own
 // format (PNG stays PNG, so transparency survives a crop) rather than always
 // normalizing to JPEG the way imageToJpegBlob above deliberately does.
@@ -218,7 +218,7 @@ async function cropImageToRect(file, rect) {
   return { blob, ext: isPng ? "png" : "jpg" };
 }
 
-// Crop Image accepts a batch, but only shows ONE region selector — calibrated
+// Cropper accepts a batch, but only shows ONE region selector — calibrated
 // against files[0]. Reusing that selection on a differently-sized image only
 // makes sense as a PROPORTION of the image (e.g. "the middle 70% width, top
 // 15%-85% height"), not as the same pixel rectangle — so the selector hands
@@ -285,202 +285,11 @@ async function pdfFromJpegPages(jpegPages) {
   return out.save();
 }
 
-// ── Auto-straighten: detect a crooked scan/photo's tilt angle ──────────────
-// A "projection profile" skew detector — the same basic technique real
-// document scanners use, no ML model or vendored library needed. The idea:
-// for the CORRECT rotation, a page's text sits in neat horizontal bands (row
-// after row of "mostly ink" alternating with "mostly white gap"), which
-// makes the row-by-row darkness profile spike sharply. Any wrong angle
-// smears text across rows instead, flattening that profile out. So: try a
-// range of candidate angles, score each by how spiky its profile is, and the
-// biggest spike wins.
-//
-// This can only ever find a rotation whose two directions look genuinely
-// different from each other — which a small tilt always does, but an exact
-// 180°/pointing-the-other-way flip does NOT (upside-down text still makes
-// the same horizontal bands, just in reverse row order — same variance
-// either way, so nothing here can tell "upside down" from "right side up").
-// That's why this only searches a modest range around the image's OWN
-// current orientation (assumes it's already roughly upright, just tilted)
-// rather than also trying to guess between all four 90° rotations — being
-// confidently wrong about "sideways vs. upside-down" would make a document
-// worse, not better, so it isn't attempted.
-//
-// Returns null when nothing in the image looks line-like enough to trust
-// (a photo of a face, a plain graphic, anything without real text/ruled
-// lines) — callers should fall back to asking for a manual angle instead of
-// silently applying a guess.
-function detectSkewAngle(sourceCanvas, maxAngle = 20) {
-  const maxDim = 480; // plenty of resolution for this; more just costs time
-  const scale = Math.min(1, maxDim / Math.max(sourceCanvas.width, sourceCanvas.height));
-  const w = Math.max(1, Math.round(sourceCanvas.width * scale));
-  const h = Math.max(1, Math.round(sourceCanvas.height * scale));
-  const small = document.createElement("canvas");
-  small.width = w; small.height = h;
-  const sctx = small.getContext("2d", { willReadFrequently: true });
-  sctx.drawImage(sourceCanvas, 0, 0, w, h);
-  const { data } = sctx.getImageData(0, 0, w, h);
-
-  // Precompute "darkness" (0 = white, 255 = black) once — every candidate
-  // angle re-buckets these same values, never touches the canvas again.
-  const dark = new Float32Array(w * h);
-  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-    dark[p] = 255 - (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-  }
-
-  const cx = w / 2, cy = h / 2;
-  const numBuckets = Math.ceil(Math.sqrt(w * w + h * h)) + 2;
-  const mid = numBuckets / 2;
-  const buckets = new Float64Array(numBuckets); // reused every call, cleared each time
-
-  // Projects every dark pixel onto the axis perpendicular to candidate
-  // angle `deg`, filling `buckets` with that angle's row-darkness profile —
-  // the shared step both scoreAngle() and the final trust-check need.
-  function computeBuckets(deg) {
-    buckets.fill(0);
-    const rad = (deg * Math.PI) / 180, sin = Math.sin(rad), cos = Math.cos(rad);
-    for (let y = 0; y < h; y++) {
-      const yy = y - cy;
-      const rowOffset = y * w;
-      for (let x = 0; x < w; x++) {
-        const d = dark[rowOffset + x];
-        if (d < 12) continue; // background pixels never help — skip for speed
-        const bucket = ((x - cx) * sin + yy * cos + mid) | 0;
-        if (bucket >= 0 && bucket < numBuckets) buckets[bucket] += d;
-      }
-    }
-    return buckets;
-  }
-  function scoreAngle(deg) {
-    const b = computeBuckets(deg);
-    let mean = 0;
-    for (let i = 0; i < numBuckets; i++) mean += b[i];
-    mean /= numBuckets;
-    let variance = 0;
-    for (let i = 0; i < numBuckets; i++) { const dd = b[i] - mean; variance += dd * dd; }
-    return variance / numBuckets;
-  }
-
-  // Coarse sweep (1° steps) to find the neighborhood, then refine (0.15°
-  // steps) around it — cheap enough to just always do both passes.
-  let sum = 0, count = 0, best = { angle: 0, score: -Infinity };
-  for (let a = -maxAngle; a <= maxAngle; a += 1) {
-    const s = scoreAngle(a);
-    sum += s; count++;
-    if (s > best.score) best = { angle: a, score: s };
-  }
-  const coarseAngle = best.angle;
-  for (let a = coarseAngle - 0.9; a <= coarseAngle + 0.9; a += 0.15) {
-    const s = scoreAngle(a);
-    if (s > best.score) best = { angle: a, score: s };
-  }
-
-  // Trust check, two parts — both matter, confirmed empirically (a smooth
-  // photo/gradient can score deceptively well on variance alone):
-  //   1. confidence — the winning angle must clearly beat the average of
-  //      every angle tried; a flat/textureless image scores similarly no
-  //      matter what angle is tried.
-  //   2. band count — the winning angle's OWN profile must actually look
-  //      like multiple alternating text-line bands, not just one smooth
-  //      hump. Counted as contiguous above-threshold runs (not per-point
-  //      local maxima) so it isn't fooled by pixel-level noise inside a
-  //      single true band.
-  const avg = sum / count;
-  const confidence = avg > 0 ? Math.max(0, Math.min(1, (best.score - avg) / avg)) : 0;
-  const winProfile = computeBuckets(best.angle);
-  const bandThresh = Math.max(...winProfile) * 0.3;
-  let bands = 0, wasAbove = false;
-  for (let i = 0; i < numBuckets; i++) {
-    const above = winProfile[i] > bandThresh;
-    if (above && !wasAbove) bands++;
-    wasAbove = above;
-  }
-  if (confidence < 0.12 || bands < 4) return null;
-  return { angle: Math.round(best.angle * 10) / 10, confidence };
-}
-
-// Rotates by an ARBITRARY angle (unlike the 90°-multiple case elsewhere,
-// which swaps width/height exactly) — the canvas has to grow to fit the
-// rotated rectangle without clipping its corners, and whatever background
-// shows in the newly-exposed corners is filled white, same as real scanner
-// apps do after straightening a page.
-function rotateCanvasByAngle(source, w, h, angleDeg) {
-  const rad = (angleDeg * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
-  const newW = Math.ceil(w * cos + h * sin), newH = Math.ceil(w * sin + h * cos);
-  const canvas = document.createElement("canvas");
-  canvas.width = newW; canvas.height = newH;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, newW, newH);
-  ctx.translate(newW / 2, newH / 2);
-  ctx.rotate(rad);
-  ctx.drawImage(source, -w / 2, -h / 2, w, h);
-  return canvas;
-}
-
-// ── Trim whitespace: auto-crop blank margins ────────────────────────────────
-// Unlike skew detection, this has no ambiguity to worry about — either a row
-// of pixels is basically all one color or it isn't. Works out from each edge
-// toward the center until it hits real content, on a downscaled copy for
-// speed (the crop rectangle then scales back up to the original resolution,
-// so the OUTPUT is never touched by the downscale — only where it detects
-// the cut lines).
-function estimateBorderColor(data, w, h) {
-  // Median of a ring of sample points around all four edges — robust to one
-  // stray dark pixel/dust speck near a corner throwing off the estimate,
-  // which a single-pixel corner sample wouldn't be.
-  const step = Math.max(1, Math.floor(Math.min(w, h) / 100));
-  const rs = [], gs = [], bs = [];
-  const sample = (x, y) => { const i = (y * w + x) * 4; rs.push(data[i]); gs.push(data[i + 1]); bs.push(data[i + 2]); };
-  for (let x = 0; x < w; x += step) { sample(x, 0); sample(x, h - 1); }
-  for (let y = 0; y < h; y += step) { sample(0, y); sample(w - 1, y); }
-  const mid = (arr) => arr.sort((a, b) => a - b)[Math.floor(arr.length / 2)];
-  return { r: mid(rs), g: mid(gs), b: mid(bs) };
-}
-
-// Returns the detected content rectangle in the SOURCE canvas's own pixel
-// coordinates, or null if nothing looked croppable (an entirely blank image,
-// or content running edge-to-edge with no margin to trim at all).
-function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
-  const maxDim = 500;
-  const scale = Math.min(1, maxDim / Math.max(sourceCanvas.width, sourceCanvas.height));
-  const w = Math.max(1, Math.round(sourceCanvas.width * scale));
-  const h = Math.max(1, Math.round(sourceCanvas.height * scale));
-  const small = document.createElement("canvas");
-  small.width = w; small.height = h;
-  const ctx = small.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(sourceCanvas, 0, 0, w, h);
-  const { data } = ctx.getImageData(0, 0, w, h);
-  const bg = estimateBorderColor(data, w, h);
-  const tol2 = tolerance * tolerance;
-
-  const isBg = (x, y) => {
-    const i = (y * w + x) * 4;
-    const dr = data[i] - bg.r, dg = data[i + 1] - bg.g, db = data[i + 2] - bg.b;
-    return dr * dr + dg * dg + db * db <= tol2;
-  };
-  // A row/column counts as "blank" up to a small amount of noise (JPEG
-  // ringing, a fleck of dust) — otherwise a single stray pixel could pin the
-  // crop right up against the actual content.
-  const noiseAllowance = 0.006;
-  const rowBlank = (y) => { let bad = 0; const max = w * noiseAllowance; for (let x = 0; x < w; x++) { if (!isBg(x, y) && ++bad > max) return false; } return true; };
-  const colBlank = (x) => { let bad = 0; const max = h * noiseAllowance; for (let y = 0; y < h; y++) { if (!isBg(x, y) && ++bad > max) return false; } return true; };
-
-  let top = 0, bottom = h - 1, left = 0, right = w - 1;
-  while (top < bottom && rowBlank(top)) top++;
-  while (bottom > top && rowBlank(bottom)) bottom--;
-  while (left < right && colBlank(left)) left++;
-  while (right > left && colBlank(right)) right--;
-
-  if (right - left < w * 0.02 || bottom - top < h * 0.02) return null; // degenerate — e.g. a fully blank image
-  if (top === 0 && bottom === h - 1 && left === 0 && right === w - 1) return null; // nothing to trim
-
-  const inv = 1 / scale;
-  return {
-    x: Math.max(0, Math.floor(left * inv)), y: Math.max(0, Math.floor(top * inv)),
-    width: Math.ceil((right - left + 1) * inv), height: Math.ceil((bottom - top + 1) * inv),
-  };
-}
+// ── Image helpers shared with the rest of the extension ───────────────────
+// Skew detection, arbitrary-angle rotation, whitespace trimming, orientation
+// detection and OCR enhancement all live in utils/image-prep.js (loaded by
+// popup.html before this module) so the WhatsApp pipeline can reuse them.
+const { detectSkewAngle, rotateCanvasByAngle, detectContentBounds, detectDocumentBounds } = window.NkImagePrep;
 
 // ── Icons (feather-style, matches the rest of the extension) ──────────────
 const ICONS = {
@@ -529,7 +338,7 @@ const TOOLS = [
     id: "webshot", group: "web", icon: "camera", iconClass: "ocr-icon",
     name: "Element Screenshot", desc: "Drag from one element to another on any web page to capture just that area",
     noFile: true, runLabel: "Capture Elements", commandId: "nk-webshot-start",
-    fields: [{ key: "delivery", label: "When done", type: "select", options: [
+    fields: [{ key: "delivery", label: "When done", type: "radio", options: [
       { value: "tool", label: "Show here, in File Tools" },
       { value: "download", label: "Download automatically" },
       { value: "clipboard", label: "Copy to clipboard" },
@@ -551,7 +360,7 @@ const TOOLS = [
     id: "pdf2jpg", group: "pdf", icon: "pdf2jpg", iconClass: "ocr-icon",
     name: "PDF → JPG", desc: "Turn every page of one or more PDFs into downloadable images",
     accept: "application/pdf", multiple: true, runLabel: "Convert to JPG",
-    fields: [{ key: "quality", label: "Image quality", type: "select", options: QUALITY_OPTIONS, default: "0.92" }],
+    fields: [{ key: "quality", label: "Image quality", type: "radio", options: QUALITY_OPTIONS, default: "0.92" }],
     resultsAsGrid: true,
     async run(files, v, { onProgress }) {
       const out = [];
@@ -574,7 +383,7 @@ const TOOLS = [
     id: "img2pdf", group: "pdf", icon: "img2pdf", iconClass: "fill-icon",
     name: "Images → PDF", desc: "Combine JPGs or PNGs into one PDF, in order",
     accept: "image/jpeg,image/png,image/webp", multiple: true, reorder: true, runLabel: "Create PDF",
-    fields: [{ key: "pageSize", label: "Page size", type: "select", options: [
+    fields: [{ key: "pageSize", label: "Page size", type: "radio", options: [
       { value: "fit", label: "Fit to each image" },
       { value: "a4", label: "A4 (image centered)" },
     ], default: "fit" }],
@@ -602,7 +411,7 @@ const TOOLS = [
   },
   {
     id: "pdfmerge", group: "pdf", icon: "merge", iconClass: "batch-icon",
-    name: "Merge PDFs", desc: "Combine several PDFs into one, in the order listed",
+    name: "Merger", desc: "Combine several PDFs into one, in the order listed",
     accept: "application/pdf", multiple: true, reorder: true, runLabel: "Merge",
     fields: [],
     async run(files, v, { onProgress }) {
@@ -620,11 +429,11 @@ const TOOLS = [
   },
   {
     id: "pdfsplit", group: "pdf", icon: "split", iconClass: "issuedate-icon",
-    name: "Split PDF", desc: "Pull out a page range, or split every page into its own file",
+    name: "Splitter", desc: "Pull out a page range, or split every page into its own file",
     accept: "application/pdf", multiple: false,
     runLabel: (v) => (v.mode === "each" ? "Split" : "Extract Pages"),
     fields: [
-      { key: "mode", label: "Split mode", type: "select", options: [
+      { key: "mode", label: "Split mode", type: "radio", options: [
         { value: "range", label: "Extract a page range" },
         { value: "each", label: "Every page as its own PDF" },
       ], default: "range" },
@@ -659,9 +468,9 @@ const TOOLS = [
   },
   {
     id: "pdfcompress", group: "pdf", icon: "compress", iconClass: "reload-icon",
-    name: "Compress PDF", desc: "Shrink file size by re-encoding each page as an image",
+    name: "Compressor", desc: "Shrink file size by re-encoding each page as an image",
     accept: "application/pdf", multiple: false, runLabel: "Compress",
-    fields: [{ key: "quality", label: "Quality vs. size", type: "select", options: [
+    fields: [{ key: "quality", label: "Quality vs. size", type: "radio", options: [
       { value: "0.4|1.1", label: "Smallest file" },
       { value: "0.6|1.4", label: "Balanced" },
       { value: "0.8|1.8", label: "Best quality" },
@@ -685,10 +494,10 @@ const TOOLS = [
   },
   {
     id: "pdfrotate", group: "pdf", icon: "rotate", iconClass: "clicker-icon",
-    name: "Rotate Pages", desc: "Rotate by 90°/180°/270°, or auto-straighten crooked scans",
+    name: "Rotator", desc: "Rotate by 90°/180°/270°, or auto-straighten crooked scans",
     accept: "application/pdf", multiple: false,
     runLabel: (v) => (v.degrees === "auto" ? "Straighten" : "Rotate"),
-    fields: [{ key: "degrees", label: "Rotate by", type: "select", options: [
+    fields: [{ key: "degrees", label: "Rotate by", type: "radio", options: [
       { value: "90", label: "90° clockwise" }, { value: "180", label: "180°" }, { value: "270", label: "90° counter-clockwise" },
       { value: "auto", label: "Auto-straighten (detect the angle, per page)" },
     ], default: "90" }],
@@ -739,7 +548,7 @@ const TOOLS = [
   },
   {
     id: "pdforganize", group: "pdf", icon: "list", iconClass: "batch-icon",
-    name: "Reorder / Delete Pages", desc: "Move pages up/down, or remove ones you don't need",
+    name: "Organizer", desc: "Move pages up/down, or remove ones you don't need",
     accept: "application/pdf", multiple: false, interactive: "pages", runLabel: "Save Changes",
     fields: [],
     async run(files, v, { getPageIndices }) {
@@ -757,10 +566,10 @@ const TOOLS = [
   },
   {
     id: "pdftext", group: "pdf", icon: "ocr", iconClass: "fill-icon",
-    name: "Extract Text", desc: "Pull the text layer out of one or more PDFs",
+    name: "Extractor", desc: "Pull the text layer out of one or more PDFs",
     accept: "application/pdf", multiple: true, runLabel: "Extract",
     fields: [], resultsAsText: true,
-    note: "Only works on PDFs that already have real text in them (not a scan) — for a scanned/image PDF, use PDF → JPG followed by the OCR Image tool instead.",
+    note: "Only works on PDFs that already have real text in them (not a scan) — for a scanned/image PDF, use PDF → JPG followed by the OCR tool instead.",
     async run(files, v, { onProgress }) {
       const out = [];
       for (const file of files) {
@@ -781,7 +590,7 @@ const TOOLS = [
   },
   {
     id: "pdfflatten", group: "pdf", icon: "merge", iconClass: "issuedate-icon",
-    name: "Flatten Form Fields", desc: "Merge any fillable form fields into the page so they can't be edited further",
+    name: "Flattener", desc: "Merge any fillable form fields into the page so they can't be edited further",
     accept: "application/pdf", multiple: false, runLabel: "Flatten",
     fields: [],
     async run(files) {
@@ -800,7 +609,7 @@ const TOOLS = [
     noFile: true, canRun: (v) => !!(v.text || "").trim(), runLabel: "Create PDF",
     fields: [
       { key: "text", label: "Text content", type: "textarea", placeholder: "Type or paste your text here…" },
-      { key: "size", label: "Font size", type: "select", options: [
+      { key: "size", label: "Font size", type: "radio", options: [
         { value: "10", label: "Small" }, { value: "12", label: "Medium" }, { value: "16", label: "Large" },
       ], default: "12" },
     ],
@@ -838,13 +647,11 @@ const TOOLS = [
   },
   {
     id: "pdfwatermark", group: "pdf", icon: "droplet", iconClass: "vaccine-icon",
-    name: "Watermark / Page Numbers", desc: "Stamp text and/or page numbers onto every page",
+    name: "Stamper", desc: "Stamp text and/or page numbers onto every page",
     accept: "application/pdf", multiple: false, runLabel: "Apply",
     fields: [
       { key: "watermark", label: "Watermark text (optional)", type: "text", placeholder: "e.g. DRAFT", full: true },
-      { key: "pageNumbers", label: "Page numbers", type: "select", options: [
-        { value: "none", label: "Off" }, { value: "on", label: "On (bottom center)" },
-      ], default: "none" },
+      { key: "pageNumbers", label: "Add page numbers (bottom center)", type: "check", on: "on", off: "none", default: "none" },
     ],
     async run(files, v) {
       if (!v.watermark?.trim() && v.pageNumbers !== "on") throw new Error("Add watermark text or turn on page numbers");
@@ -876,9 +683,9 @@ const TOOLS = [
   // ── JPG / Image Tools ──────────────────────────────────────────────────
   {
     id: "imgcompress", group: "jpg", icon: "compress", iconClass: "reload-icon",
-    name: "Compress Image", desc: "Reduce file size by re-encoding as JPEG",
+    name: "Compressor", desc: "Reduce file size by re-encoding as JPEG",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Compress",
-    fields: [{ key: "quality", label: "Quality", type: "select", options: QUALITY_OPTIONS, default: "0.75" }],
+    fields: [{ key: "quality", label: "Quality", type: "radio", options: QUALITY_OPTIONS, default: "0.75" }],
     resultsAsGrid: true,
     async run(files, v, { onProgress }) {
       const out = [];
@@ -892,7 +699,7 @@ const TOOLS = [
   },
   {
     id: "imgresize", group: "jpg", icon: "resize", iconClass: "vaccine-icon",
-    name: "Resize Image", desc: "Scale down to a maximum width/height",
+    name: "Resizer", desc: "Scale down to a maximum width/height",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Resize",
     fields: [
       { key: "width", label: "Max width (px)", type: "number", placeholder: "e.g. 1920" },
@@ -923,9 +730,9 @@ const TOOLS = [
   },
   {
     id: "imgconvert", group: "jpg", icon: "convert", iconClass: "fill-icon",
-    name: "Convert Format", desc: "Switch between JPG, PNG and WebP",
+    name: "Converter", desc: "Switch between JPG, PNG and WebP",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Convert",
-    fields: [{ key: "format", label: "Convert to", type: "select", options: [
+    fields: [{ key: "format", label: "Convert to", type: "radio", options: [
       { value: "image/jpeg", label: "JPG" }, { value: "image/png", label: "PNG" }, { value: "image/webp", label: "WebP" },
     ], default: "image/jpeg" }],
     resultsAsGrid: true,
@@ -949,67 +756,76 @@ const TOOLS = [
   },
   {
     id: "imgrotate", group: "jpg", icon: "rotate", iconClass: "clicker-icon",
-    name: "Rotate / Flip", desc: "Rotate by 90°, flip, or auto-straighten a crooked scan",
+    name: "Straightener", desc: "Rights a sideways, upside-down or tilted photo automatically — optional flip",
     accept: "image/jpeg,image/png,image/webp", multiple: true,
-    runLabel: (v) => (v.rotate === "auto" ? "Straighten" : "Rotate"),
+    runLabel: "Straighten",
     fields: [
-      { key: "rotate", label: "Rotate", type: "select", options: [
-        { value: "0", label: "None" }, { value: "90", label: "90° clockwise" },
-        { value: "180", label: "180°" }, { value: "270", label: "90° counter-clockwise" },
-        { value: "auto", label: "Auto-straighten (detect the angle)" },
-      ], default: "0" },
-      { key: "flip", label: "Flip", type: "select", options: [
+      { key: "flip", label: "Flip (optional)", type: "radio", options: [
         { value: "none", label: "None" }, { value: "h", label: "Horizontal" }, { value: "v", label: "Vertical" },
       ], default: "none" },
     ],
-    note: "Auto-straighten looks for straight rows of text and corrects small tilts — it can't tell upside-down from right-side-up (those look identical to it), so it only fixes a crooked scan, not a sideways/upside-down one. Works best on documents; a plain photo may not have enough for it to lock onto.",
+    note: "Detects which way is up and turns the photo 90° / 180° / 270° as needed, then removes any small tilt. Sideways/upside-down detection works on passports and ID cards (it finds the two-line machine-readable zone at the bottom). Ordinary text documents only get their tilt fixed — turning them the right way up can't be told reliably, so they're left as they are rather than guessed at.",
     resultsAsGrid: true,
     async run(files, v, { onProgress }) {
       const out = [];
       for (let i = 0; i < files.length; i++) {
         onProgress(`Processing ${files[i].name}…`);
-        const bitmap = await createImageBitmap(files[i]);
-        let canvas;
-        if (v.rotate === "auto") {
-          const flat = document.createElement("canvas");
-          flat.width = bitmap.width; flat.height = bitmap.height;
-          flat.getContext("2d").drawImage(bitmap, 0, 0);
-          const skew = detectSkewAngle(flat);
-          if (!skew) throw new Error(`Couldn't find a clear angle for ${files[i].name} — try a manual rotation instead`);
-          onProgress(`Straightening ${files[i].name} by ${skew.angle}°…`);
-          canvas = rotateCanvasByAngle(flat, bitmap.width, bitmap.height, skew.angle);
-          if (v.flip !== "none") {
-            const flipped = document.createElement("canvas");
-            flipped.width = canvas.width; flipped.height = canvas.height;
-            const fctx = flipped.getContext("2d");
-            fctx.translate(canvas.width / 2, canvas.height / 2);
-            fctx.scale(v.flip === "h" ? -1 : 1, v.flip === "v" ? -1 : 1);
-            fctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
-            canvas = flipped;
-          }
-        } else {
-          const deg = parseInt(v.rotate, 10) || 0;
-          const swapped = deg === 90 || deg === 270;
-          canvas = document.createElement("canvas");
-          canvas.width = swapped ? bitmap.height : bitmap.width;
-          canvas.height = swapped ? bitmap.width : bitmap.height;
-          const ctx = canvas.getContext("2d");
-          ctx.translate(canvas.width / 2, canvas.height / 2);
-          ctx.rotate((deg * Math.PI) / 180);
-          ctx.scale(v.flip === "h" ? -1 : 1, v.flip === "v" ? -1 : 1);
-          ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+        const { canvas: prepared, info } = await window.NkImagePrep.prepareForOcr(files[i], { trim: false });
+        const changed = info.turns !== 0 || (info.skew !== null && Math.abs(info.skew) >= 0.3);
+        if (!changed && v.flip === "none") {
+          throw new Error(`Couldn't find anything to correct in ${files[i].name} — it looks upright already, or there isn't enough text/MRZ for the detector to lock onto${info.orientation && info.orientation.axis === "vertical" ? " (the text looks sideways but its direction can't be told)" : ""}.`);
         }
-        bitmap.close && bitmap.close();
+        onProgress(`${files[i].name}: turned ${info.turns * 90}°${info.skew ? `, straightened ${Math.round(info.skew * 10) / 10}°` : ""}`);
+        let canvas = prepared;
+        if (v.flip !== "none") {
+          const flipped = document.createElement("canvas");
+          flipped.width = canvas.width; flipped.height = canvas.height;
+          const fctx = flipped.getContext("2d");
+          fctx.translate(canvas.width / 2, canvas.height / 2);
+          fctx.scale(v.flip === "h" ? -1 : 1, v.flip === "v" ? -1 : 1);
+          fctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+          canvas = flipped;
+        }
         const isPng = files[i].type === "image/png";
         const blob = await canvasToBlob(canvas, isPng ? "image/png" : "image/jpeg", isPng ? undefined : 0.92);
-        out.push({ name: `${baseName(files[i].name)}-edited.${isPng ? "png" : "jpg"}`, blob });
+        out.push({ name: `${baseName(files[i].name)}-straight.${isPng ? "png" : "jpg"}`, blob });
+      }
+      return out;
+    },
+  },
+  {
+    id: "imgenhance", group: "jpg", icon: "ocr", iconClass: "ocr-icon",
+    name: "Enhancer", desc: "Make text in a photo easy to read — evens out lighting, sharpens, or turns it into bold black text",
+    accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Enhance",
+    fields: [
+      { key: "mode", label: "Enhancement", type: "radio", options: [
+        { value: "gentle", label: "Gentle — sharper text, keeps grey levels (try first)" },
+        { value: "strong", label: "Strong — bold black text on white (very faint / blurry photos)" },
+      ], default: "gentle" },
+      { key: "straighten", label: "Auto-straighten (fix sideways / upside-down / tilted)", type: "check", default: "yes" },
+      { key: "trim", label: "Trim blank borders", type: "check", default: "yes" },
+      { key: "grayscale", label: "Convert to grayscale", type: "check", default: "yes", showIf: (v) => v.mode !== "strong" },
+    ],
+    note: "Built for OCR: flattens shadows and uneven lighting, boosts contrast and sharpens edges, and upsizes small photos. Gentle keeps thin characters intact; Strong makes pure black-on-white text and can break very thin letters, so use it only when Gentle isn't enough. Grayscale (on by default) suits OCR; turn it off to keep the photo's colours (Gentle only — Strong is always black on white). Saved as PNG. Can't add detail that a truly blurry photo never captured.",
+    resultsAsGrid: true,
+    async run(files, v, { onProgress }) {
+      const P = window.NkImagePrep;
+      const out = [];
+      for (let i = 0; i < files.length; i++) {
+        onProgress(`Enhancing ${files[i].name}…`);
+        let canvas;
+        if (v.straighten === "yes") canvas = (await P.prepareForOcr(files[i], { trim: v.trim === "yes" })).canvas;
+        else canvas = await P.toCanvas(files[i]);
+        const enhanced = P.enhanceForOcr(canvas, { mode: v.mode, grayscale: v.grayscale !== "no" });
+        const blob = await canvasToBlob(enhanced, "image/png");
+        out.push({ name: `${baseName(files[i].name)}-ocr.png`, blob });
       }
       return out;
     },
   },
   {
     id: "imgcrop", group: "jpg", icon: "crop", iconClass: "issuedate-icon",
-    name: "Crop Image", desc: "Drag from corner to corner to select the area to keep — works on a batch too",
+    name: "Cropper", desc: "Drag from corner to corner to select the area to keep — works on a batch too",
     accept: "image/jpeg,image/png,image/webp", multiple: true, interactive: "region", runLabel: "Crop",
     fields: [],
     note: "Drag anywhere on the image to draw the box (drag again elsewhere to redraw it) — against the first image only; with more than one image picked, that same box (as a proportion of each picture) is applied to all of them.",
@@ -1041,8 +857,11 @@ const TOOLS = [
           flat.width = bitmap.width; flat.height = bitmap.height;
           flat.getContext("2d").drawImage(bitmap, 0, 0);
           bitmap.close && bitmap.close();
-          const rect = detectContentBounds(flat, { tolerance: 20 });
-          if (!rect) throw new Error(`${file.name} has no blank margin to trim (or is blank all over)`);
+          // Uniform blank margins first; if there are none (a phone screenshot with
+          // a status bar / overlay around the document) fall back to finding the
+          // colourful document block itself.
+          const rect = detectContentBounds(flat, { tolerance: 20 }) || detectDocumentBounds(flat);
+          if (!rect) throw new Error(`${file.name} has no blank margin to trim and no clear document to crop to (or is blank all over)`);
           const { blob, ext } = await cropImageToRect(file, rect);
           out.push({ name: `${baseName(file.name)}-trimmed.${ext}`, blob });
         }
@@ -1052,9 +871,9 @@ const TOOLS = [
   },
   {
     id: "imgblur", group: "jpg", icon: "blur", iconClass: "overlay-icon",
-    name: "Blur / Censor Area", desc: "Drag a box over a face, ID number or barcode to hide it",
+    name: "Censor", desc: "Drag a box over a face, ID number or barcode to hide it",
     accept: "image/jpeg,image/png,image/webp", multiple: false, interactive: "region", runLabel: "Censor",
-    fields: [{ key: "strength", label: "Effect strength", type: "select", options: [
+    fields: [{ key: "strength", label: "Effect strength", type: "radio", options: [
       { value: "8", label: "Light" }, { value: "16", label: "Medium" }, { value: "28", label: "Heavy" },
     ], default: "16" }],
     note: "Drag anywhere on the image to draw the box over what needs hiding. Pixelates the selected area rather than a soft blur — a soft blur can sometimes be partly reversed; this genuinely discards the detail underneath.",
@@ -1082,16 +901,16 @@ const TOOLS = [
   },
   {
     id: "imgfilters", group: "jpg", icon: "filters", iconClass: "batch-icon",
-    name: "Brightness / Contrast", desc: "Fix a poorly-lit photo, or convert to grayscale/sepia",
+    name: "Color Enhancer", desc: "Fix a poorly-lit photo, or convert to grayscale/sepia",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Apply",
     fields: [
-      { key: "brightness", label: "Brightness", type: "select", options: [
+      { key: "brightness", label: "Brightness", type: "radio", options: [
         { value: "70", label: "Darker" }, { value: "100", label: "Normal" }, { value: "130", label: "Brighter" }, { value: "160", label: "Much brighter" },
       ], default: "100" },
-      { key: "contrast", label: "Contrast", type: "select", options: [
+      { key: "contrast", label: "Contrast", type: "radio", options: [
         { value: "70", label: "Lower" }, { value: "100", label: "Normal" }, { value: "130", label: "Higher" }, { value: "160", label: "Much higher" },
       ], default: "100" },
-      { key: "tone", label: "Tone", type: "select", options: [
+      { key: "tone", label: "Tone", type: "radio", options: [
         { value: "none", label: "None" }, { value: "grayscale", label: "Grayscale" }, { value: "sepia", label: "Sepia" },
       ], default: "none" },
     ],
@@ -1117,7 +936,7 @@ const TOOLS = [
   },
   {
     id: "imgmetadata", group: "jpg", icon: "shield", iconClass: "vaccine-icon",
-    name: "Remove Metadata", desc: "Strip camera model, GPS location and other hidden EXIF data",
+    name: "Scrubber", desc: "Strip camera model, GPS location and other hidden EXIF data",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Clean",
     fields: [],
     note: "Every other image tool here already strips this as a side effect of re-encoding — this one exists for when you don't want to change anything else about the image.",
@@ -1140,7 +959,7 @@ const TOOLS = [
   },
   {
     id: "imgocr", group: "jpg", icon: "ocr", iconClass: "ocr-icon",
-    name: "OCR Image", desc: "Read the text out of a photo, screenshot or scan",
+    name: "OCR", desc: "Read the text out of a photo, screenshot or scan",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "OCR Now",
     fields: [], resultsAsText: true,
     note: "Uses the same OCR you already have set up for Passport scanning — needs your ocr.space key in Settings, and counts against that key's usage.",
@@ -1156,7 +975,7 @@ const TOOLS = [
   },
   {
     id: "imgremovebg", group: "jpg", icon: "wand", iconClass: "clicker-icon",
-    name: "Remove Background", desc: "Cut a subject out onto a transparent background",
+    name: "BG Remover", desc: "Cut a subject out onto a transparent background",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Remove Background",
     fields: [],
     note: "Uses your own remove.bg API key (Settings) — each image counts against remove.bg's own free-tier quota for that key.",
@@ -1525,7 +1344,45 @@ function buildToolPanel(tool, panelOpts) {
     tool.fields.forEach((f) => {
       if (f.showIf && !f.showIf(values)) return;
       const wrap = document.createElement("div");
-      wrap.className = "rule-field" + (f.full || f.type === "textarea" ? " full" : "");
+      wrap.className = "rule-field" + (f.full || f.type === "textarea" || f.type === "radio" || f.type === "check" ? " full" : "");
+      const afterChange = () => {
+        if (tool.fields.some((x) => x.showIf)) renderFields();
+        refreshRunEnabled();
+        updateRunLabel();
+      };
+      if (f.type === "radio") {
+        // Radio group — each option a pill; long labels stack vertically instead of wrapping awkwardly.
+        const groupLabel = document.createElement("label"); groupLabel.textContent = f.label;
+        const group = document.createElement("div");
+        group.className = "ft-radio-group" + (f.options.some((o) => o.label.length > 26) ? " ft-radio-stack" : "");
+        group.setAttribute("role", "radiogroup"); group.setAttribute("aria-label", f.label);
+        const name = `ft-${tool.id}-${f.key}`;
+        f.options.forEach((o) => {
+          const lab = document.createElement("label"); lab.className = "ft-radio";
+          const inp = document.createElement("input"); inp.type = "radio"; inp.name = name; inp.value = o.value;
+          inp.checked = String(values[f.key]) === String(o.value);
+          const txt = document.createElement("span"); txt.textContent = o.label;
+          lab.append(inp, txt); group.appendChild(lab);
+        });
+        group.addEventListener("change", (e) => { values[f.key] = e.target.value; afterChange(); });
+        wrap.append(groupLabel, group);
+        fieldsWrap.appendChild(wrap);
+        return;
+      }
+      if (f.type === "check") {
+        // Single on/off option — a styled checkbox with its label beside it.
+        const onVal = f.on !== undefined ? f.on : "yes", offVal = f.off !== undefined ? f.off : "no";
+        const lab = document.createElement("label"); lab.className = "ft-check";
+        const inp = document.createElement("input"); inp.type = "checkbox"; inp.checked = values[f.key] === onVal;
+        const box = document.createElement("span"); box.className = "ft-check-box";
+        const txt = document.createElement("span"); txt.className = "ft-check-text"; txt.textContent = f.label;
+        lab.append(inp, box, txt);
+        inp.addEventListener("change", () => { values[f.key] = inp.checked ? onVal : offVal; afterChange(); });
+        wrap.className += " ft-check-field";
+        wrap.appendChild(lab);
+        fieldsWrap.appendChild(wrap);
+        return;
+      }
       const label = document.createElement("label"); label.textContent = f.label;
       let control;
       if (f.type === "select") {
@@ -1603,7 +1460,7 @@ function buildToolPanel(tool, panelOpts) {
   updateRunLabel();
   runBtn.disabled = true;
   // A tool can offer secondary, equally-one-click ways to produce its
-  // output from the SAME picked file (Crop Image's "Trim Whitespace" button
+  // output from the SAME picked file (Cropper's "Trim Whitespace" button
   // ignores the dragged region and auto-detects one instead) — same file
   // requirement, same progress/results/download handling, just a different
   // run() to call.

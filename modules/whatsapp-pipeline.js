@@ -558,18 +558,32 @@ const WA_PIPELINE = (() => {
     await feedMessagesToMasar(reservationNo, waId, messageIds);
   }
 
-  // ── Fetches each message's media from WhatsApp and hands the whole batch
-  // to Masar's bulk parser in ONE call — factored out of runReservationEvent
-  // so retryReservation (below) can re-run exactly this step for whichever
-  // of a reservation's photos never made it through OCR, without redoing the
-  // CRM lookup or re-detecting anything. ──
+  // ── Fetches each message's attachment from WhatsApp, reads it ONCE here in
+  // the background, and hands Masar the cleaned image together with that
+  // result — factored out of runReservationEvent so retryReservation (below)
+  // can re-run exactly this step for whichever of a reservation's photos never
+  // made it through, without redoing the CRM lookup or re-detecting anything.
+  //
+  // SINGLE OCR (modules/pipeline-ocr.js): each attachment is straightened,
+  // cleaned and read (a PDF becomes one image per page) BEFORE anything is fed
+  // to Masar. That gives the passport number up front — so each person is
+  // tracked and queued for the Mutamer-List confirmation immediately, no
+  // waiting on the Masar page's own scan and no feed-order matching — and the
+  // page is handed the finished result (nkOcrPrefill → modules/ocr.js) so it
+  // fills the form without reading the photo again.
+  //   • An IMAGE that can't be read as a passport is NOT fed: the sender is
+  //     asked for a clearer photo (and the team @mentioned), and it's recorded
+  //     as unread. A PDF page with no passport on it (a booking confirmation,
+  //     a cover page) is simply skipped.
+  //   • If the background read itself can't run (not activated, no OCR key,
+  //     server/offscreen failure) that attachment falls back to the old path:
+  //     feed the original and let the Masar page read it (FIFO-matched).
   async function feedMessagesToMasar(reservationNo, waId, messageIds) {
-    // Fetch every photo's media BEFORE feeding any of them — a single batch
-    // handed to Masar's bulk parser in ONE call, same as a human multi-
-    // selecting several files at once, rather than one call per photo (see
-    // queuePassportToMasar's own comment for why that used to be a real
-    // reliability gap).
-    const files = [];
+    const scanned = [];  // { messageId, dataUrl, filename, scan, summary } — read here, tracked before feeding
+    const legacy = [];   // { messageId, dataUrl, filename } — background read unavailable
+    let unreadImages = 0;
+    let fetched = 0;
+
     for (const messageId of messageIds) {
       let media;
       try {
@@ -582,43 +596,109 @@ const WA_PIPELINE = (() => {
         await pLog("error", `Pipeline: WA-Campaigns returned no media for reservation ${reservationNo}'s message ${messageId}.`);
         continue;
       }
-      files.push({ messageId, dataUrl: media.dataUrl, filename: media.filename || `passport-${reservationNo}-${messageId}.jpg` });
+      fetched++;
+      const baseName = media.filename || `passport-${reservationNo}-${messageId}.jpg`;
+
+      const read = await WA_OCR.scanMedia({ dataUrl: media.dataUrl, mimetype: media.mimetype, filename: baseName });
+      if (!read.ok) {
+        await pLog("warn", `Pipeline: couldn't read message ${messageId} in the background (${read.error}) — feeding the original and letting the Masar page read it.`);
+        legacy.push({ messageId, dataUrl: media.dataUrl, filename: baseName });
+        continue;
+      }
+
+      const isPdf = read.kind === "pdf";
+      for (const page of read.pages) {
+        if (!page.passportNo) {
+          if (isPdf) {
+            await pLog("info", `Pipeline: page ${page.index + 1} of the PDF in message ${messageId} has no readable passport — skipped.`);
+            continue;
+          }
+          unreadImages++;
+          await handleUnreadPhoto(reservationNo, waId, messageId, page.blurry);
+          continue;
+        }
+        const suffix = isPdf ? `-p${page.index + 1}` : "";
+        scanned.push({
+          messageId, dataUrl: page.clean, scan: page.scan,
+          filename: `passport-${reservationNo}-${messageId}${suffix}.jpg`,
+          summary: { passportNo: page.passportNo, name: page.name, sex: page.sex, age: page.age, blurry: page.blurry },
+        });
+      }
     }
-    if (!files.length) {
+
+    if (!fetched) {
       await pLog("error", `Pipeline: none of reservation ${reservationNo}'s ${messageIds.length} photo(s) could be fetched from WhatsApp — nothing fed to Masar.`);
       return { ok: false, error: "Could not fetch any of the photo(s) from WhatsApp." };
     }
 
-    // Register EVERY FIFO entry, IN THE SAME ORDER as `files`, BEFORE
-    // sending the feed request — confirmed live this ordering actually
-    // matters: when a passport is fed DIRECTLY (the upload field was free),
-    // nkBatchFeedOrQueue's own call triggers the FIRST file's OCR scan as
-    // part of that same round trip (the rest queue behind it internally, one
-    // at a time), so that first scan can finish and get relayed to the
-    // background BEFORE the tab-messaging response even makes it back here.
-    // Pushing after the await risked handleMasarScanResult finding nothing
-    // queued yet (treating a real result as an untracked manual upload and
-    // dropping it) — that's what an old version of this bug looked like
-    // ("instantly went to creating group": a wrong/late FIFO entry getting
-    // resolved by a scan that wasn't actually its own).
-    for (const f of files) await pushFeedOrder({ reservationNo, messageId: f.messageId });
+    // Track every read passport (conflict/duplicate checks, confirm queue)
+    // BEFORE feeding, so the Mutamer List check knows what to look for.
+    const toFeed = [];
+    for (const item of scanned) {
+      if (await continueAfterMasarScan(reservationNo, item.messageId, item.summary)) toFeed.push(item);
+    }
 
+    if (!toFeed.length && !legacy.length) {
+      const why = unreadImages ? `${unreadImages} photo(s) couldn't be read as a passport` : "nothing usable was found in the attachment(s)";
+      await pLog("warn", `Pipeline: reservation ${reservationNo} — nothing fed to Masar (${why}).`);
+      return { ok: false, error: `Nothing to feed — ${why}.` };
+    }
+
+    // Legacy items keep the old FIFO correlation (their result still comes back
+    // via the page's own scan); pre-read items never enter it.
+    for (const f of legacy) await pushFeedOrder({ reservationNo, messageId: f.messageId });
+
+    const files = [
+      ...toFeed.map(({ dataUrl, filename, scan }) => ({ dataUrl, filename, scan })),
+      ...legacy.map(({ dataUrl, filename }) => ({ dataUrl, filename })),
+    ];
     let queued;
     try {
-      queued = await queuePassportToMasar(files.map(({ dataUrl, filename }) => ({ dataUrl, filename })));
+      queued = await queuePassportToMasar(files);
     } catch (err) {
-      for (const f of files) await removeFeedOrder(reservationNo, f.messageId); // the feed never reached Masar — nothing will ever complete these entries, so don't leave them stuck in the queue
+      await rollbackFeed(reservationNo, toFeed, legacy);
       await pLog("error", `Pipeline: could not hand reservation ${reservationNo}'s ${files.length} passport(s) to Masar's bulk parser: ${err.message}`);
       return { ok: false, error: err.message };
     }
     if (!queued || !queued.ok) {
-      for (const f of files) await removeFeedOrder(reservationNo, f.messageId);
+      await rollbackFeed(reservationNo, toFeed, legacy);
       const error = (queued && queued.error) || "no confirmation";
       await pLog("error", `Pipeline: Masar didn't accept reservation ${reservationNo}'s passport(s) into the queue: ${error}`);
       return { ok: false, error };
     }
-    await pLog("info", `Pipeline: reservation ${reservationNo}'s ${files.length} passport(s) handed to Masar's bulk parser in one batch — awaiting OCR results.`);
-    return { ok: true, fed: files.length };
+    await pLog("info", `Pipeline: reservation ${reservationNo}'s ${files.length} passport(s) handed to Masar's bulk parser in one batch (${toFeed.length} pre-read, ${legacy.length} to be read by the page).`);
+    return { ok: true, fed: files.length, unread: unreadImages };
+  }
+
+  // The feed never reached Masar — nothing will complete these, so undo the
+  // tracking done for them (mutamer entries, confirm-queue entries, FIFO).
+  async function rollbackFeed(reservationNo, toFeed, legacy) {
+    for (const f of legacy) await removeFeedOrder(reservationNo, f.messageId);
+    if (!toFeed.length) return;
+    const gone = new Set(toFeed.map((i) => i.summary.passportNo));
+    const record = await getRecord(reservationNo);
+    if (record) await saveRecord(reservationNo, { mutamers: (record.mutamers || []).filter((m) => !gone.has(m.passportNo)) });
+    const { [CONFIRM_QUEUE_KEY]: queue } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+    if (Array.isArray(queue)) {
+      await chrome.storage.local.set({ [CONFIRM_QUEUE_KEY]: queue.filter((e) => !(e.reservationNo === reservationNo && gone.has(e.passportNo))) });
+    }
+  }
+
+  // An image was fetched but isn't a readable passport, even after cleaning
+  // and both enhancement passes. Not fed — ask the sender for a clearer photo,
+  // @mention the team, and remember it (once per message, so a Retry doesn't
+  // re-send the same request).
+  async function handleUnreadPhoto(reservationNo, waId, messageId, blurry) {
+    const record = await getRecord(reservationNo);
+    const already = (record && record.unreadMessageIds) || [];
+    if (already.includes(messageId)) return;
+    await saveRecord(reservationNo, { unreadMessageIds: [...already, messageId] });
+    await pLog("warn", `Pipeline: a photo for reservation ${reservationNo} (message ${messageId}) couldn't be read as a passport even after cleaning it${blurry ? " — looks blurry" : ""} — NOT fed to Masar; asking for a clearer one.`);
+    const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+    await sendReply(waId, {
+      text: `A photo sent for reservation ${reservationNo} couldn't be read as a passport${blurry ? " (it looks blurry)" : ""} — could you send a clearer photo of that passport? It has not been processed.`,
+      mentionWaId: waMentionId || undefined,
+    }).catch(() => {});
   }
 
   // ── Continuation — resumes a reservation once Masar's OCR scan for one of
@@ -633,7 +713,7 @@ const WA_PIPELINE = (() => {
     const record = await getRecord(reservationNo);
     if (!record) {
       await pLog("warn", `Pipeline: OCR result came back for reservation ${reservationNo}, but no tracking record exists for it anymore — ignoring.`);
-      return;
+      return false;
     }
     const { waId, chatName, crm } = record;
 
@@ -643,6 +723,12 @@ const WA_PIPELINE = (() => {
       // unreadable scan shouldn't silently masquerade as a successful feed.
       // The "auto-reply asking for a clearer photo" half of that plan isn't
       // built yet — flagged, not silently skipped.
+      // Remembered on the record so group creation can say plainly how many
+      // photos were fed to Masar without ever being identified — those
+      // people can't be selected into the group (no passport number to match
+      // a row by), and that must never pass silently.
+      const unread = Array.from(new Set([...(record.unreadMessageIds || []), messageId].filter(Boolean)));
+      await saveRecord(reservationNo, { unreadMessageIds: unread });
       await pLog("warn", `Pipeline: OCR couldn't read a passport number for reservation ${reservationNo}'s photo (message ${messageId}${scan.blurry ? ", flagged blurry" : ""}) — needs manual review; not counted toward this booking's pax.`);
       // Previously this only showed up if someone happened to be reading
       // Pipeline Logs — a real gap, since a bad/blurry photo otherwise just
@@ -656,7 +742,14 @@ const WA_PIPELINE = (() => {
           mentionWaId: waMentionId,
         }).catch(() => {});
       }
-      return;
+      return false;
+    }
+
+    // Same passport already tracked for this reservation (a duplicate photo, a
+    // PDF page repeating it, a retry) — never track or feed a person twice.
+    if ((record.mutamers || []).some((m) => m.passportNo === scan.passportNo)) {
+      await pLog("info", `Pipeline: passport ${scan.passportNo} is already tracked for reservation ${reservationNo} — not adding it again.`);
+      return false;
     }
 
     // 3) Passport-reuse / conflict check — keyed by passport number, now
@@ -667,7 +760,7 @@ const WA_PIPELINE = (() => {
       if (priorRecord && priorRecord.status === "confirmed") {
         await pLog("error", `Pipeline: CONFLICT — passport ${scan.passportNo} is already attached to a DIFFERENT confirmed reservation (${priorReservation}) — flagging for manual review, not auto-processing reservation ${reservationNo}.`);
         await saveRecord(reservationNo, { status: "conflict", conflictWith: priorReservation });
-        return;
+        return false;
       }
       // Prior reservation wasn't confirmed (e.g. cancelled) — legitimate
       // rebooking. Renaming the existing Masar group for this case isn't
@@ -687,6 +780,7 @@ const WA_PIPELINE = (() => {
     // 5) Queue this passport for confirmation instead of deciding readiness
     // here — see pushConfirmQueue's comment for the full reasoning.
     await pushConfirmQueue({ reservationNo, messageId, passportNo: scan.passportNo });
+    return true;
   }
 
   // ── Group creation + reply, split out of the old continueAfterMasarScan
@@ -713,6 +807,15 @@ const WA_PIPELINE = (() => {
     }
     await saveRecord(reservationNo, { groupName, groupCreatedAt: Date.now() });
     await pLog("info", `Pipeline: created Masar group "${groupName}" for reservation ${reservationNo}`);
+
+    const unreadCount = (record.unreadMessageIds || []).length;
+    if (unreadCount) {
+      const inGroup = (mutamers || []).filter((m) => m.passportNo).length;
+      const notice = `Reservation ${reservationNo}: group created with ${inGroup} mutamer(s), but ${unreadCount} photo(s) were fed to Masar without their passport being read — please add them to the group manually.`;
+      await pLog("warn", `Pipeline: ${notice}`);
+      const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+      if (waMentionId) await sendReply(waId, { text: notice, mentionWaId: waMentionId }).catch(() => {});
+    }
 
     // Screenshot + caption, then reply in the originating chat.
     let assets;

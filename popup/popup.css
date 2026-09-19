@@ -2340,3 +2340,59 @@ html.as-panel .ac-list { max-height: none; }
 .mg-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 9.5px; color: var(--text-sub); padding: 0 1px; }
 .mg-type { font-weight: 600; }
 .mg-empty { text-align: center; color: var(--text-sub); font-size: 12px; padding: 30px 0; }
+
+/* ── Tools tab: radio pills + checkboxes (replace the old dropdowns) ───── */
+.ft-radio-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.ft-radio-group.ft-radio-stack { flex-direction: column; align-items: stretch; }
+.ft-radio { position: relative; display: inline-flex; margin: 0 !important; cursor: pointer; }
+.ft-radio input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.ft-radio span {
+  display: inline-flex; align-items: center; width: 100%; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted);
+  font-size: 11.5px; font-weight: 600; line-height: 1.25; transition: border-color .12s, background .12s, color .12s, box-shadow .12s;
+}
+.ft-radio-stack .ft-radio span { border-radius: var(--radius-sm); padding: 8px 11px; }
+.ft-radio:hover span { border-color: var(--accent); color: var(--text); }
+.ft-radio input:checked + span { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.ft-radio input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ft-check { position: relative; display: flex !important; align-items: center; gap: 9px; margin: 0 !important; cursor: pointer; font-size: 12px !important; color: var(--text) !important; font-weight: 500 !important; }
+.ft-check input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+.ft-check-box {
+  flex: 0 0 auto; width: 17px; height: 17px; border-radius: 5px; border: 1.5px solid var(--border); background: var(--surface2);
+  display: inline-flex; align-items: center; justify-content: center; transition: background .12s, border-color .12s, box-shadow .12s;
+}
+.ft-check-box::after {
+  content: ""; width: 4.5px; height: 8.5px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) scale(0); margin-top: -2px;
+  transition: transform .12s;
+}
+.ft-check:hover .ft-check-box { border-color: var(--accent); }
+.ft-check input:checked + .ft-check-box { background: var(--accent); border-color: var(--accent); }
+.ft-check input:checked + .ft-check-box::after { transform: rotate(45deg) scale(1); }
+.ft-check input:focus-visible + .ft-check-box { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ft-check-text { line-height: 1.3; }
+.ft-fields .ft-check-field { padding: 2px 0; }
+
+/* ── Media Grabber: size range + side margins ──────────────────────────── */
+#mg-content > .mg-toolbar, #mg-content > .mg-filters, #mg-content > .mg-actions, #mg-content > .mg-grid, #mg-content > .mg-empty {
+  margin-left: 14px; margin-right: 14px;
+}
+.mg-range { margin-top: 10px; padding: 8px 10px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.mg-range-head { font-size: 10px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+.mg-range-head span { font-weight: 400; color: var(--text-sub); }
+.mg-range-row { display: flex; align-items: center; gap: 10px; }
+.mg-range-val { flex: 0 0 auto; min-width: 42px; text-align: center; font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.mg-range-track { position: relative; flex: 1; height: 22px; }
+.mg-range-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); box-sizing: border-box; }
+.mg-range-fill { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; background: var(--accent); }
+.mg-range-track input[type="range"] {
+  position: absolute; left: 0; top: 0; width: 100%; height: 22px; margin: 0; padding: 0; background: transparent;
+  -webkit-appearance: none; appearance: none; pointer-events: none;
+}
+.mg-range-track input[type="range"]::-webkit-slider-runnable-track { -webkit-appearance: none; background: transparent; height: 22px; }
+.mg-range-track input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; pointer-events: auto; cursor: grab; width: 16px; height: 16px; margin-top: 3px;
+  border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--shadow-sm);
+}
+.mg-range-track input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+.mg-range-track input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }

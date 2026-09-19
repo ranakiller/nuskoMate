@@ -14,7 +14,7 @@
 // the automation plan; kept in its own file rather than growing this one
 // further, given how much more is planned to land there (CRM lookup, Masar
 // feeding, group creation) as that pipeline gets built out.
-importScripts("modules/whatsapp-pipeline.js", "modules/whatsapp-automation.js");
+importScripts("modules/pipeline-ocr.js", "modules/whatsapp-pipeline.js", "modules/whatsapp-automation.js");
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg) return;

@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Nuskomate image prep</title>
+</head>
+<body>
+  <!-- Hidden helper page for the WhatsApp pipeline: the background service worker
+       has no canvas/DOM, so straightening, cleaning and PDF→image conversion
+       run here. Started on demand by modules/pipeline-ocr.js (chrome.offscreen). -->
+  <script src="raf-shim.js"></script>
+  <script src="../utils/image-prep.js"></script>
+  <script type="module" src="prep.js"></script>
+</body>
+</html>

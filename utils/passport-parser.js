@@ -464,13 +464,17 @@
 
   // Returns true when a string looks like a place: "CITY, PAK" / "CITY, PAKISTAN"
   // / bare "PAK" — i.e. the part after the comma is a known country code/word.
+  // Stray punctuation OCR leaves on the code ("WAZIRABAD, PAK." — real printed
+  // passports do have the trailing full stop) must not defeat the match, or the
+  // place-of-birth line gets read as the father/husband name.
   function isPlaceName(str) {
     if (!str) return false;
-    if (str.includes(",")) {
-      const last = str.split(",").pop().trim().toUpperCase();
+    const trimmed = str.replace(/[s,.;:]+$/, ""); // "MULTAN, PAK," -> "MULTAN, PAK"
+    if (trimmed.includes(",")) {
+      const last = trimmed.split(",").pop().replace(/[^A-Za-z ]/g, "").trim().toUpperCase();
       if (COUNTRY_CODES.has(last) || COUNTRY_WORDS.test(last)) return true;
     }
-    const t = str.trim().toUpperCase();
+    const t = str.replace(/[^A-Za-z ]/g, "").trim().toUpperCase();
     if (COUNTRY_CODES.has(t) || COUNTRY_WORDS.test(t)) return true; // bare code/name
     return false;
   }
@@ -491,9 +495,9 @@
   function extractPlaceOfBirth(lines) {
     for (const line of lines) {
       if (!line.includes(",") || !isPlaceName(line)) continue;
-      const parts = line.split(",").map(p => p.trim());
+      const parts = line.split(",").map(p => p.trim()).filter(Boolean);
       const city = parts[0].split(/\s+/).map(toTitleCase).join(" ");
-      const code = parts[parts.length - 1].toUpperCase();
+      const code = parts[parts.length - 1].replace(/[^A-Za-z ]/g, "").trim().toUpperCase();
       if (/^[A-Za-z]/.test(city)) return code ? `${city}, ${code}` : city;
     }
     return "";

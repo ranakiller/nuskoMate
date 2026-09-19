@@ -80,9 +80,9 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
             <span>Package</span>
           </button>
-          <button class="tab" data-tab="filetools" title="PDF-JPG Tools">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="12" y2="11"/></svg>
-            <span>PDF-JPG</span>
+          <button class="tab" data-tab="filetools" title="Tools — image &amp; PDF utilities">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            <span>Tools</span>
           </button>
           <button class="tab" data-tab="media" title="Media Grabber">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -671,7 +671,7 @@
       </div>
     </div>
 
-    <!-- Section: remove.bg (JPG & PDF Tools > Remove Background) -->
+    <!-- Section: remove.bg (Tools > BG Remover) -->
     <div class="section" id="removebg-key-section">
       <div class="section-title">Background Removal</div>
       <div class="field-group">
@@ -688,7 +688,7 @@
         <input type="text" id="removebg-api-key" class="field-input"
           placeholder="Paste your own remove.bg API key" autocomplete="off" />
         <a href="https://www.remove.bg/api" target="_blank" rel="noopener noreferrer" id="removebg-key-hint" class="ocr-key-hint">Don't have one? Get a free key at remove.bg →</a>
-        <div class="k-hint">Required for PDF-JPG Tools &gt; Remove Background. Free tier is limited — see remove.bg's own pricing.</div>
+        <div class="k-hint">Required for Tools &gt; BG Remover. Free tier is limited — see remove.bg's own pricing.</div>
       </div>
     </div>
 
@@ -1692,7 +1692,7 @@
       <div class="premium-upsell-icon">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       </div>
-      <div class="premium-upsell-title">PDF-JPG Tools is a premium tool</div>
+      <div class="premium-upsell-title">Tools is a premium tool</div>
       <div class="premium-upsell-text">Convert, merge, split and compress images and PDFs — entirely on your device, nothing uploaded anywhere. Enter your activation key in <b>Settings</b> to unlock it.</div>
       <button id="ft-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
     </div>
@@ -1762,14 +1762,6 @@
           <div class="mg-type-chips" id="mg-type-chips"></div>
           <div class="mg-filter-row">
             <input type="text" id="mg-ext-filter" class="email-input mg-ext-input" placeholder="Filter by extension, e.g. pdf, webp" autocomplete="off" spellcheck="false" />
-            <label class="mg-size-filter" title="Hide images/video smaller than this in either dimension. Set to 0 to include tiny images too.">
-              Min (px)
-              <input type="number" id="mg-min-size" min="0" step="1" value="32" />
-            </label>
-            <label class="mg-size-filter" title="Hide images/video larger than this in either dimension. Leave blank for no upper limit.">
-              Max (px)
-              <input type="number" id="mg-max-size" min="0" step="1" placeholder="&mdash;" />
-            </label>
             <select id="mg-sort" class="mg-sort-select" title="Sort order">
               <option value="found">Order found</option>
               <option value="type">Type</option>
@@ -1777,6 +1769,18 @@
               <option value="largest">Largest first (px)</option>
               <option value="smallest">Smallest first (px)</option>
             </select>
+          </div>
+          <div class="mg-range" title="Hide images/video outside this size range, measured on either side. Drag the left handle up to hide tiny icons, the right handle down to hide huge ones; all the way right means no upper limit.">
+            <div class="mg-range-head">Size range <span>(px, either side)</span></div>
+            <div class="mg-range-row">
+              <span class="mg-range-val" id="mg-range-min-val">32</span>
+              <div class="mg-range-track">
+                <div class="mg-range-fill" id="mg-range-fill"></div>
+                <input type="range" id="mg-min-size" min="0" max="1000" step="1" value="89" aria-label="Minimum size in pixels" />
+                <input type="range" id="mg-max-size" min="0" max="1000" step="1" value="1000" aria-label="Maximum size in pixels" />
+              </div>
+              <span class="mg-range-val" id="mg-range-max-val">4000+</span>
+            </div>
           </div>
         </div>
 
@@ -1885,6 +1889,7 @@
          it still runs as a normal deferred script and can freely read the
          window.* globals every other popup script exposes (nkToast, etc). -->
     <script src="../utils/pdf-lib.min.js"></script>
+    <script src="../utils/image-prep.js"></script>
     <script type="module" src="file-tools.js"></script>
     <script src="media-grabber.js"></script>
   </body>

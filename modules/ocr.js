@@ -158,15 +158,46 @@
     log.info("[Nuskomate OCR] detected upload:", file.name);
     toast("Scanning passport…", "neutral");
 
+    // A scan that ERRORS (server refused, no API key, network/OCR failure)
+    // used to write nothing at all — so the WhatsApp pipeline, which learns
+    // each fed passport's result from this ocrDisplay write (relayed by
+    // masar-add-mutamer.js), never heard back for that photo: it stayed
+    // "in flight" forever and shifted its feed-order matching for every
+    // later photo. Publishing an empty result (no passport number) makes the
+    // failure visible to it exactly like a blurry/unreadable scan.
+    const publishFailedScan = () => {
+      chrome.storage.local.set({
+        ocrDisplay: JSON.stringify({ details: {}, nameBoxes: ["", "", "", ""], mrzValid: false, blurry: false, failed: true, scannedAt: Date.now() }),
+      });
+    };
+
+    // The WhatsApp pipeline reads each passport ONCE itself (background) and
+    // hands the finished result over with the cleaned image — use it instead of
+    // OCR-ing the same photo again (see modules/masar-add-mutamer.js's
+    // queuePassport for where it's stored; keyed by name+size).
+    const prefillKey = `${file.name}_${file.size}`;
+    const prefillEntry = await new Promise((resolve) => {
+      chrome.storage.local.get(["nkOcrPrefill"], (x) => {
+        const all = (x && x.nkOcrPrefill) || {};
+        const entry = all[prefillKey] || null;
+        if (entry) { delete all[prefillKey]; chrome.storage.local.set({ nkOcrPrefill: all }); }
+        resolve(entry);
+      });
+    });
+
     try {
       let data, raw = "";
 
-      if (window.NkLicense && window.NkLicense.enforced()) {
+      if (prefillEntry && prefillEntry.scan) {
+        data = prefillEntry.scan;
+        log.info("[Nuskomate OCR] using the pipeline's pre-read result — no second OCR for", file.name);
+      } else if (window.NkLicense && window.NkLicense.enforced()) {
         // ── Licensed mode: the server validates the key, OCRs, AND parses ──
         const r = await window.NkLicense.scan(file, "ocr");
         if (!r.ok) {
           toast("✗ " + (r.error || "Scan refused"), "err");
           log.warn("[Nuskomate OCR] server scan refused:", r.error);
+          publishFailedScan();
           return;
         }
         data = r.result;
@@ -179,6 +210,7 @@
         if (!apiKey) {
           toast("✗ Please add your ocr.space API key in Settings to use OCR", "err");
           log.warn("[Nuskomate OCR] no local API key set — scan refused");
+          publishFailedScan();
           return;
         }
         const text = await callOCR(file, apiKey);
@@ -187,22 +219,27 @@
         data = parsePassport(text);
         log.info("[Nuskomate OCR] parsed:", data);
 
-        // Rescue pass: only if the original scan failed the quality gate, try an
-        // enhanced (black-on-white) version; keep whichever result is better.
+        // Rescue pass: only if the original scan failed the quality gate, retry
+        // on a straightened + text-enhanced copy (utils/image-prep.js — the same
+        // code as the JPG tools' Straightener/Enhancer): Gentle first, then
+        // Strong (bold black-on-white) if still weak. Keeps whichever result is
+        // better. Each retry is one more OCR call, so this only runs on a weak scan.
         if (!scanIsGood(data)) {
-          log.info("[Nuskomate OCR] original scan weak → trying enhanced image");
-          const enhanced = await preprocessImage(file);
-          if (enhanced) {
+          for (const mode of ["gentle", "strong"]) {
+            log.info(`[Nuskomate OCR] scan weak → retrying on ${mode} enhanced image`);
+            const enhanced = await enhancedFile(file, mode);
+            if (!enhanced) continue; // couldn't build/size this version — try the next mode
             try {
               const text2 = await callOCR(enhanced, apiKey);
               const data2 = parsePassport(text2);
               const better = pickBetterScan(data, data2);
               if (better === data2) raw = text2;
               data = better;
-              log.info("[Nuskomate OCR] using", data === data2 ? "ENHANCED" : "ORIGINAL", "result");
+              log.info(`[Nuskomate OCR] using ${data === data2 ? mode.toUpperCase() + " ENHANCED" : "ORIGINAL"} result`);
             } catch (e2) {
-              log.warn("[Nuskomate OCR] enhanced pass failed:", e2.message);
+              log.warn(`[Nuskomate OCR] ${mode} enhanced pass failed:`, e2.message);
             }
+            if (scanIsGood(data)) break;
           }
         }
       }
@@ -214,6 +251,7 @@
           nameBoxes: data.nameBoxes || ["", "", "", ""],
           mrzValid:  !!data.mrzValid,
           blurry:    !!data.blurry,
+          prefilled: !!(prefillEntry && prefillEntry.scan),
           scannedAt: Date.now(),
         }),
       });
@@ -235,11 +273,27 @@
           toast(`✓ Passport scanned${clip}`, "ok");
         }
       } else {
-        toast("⚠ No passport data found — try a clearer image", "warn");
+        // Slightly blurry photo: the MRZ (so nationality) often reads fine while
+        // the name boxes come back empty. The nationality is still published
+        // (ocrDisplay above) and Autofill already uses it for Birth Country —
+        // the city box must follow the same nationality instead of staying
+        // blank just because no names were extracted. fillCity() only needs
+        // scanned.details, so run it on its own for this case.
+        const code = data.details && (data.details.issuingCountry || data.details.nationality);
+        if (code) {
+          scanned = { details: data.details, birthCity: data.birthCity || "" };
+          clearInterval(extrasTimer);
+          extrasTimer = setInterval(() => { fillCity(); }, 1000);
+          setTimeout(() => clearInterval(extrasTimer), 180000);
+          toast("⚠ Names unreadable — city filled from nationality; verify the rest", "warn");
+        } else {
+          toast("⚠ No passport data found — try a clearer image", "warn");
+        }
       }
     } catch (err) {
       log.error("[Nuskomate OCR] error:", err);
       toast("✗ OCR failed: " + err.message, "err");
+      publishFailedScan();
     }
   }
 
@@ -405,7 +459,7 @@
     // Use the read place-of-birth city; otherwise fall back to the passport's
     // own country (GBR → "United Kingdom", PAK → "Pakistan", …). Unknown country
     // code → leave the field for the user rather than guessing.
-    const code = scanned.details && scanned.details.issuingCountry;
+    const code = scanned.details && (scanned.details.issuingCountry || scanned.details.nationality);
     const country = window.NkCountries ? window.NkCountries.name(code) : "";
     const city = scanned.birthCity || country || "";
     if (!city) return;
@@ -575,87 +629,27 @@
   }
 
   // ── Image enhancement (rescue pass) ─────────────────────────
-  // Upscale → grayscale → Otsu auto-threshold to produce crisp black text on
-  // white, dropping colour/graphics. Returns a PNG File, or null on any error
-  // (so the caller can safely fall back to the original image).
-  function preprocessImage(file) {
-    return new Promise((resolve) => {
-      let url;
-      try {
-        url = URL.createObjectURL(file);
-      } catch (_) { return resolve(null); }
-
-      const img = new Image();
-      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
-      img.onload = () => {
-        try {
-          // Upscale small scans (helps thin strokes) but cap the long edge
-          const longEdge = Math.max(img.width, img.height) || 1;
-          const scale = Math.max(1, Math.min(2, 2400 / longEdge));
-          const w = Math.round(img.width * scale);
-          const h = Math.round(img.height * scale);
-
-          const canvas = document.createElement("canvas");
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, w, h);
-
-          const imageData = ctx.getImageData(0, 0, w, h);
-          const d = imageData.data;
-
-          // Grayscale + build histogram for Otsu
-          const gray = new Uint8ClampedArray(w * h);
-          const hist = new Array(256).fill(0);
-          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-            const g = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
-            gray[p] = g;
-            hist[g]++;
-          }
-
-          const t = otsuThreshold(hist, w * h);
-
-          // Apply threshold → pure black text on white
-          for (let i = 0, p = 0; i < d.length; i += 4, p++) {
-            const v = gray[p] < t ? 0 : 255;
-            d[i] = d[i + 1] = d[i + 2] = v;
-            d[i + 3] = 255;
-          }
-          ctx.putImageData(imageData, 0, 0);
-
-          canvas.toBlob((blob) => {
-            URL.revokeObjectURL(url);
-            if (!blob) return resolve(null);
-            resolve(new File([blob], "scan.png", { type: "image/png" }));
-          }, "image/png");
-        } catch (_) {
-          URL.revokeObjectURL(url);
-          resolve(null);
-        }
-      };
-      img.src = url;
-    });
+  // Straightens (sideways/upside-down/tilted) and text-enhances a copy of the
+  // photo via utils/image-prep.js. Sized to stay under ocr.space's 1MB upload
+  // limit (JPEG for Gentle, PNG for the compact black-on-white Strong).
+  // Returns a File, or null on any error so the caller can just move on.
+  async function enhancedFile(file, mode) {
+    const P = window.NkImagePrep;
+    if (!P) return null;
+    try {
+      const { canvas } = await P.prepareForOcr(file, { trim: false });
+      const enhanced = P.enhanceForOcr(canvas, { mode, minLongEdge: 1800, maxLongEdge: 2400 });
+      if (mode === "strong") {
+        return new File([await P.canvasToBlob(enhanced, "image/png")], "scan.png", { type: "image/png" });
+      }
+      for (const q of [0.9, 0.8, 0.7, 0.6]) {
+        const blob = await P.canvasToBlob(enhanced, "image/jpeg", q);
+        if (blob.size <= 950000) return new File([blob], "scan.jpg", { type: "image/jpeg" });
+      }
+      return null;
+    } catch (_) { return null; }
   }
 
-  // Otsu's method — optimal global threshold for a bimodal (text/background) image
-  function otsuThreshold(hist, total) {
-    let sum = 0;
-    for (let i = 0; i < 256; i++) sum += i * hist[i];
-    let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
-    for (let i = 0; i < 256; i++) {
-      wB += hist[i];
-      if (wB === 0) continue;
-      const wF = total - wB;
-      if (wF === 0) break;
-      sumB += i * hist[i];
-      const mB = sumB / wB;
-      const mF = (sum - sumB) / wF;
-      const between = wB * wF * (mB - mF) * (mB - mF);
-      if (between > maxVar) { maxVar = between; threshold = i; }
-    }
-    return threshold;
-  }
-
-  // Is a parse good enough that we don't need the rescue pass?
   function scanIsGood(data) {
     return !!(data && data.mrzValid && data.nameBoxes?.some((b) => b));
   }

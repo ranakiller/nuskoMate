@@ -29,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bulk: "Bulk Parser",
     reload: "Auto Reload",
     overlay: "Disable Overlay",
-    filetools: "PDF-JPG Tools",
+    filetools: "Tools",
     mediagrabber: "Media Grabber",
   };
   // Tools grouped the way they appear in the extension. Each group header is a

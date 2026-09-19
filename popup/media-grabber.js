@@ -222,15 +222,30 @@
       });
     }
 
+    // The size filter is ONE dual-handle range. Slider units are non-linear
+    // (finer near zero, where the interesting sizes are — 32px icons vs 4000px
+    // photos) so a short track still allows precise small values.
+    const SLIDER_MAX = 1000, PX_MAX = 4000;
+    const sliderToPx = (v) => Math.round(PX_MAX * Math.pow(Number(v) / SLIDER_MAX, 2));
+    const rangeFill = document.getElementById("mg-range-fill");
+    const rangeMinVal = document.getElementById("mg-range-min-val");
+    const rangeMaxVal = document.getElementById("mg-range-max-val");
+    function syncRangeUi() {
+      const lo = Number(minSizeInput.value), hi = Number(maxSizeInput.value);
+      if (rangeFill) { rangeFill.style.left = (lo / SLIDER_MAX * 100) + "%"; rangeFill.style.right = (100 - hi / SLIDER_MAX * 100) + "%"; }
+      if (rangeMinVal) rangeMinVal.textContent = sliderToPx(lo);
+      if (rangeMaxVal) rangeMaxVal.textContent = hi >= SLIDER_MAX ? PX_MAX + "+" : sliderToPx(hi);
+      // Whichever handle is on top must stay grabbable when both sit at the same end.
+      minSizeInput.style.zIndex = lo > SLIDER_MAX * 0.9 ? 3 : 2;
+    }
     function passesFilters(item) {
       if (activeTypes && !activeTypes.has(item.type)) return false;
       const extFilter = extFilterInput.value.trim().replace(/^\./, "").toLowerCase();
       if (extFilter && !extOf(item).includes(extFilter)) return false;
-      const minSize = Math.max(0, parseInt(minSizeInput.value, 10) || 0);
+      const minSize = sliderToPx(minSizeInput.value);
       if (minSize > 0 && item.width && item.height && (item.width < minSize || item.height < minSize)) return false;
-      const maxRaw = maxSizeInput.value.trim();
-      if (maxRaw) {
-        const maxSize = Math.max(0, parseInt(maxRaw, 10) || 0);
+      if (Number(maxSizeInput.value) < SLIDER_MAX) { // slider fully right = no upper limit
+        const maxSize = sliderToPx(maxSizeInput.value);
         if (item.width && item.height && (item.width > maxSize || item.height > maxSize)) return false;
       }
       return true;
@@ -374,8 +389,15 @@
       applyFiltersAndSort();
     });
     extFilterInput.addEventListener("input", applyFiltersAndSort);
-    minSizeInput.addEventListener("input", applyFiltersAndSort);
-    maxSizeInput.addEventListener("input", applyFiltersAndSort);
+    minSizeInput.addEventListener("input", () => {
+      if (Number(minSizeInput.value) > Number(maxSizeInput.value)) maxSizeInput.value = minSizeInput.value; // handles can meet, never cross
+      syncRangeUi(); applyFiltersAndSort();
+    });
+    maxSizeInput.addEventListener("input", () => {
+      if (Number(maxSizeInput.value) < Number(minSizeInput.value)) minSizeInput.value = maxSizeInput.value;
+      syncRangeUi(); applyFiltersAndSort();
+    });
+    syncRangeUi();
     sortSelect.addEventListener("change", applyFiltersAndSort);
 
     async function scan() {

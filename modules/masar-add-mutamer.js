@@ -105,6 +105,18 @@
     await goToAddMutamerPage();
     const items = Array.isArray(msg.files) ? msg.files : [{ dataUrl: msg.dataUrl, filename: msg.filename }];
     const files = await Promise.all(items.map((it) => dataUrlToFile(it.dataUrl, it.filename)));
+    // A file that arrives with `scan` was already read by the pipeline — stash
+    // that result where modules/ocr.js will find it (by name+size; storage, not
+    // memory, since queued files survive a page reload) so the page fills the
+    // form from it instead of OCR-ing the same photo a second time.
+    const prefill = {};
+    items.forEach((it, i) => { if (it.scan) prefill[`${files[i].name}_${files[i].size}`] = { scan: it.scan, at: Date.now() }; });
+    if (Object.keys(prefill).length) {
+      const { nkOcrPrefill } = await chrome.storage.local.get(["nkOcrPrefill"]);
+      const fresh = {};
+      for (const [k, v] of Object.entries(nkOcrPrefill || {})) if (v && Date.now() - v.at < 3600000) fresh[k] = v; // drop anything unclaimed for an hour
+      await chrome.storage.local.set({ nkOcrPrefill: { ...fresh, ...prefill } });
+    }
     if (typeof window.nkBatchFeedOrQueue !== "function") {
       throw new Error("Bulk Passport Parser isn't available on this page (module off, or batch-passport.js didn't load) — can't queue this passport.");
     }
@@ -134,6 +146,7 @@
     let parsed;
     try { parsed = JSON.parse(changes.ocrDisplay.newValue); } catch (_) { parsed = null; }
     if (!parsed) return;
+    if (parsed.prefilled) return; // the pipeline already read this one itself and tracked it — nothing to relay
     const scannedAt = parsed.scannedAt || Date.now();
     if (scannedAt === lastRelayedScannedAt) return;
     lastRelayedScannedAt = scannedAt;
