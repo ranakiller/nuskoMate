@@ -243,6 +243,25 @@
   // manually checking this page on their own is never redirected away from
   // it; only genuinely automated, Nuskomate-initiated feeds get this
   // treatment.
+  // Reads the Mutamer List grid's real rows (confirmed markup, 2026-09-20): each
+  // <tr> has <td id="passportNumber"> and <td id="isCompleted:name"> whose badge
+  // reads "Completed" or "Not Completed". Returns Map passportNo → { completed, status }.
+  // A person only counts as ready when Masar itself says Completed — a row that
+  // merely EXISTS (saved but with required data still missing) is not enough,
+  // because a group made from incomplete mutamers can't be relied on.
+  function readMutamerRows() {
+    const rows = new Map();
+    document.querySelectorAll('td[id="passportNumber"]').forEach((td) => {
+      const pno = (td.textContent || "").replace(/\s+/g, " ").trim();
+      const tr = td.closest("tr");
+      if (!pno || !tr) return;
+      const statusTd = tr.querySelector('td[id="isCompleted:name"]');
+      const status = ((statusTd && statusTd.textContent) || "").replace(/\s+/g, " ").trim();
+      rows.set(pno, { completed: /^completed$/i.test(status), status: status || "(no status column)" });
+    });
+    return rows;
+  }
+
   const CONFIRM_QUEUE_KEY = "waMasarConfirmQueue";
   let checkingConfirmations = false;
   async function checkMutamerListConfirmations() {
@@ -252,6 +271,7 @@
       const { [CONFIRM_QUEUE_KEY]: pending } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
       let list = Array.isArray(pending) ? pending : [];
       const confirmedByReservation = {};
+      const incompleteByReservation = {}; // saved on the list but Masar says "Not Completed"
 
       // Retry a few times over a few seconds instead of one snapshot check —
       // confirmed live that a single check right after landing here could
@@ -262,15 +282,19 @@
       // nothing to do) — no point waiting on text that was never going to
       // appear.
       if (list.length) {
+        await setPageSizeTo100().catch(() => {}); // best effort — otherwise a person on page 2 looks "missing"
         for (let attempt = 0; attempt < 4 && list.length; attempt++) {
           await sleep(attempt === 0 ? 800 : 1200);
-          const bodyText = document.body.innerText;
+          const rows = readMutamerRows();
           const stillPending = [];
+          for (const k of Object.keys(incompleteByReservation)) delete incompleteByReservation[k]; // only the LATEST look counts
           for (const entry of list) {
-            if (entry.passportNo && bodyText.includes(entry.passportNo)) {
-              wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved`);
+            const row = entry.passportNo ? rows.get(entry.passportNo) : null;
+            if (row && row.completed) {
+              wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved and Completed`);
               (confirmedByReservation[entry.reservationNo] ||= []).push(entry);
             } else {
+              if (row) (incompleteByReservation[entry.reservationNo] ||= []).push({ passportNo: entry.passportNo, status: row.status });
               stillPending.push(entry);
             }
           }
@@ -293,11 +317,16 @@
       // purely driven by this real queue state).
       const stillQueued = typeof window.nkBatchQueueCount === "function" ? await window.nkBatchQueueCount() : 0;
 
-      for (const [reservationNo, entries] of Object.entries(confirmedByReservation)) {
+      // One message per reservation carrying BOTH what is now Completed and
+      // what is saved-but-Not-Completed, so the pipeline can hold the group
+      // until every tracked person is Completed.
+      const reservations = new Set([...Object.keys(confirmedByReservation), ...Object.keys(incompleteByReservation)]);
+      for (const reservationNo of reservations) {
         chrome.runtime.sendMessage({
           type: "nkMasarMutamerConfirmed",
           reservationNo,
-          confirmations: entries.map((e) => ({ messageId: e.messageId, passportNo: e.passportNo })),
+          confirmations: (confirmedByReservation[reservationNo] || []).map((e) => ({ messageId: e.messageId, passportNo: e.passportNo })),
+          incomplete: incompleteByReservation[reservationNo] || [],
           stillQueued: stillQueued > 0,
         }).catch(() => {});
       }
@@ -305,7 +334,7 @@
       if (stillQueued > 0) {
         await goToAddMutamerPage().catch(() => {});
       } else if (list.length) {
-        wlog(`${list.length} passport(s) still not visible on the Mutamer List after retrying — leaving them pending; check manually if this persists.`);
+        wlog(`${list.length} passport(s) still pending (not on the list yet, or not marked Completed) after retrying — leaving them pending; check manually if this persists.`);
       }
     } finally {
       checkingConfirmations = false;

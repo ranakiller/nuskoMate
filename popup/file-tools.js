@@ -289,7 +289,7 @@ async function pdfFromJpegPages(jpegPages) {
 // Skew detection, arbitrary-angle rotation, whitespace trimming, orientation
 // detection and OCR enhancement all live in utils/image-prep.js (loaded by
 // popup.html before this module) so the WhatsApp pipeline can reuse them.
-const { detectSkewAngle, rotateCanvasByAngle, detectContentBounds, detectDocumentBounds } = window.NkImagePrep;
+const { detectSkewAngle, rotateCanvasByAngle, detectContentBounds, chooseDocumentRect } = window.NkImagePrep;
 
 // ── Icons (feather-style, matches the rest of the extension) ──────────────
 const ICONS = {
@@ -860,7 +860,7 @@ const TOOLS = [
           // Uniform blank margins first; if there are none (a phone screenshot with
           // a status bar / overlay around the document) fall back to finding the
           // colourful document block itself.
-          const rect = detectContentBounds(flat, { tolerance: 20 }) || detectDocumentBounds(flat);
+          const rect = detectContentBounds(flat, { tolerance: 20 }) || chooseDocumentRect(flat);
           if (!rect) throw new Error(`${file.name} has no blank margin to trim and no clear document to crop to (or is blank all over)`);
           const { blob, ext } = await cropImageToRect(file, rect);
           out.push({ name: `${baseName(file.name)}-trimmed.${ext}`, blob });

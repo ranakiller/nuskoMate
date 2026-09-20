@@ -223,7 +223,7 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
   // find the biggest block of rows and columns with real colour in them.
   // Returns a rect in SOURCE pixels, or null when nothing colourful stands out
   // (a black-and-white scan) or the colour fills nearly the whole frame.
-  function detectDocumentBounds(sourceCanvas) {
+  function detectDocumentBounds(sourceCanvas, { grow = true } = {}) {
     const maxDim = 600;
     const scale = Math.min(1, maxDim / Math.max(sourceCanvas.width, sourceCanvas.height));
     const w = Math.max(1, Math.round(sourceCanvas.width * scale)), h = Math.max(1, Math.round(sourceCanvas.height * scale));
@@ -232,10 +232,12 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
     ctx.drawImage(sourceCanvas, 0, 0, w, h);
     const { data } = ctx.getImageData(0, 0, w, h);
     const mask = new Uint8Array(w * h);
+    const dark = new Uint8Array(w * h); // real ink (black text, barcode) — used to extend the block
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
       if (mx > 70 && (mx - mn) / mx > 0.08) mask[p] = 1;
+      if (0.299 * r + 0.587 * g + 0.114 * b < 135) dark[p] = 1;
     }
     // Longest run of indices with value >= thr, tolerating short gaps.
     const longestRun = (vals, thr, maxGap) => {
@@ -258,6 +260,48 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
     for (let x = 0; x < w; x++) { let n = 0; for (let y = rows.start; y <= rows.end; y++) n += mask[y * w + x]; colFrac[x] = n / (rows.end - rows.start + 1); }
     const cols = longestRun(colFrac, 0.10, Math.max(2, Math.round(w * 0.03)));
     if (!cols || cols.end - cols.start < w * 0.12) return null;
+    // The colourful block is only the CORE of a passport page: the MRZ zone at
+    // the bottom is pale cream with black text, so it has almost no colour and
+    // would be cut off. Grow the block outward through rows/columns that still
+    // contain real ink, bridging small blank gaps (the space between the
+    // barcode and the MRZ) but stopping at a wide blank band — which is what
+    // separates a document from a screenshot's status bar or overlay.
+    if (!grow) {
+      // tight block only (no ink growth, no padding) — see chooseDocumentRect
+      const areaT = ((rows.end - rows.start + 1) * (cols.end - cols.start + 1)) / (w * h);
+      if (areaT > 0.97 || areaT < 0.15) return null;
+      const invT = 1 / scale;
+      return {
+        x: Math.max(0, Math.floor(cols.start * invT)), y: Math.max(0, Math.floor(rows.start * invT)),
+        width: Math.min(sourceCanvas.width, Math.ceil((cols.end - cols.start + 1) * invT)),
+        height: Math.min(sourceCanvas.height, Math.ceil((rows.end - rows.start + 1) * invT)),
+      };
+    }
+    const inkGap = (len) => Math.max(3, Math.round(len * 0.05));
+    const rowInk = (y) => { let n = 0; for (let x = cols.start; x <= cols.end; x++) n += dark[y * w + x]; return n / (cols.end - cols.start + 1); };
+    const growRows = (from, step) => {
+      let last = from, gap = 0;
+      for (let y = from + step; y >= 0 && y < h; y += step) {
+        if (rowInk(y) >= 0.012) { last = y; gap = 0; } else if (++gap > inkGap(h)) break;
+      }
+      return last;
+    };
+    rows.start = growRows(rows.start, -1);
+    rows.end = growRows(rows.end, 1);
+    const colInk = (x) => { let n = 0; for (let y = rows.start; y <= rows.end; y++) n += dark[y * w + x]; return n / (rows.end - rows.start + 1); };
+    const growCols = (from, step) => {
+      let last = from, gap = 0;
+      for (let x = from + step; x >= 0 && x < w; x += step) {
+        if (colInk(x) >= 0.012) { last = x; gap = 0; } else if (++gap > inkGap(w)) break;
+      }
+      return last;
+    };
+    cols.start = growCols(cols.start, -1);
+    cols.end = growCols(cols.end, 1);
+    // Breathing room: the outermost text/rows fade out, so a tight edge would clip them.
+    const padY = Math.round(h * 0.025), padX = Math.round(w * 0.025);
+    rows.start = Math.max(0, rows.start - padY); rows.end = Math.min(h - 1, rows.end + padY);
+    cols.start = Math.max(0, cols.start - padX); cols.end = Math.min(w - 1, cols.end + padX);
     const area = ((rows.end - rows.start + 1) * (cols.end - cols.start + 1)) / (w * h);
     if (area > 0.97 || area < 0.15) return null;
     const inv = 1 / scale;
@@ -266,6 +310,65 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
       width: Math.min(sourceCanvas.width, Math.ceil((cols.end - cols.start + 1) * inv)),
       height: Math.min(sourceCanvas.height, Math.ceil((rows.end - rows.start + 1) * inv)),
     };
+  }
+
+  // Two versions of the colour-based crop exist and neither is always right:
+  // the TIGHT block drops a screenshot's status bar/overlay but cuts a passport
+  // page's pale MRZ zone off the bottom; the GROWN block keeps the MRZ but on a
+  // screenshot also swallows the overlay. The MRZ is what actually matters, so
+  // pick whichever version leaves the MRZ most clearly visible (leaving the
+  // photo uncropped is also an option). Returns a rect, or null for "don't crop".
+  function chooseDocumentRect(canvas) {
+    const cropOf = (rect) => {
+      const c = makeCanvas(rect.width, rect.height);
+      c.getContext("2d").drawImage(canvas, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+      return c;
+    };
+    const mrzOf = (c) => { const o = detectOrientation(c); return o.method === "mrz" ? o : null; };
+    // The MRZ's two lines as a span of SOURCE-image rows (or columns).
+    const span = (o, W, H, offX, offY) => {
+      const { edge, lo, hi } = o.mrz;
+      if (edge === "bottom") return { axis: "y", a: offY + H * (1 - hi), b: offY + H * (1 - lo) };
+      if (edge === "top") return { axis: "y", a: offY + H * lo, b: offY + H * hi };
+      if (edge === "left") return { axis: "x", a: offX + W * lo, b: offX + W * hi };
+      return { axis: "x", a: offX + W * (1 - hi), b: offX + W * (1 - lo) };
+    };
+    const overlaps = (p, q) => {
+      if (p.axis !== q.axis) return false;
+      const inter = Math.min(p.b, q.b) - Math.max(p.a, q.a);
+      return inter >= 0.5 * Math.min(p.b - p.a, q.b - q.a);
+    };
+    const tight = detectDocumentBounds(canvas, { grow: false });
+    const grown = detectDocumentBounds(canvas, { grow: true });
+    const rects = [];
+    if (tight) rects.push(tight);
+    if (grown && (!tight || grown.width !== tight.width || grown.height !== tight.height || grown.x !== tight.x || grown.y !== tight.y)) rects.push(grown);
+    if (!rects.length) return null;
+
+    const orig = mrzOf(canvas);
+    const area = (r) => r.width * r.height;
+    const bySmallest = (list) => list.sort((p, q) => area(p) - area(q))[0];
+    if (!orig) {
+      // No MRZ in the photo as it is (a screenshot with chrome around it, say):
+      // a crop that reveals one is right; otherwise fall back to the roomier crop.
+      const revealing = rects.filter((r) => mrzOf(cropOf(r)));
+      return revealing.length ? bySmallest(revealing) : rects[rects.length - 1];
+    }
+    // The photo shows an MRZ. A crop is only acceptable if that same MRZ
+    // survives in it, where it was — a crop that cut the MRZ off leaves a
+    // different "MRZ-like" pair behind (the barcode and data rows), which must
+    // not be mistaken for it. If the crop's MRZ sits on a DIFFERENT edge, the
+    // original detection was probably chrome (a screenshot's toast) and the
+    // crop found the real one.
+    const origSpan = span(orig, canvas.width, canvas.height, 0, 0);
+    const ok = rects.filter((r) => {
+      const c = cropOf(r);
+      const o = mrzOf(c);
+      if (!o) return false;
+      if (o.turns !== orig.turns) return true;
+      return overlaps(origSpan, span(o, c.width, c.height, r.x, r.y));
+    });
+    return ok.length ? bySmallest(ok) : null;
   }
 
   // ══ Orientation (which way is up) ═══════════════════════════════════════
@@ -320,13 +423,14 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
 
   // How much the outer 35% along one edge looks like an MRZ block: two nearby
   // lines whose ink spans (nearly) the whole line length at moderate density.
-  function mrzEdgeScore(ink, w, h, edge) {
+  function mrzEdgeScore(ink, w, h, edge, geo) {
     const horizontal = edge === "bottom" || edge === "top";
     const along = horizontal ? w : h;
     const depthMax = horizontal ? h : w;
     const strip = Math.max(8, Math.floor(depthMax * 0.35));
     const SEG = 12;
     const raw = new Float32Array(strip);
+    const covArr = new Float32Array(strip);
     for (let d = 0; d < strip; d++) {
       let count = 0;
       const seg = new Uint16Array(SEG);
@@ -342,6 +446,7 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
       const segLen = along / SEG;
       let cov = 0;
       for (let k = 0; k < SEG; k++) if (seg[k] / segLen > 0.06) cov++;
+      covArr[d] = cov;
       raw[d] = (frac > 0.06 && frac < 0.55) ? frac * (cov / SEG) : 0;
     }
     const sm = new Float32Array(strip);
@@ -350,41 +455,45 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
       for (let k = -2; k <= 2; k++) { const i = d + k; if (i >= 0 && i < strip) { s += raw[i]; n++; } }
       sm[d] = s / n;
     }
+    // Work in whole TEXT LINES, not single pixel rows: a line is a contiguous
+    // run of depth rows whose ink density is a good fraction of the strongest
+    // line near the edge. An MRZ is then simply the two edge-most lines.
     const minGap = Math.max(4, Math.round(depthMax / 60));
     const maxGap = Math.max(minGap + 2, Math.round(depthMax * 0.09));
-    let best = 0, bestA = 0, bestB = 0, bestD = 0, bestD2 = 0;
-    // The pair must START close to the edge (an MRZ hugs it), so only look for
-    // first lines there — a denser block further in (a barcode, a photo, a
-    // paragraph) can't outscore the real MRZ and get it discarded.
-    const firstMax = Math.min(strip, Math.floor(depthMax * 0.2) + 1);
-    for (let d = 0; d < firstMax; d++) {
-      let other = 0, otherD = 0;
-      for (let g = minGap; g <= maxGap && d + g < strip; g++) if (sm[d + g] > other) { other = sm[d + g]; otherD = d + g; }
-      if (sm[d] + other > best) { best = sm[d] + other; bestA = sm[d]; bestB = other; bestD = d; bestD2 = otherD; }
+    const firstMax = Math.min(strip, Math.floor(depthMax * 0.2) + 1); // an MRZ hugs the edge
+    let m = 0;
+    for (let d = 0; d < firstMax; d++) if (sm[d] > m) m = sm[d];
+    if (m === 0) return 0;
+    const thr = m * 0.45;
+    const runs = [];
+    for (let d = 0; d < strip; d++) {
+      if (sm[d] >= thr) {
+        if (runs.length && runs[runs.length - 1].end === d - 1) runs[runs.length - 1].end = d;
+        else runs.push({ start: d, end: d });
+      }
     }
-    // An MRZ hugs the document's edge — the pair must start close to it. A
-    // block of body text that merely ENDS somewhere inside the strip (a
-    // paragraph with a bottom margin) sits further in and is not an MRZ.
-    if (best === 0) return 0;
-    // An MRZ is exactly TWO lines of matching strength. Ordinary paragraph
-    // text also looks "dense and full-width", but it has many comparable lines
-    // stacked up — reject anything with a third strong line, or with two
-    // lines of very different strength.
-    if (best === 0 || Math.min(bestA, bestB) / Math.max(bestA, bestB) < 0.6) return 0;
-    // Count separate strong LINES as contiguous runs, but only in the pair's
-    // own neighbourhood (up to a short way past the second line): an MRZ has
-    // exactly two, paragraph text has a third right behind them. Anything
-    // further in (a barcode block, the photo) isn't part of the question.
-    let strongLines = 0, inRun = false;
-    const strongThr = Math.max(bestA, bestB) * 0.6;
-    const windowEnd = Math.min(strip, Math.max(bestD, bestD2) + Math.round(depthMax * 0.06));
-    for (let d = 0; d < windowEnd; d++) {
-      const on = sm[d] >= strongThr;
-      if (on && !inRun) strongLines++;
-      inRun = on;
+    for (const r of runs) {
+      let c = 0, pk = 0;
+      for (let d = r.start; d <= r.end; d++) { c += covArr[d]; if (sm[d] > pk) pk = sm[d]; }
+      r.len = r.end - r.start + 1; r.cov = c / r.len; r.peak = pk;
     }
-    if (strongLines > 2) return 0;
-    return best;
+    // Text lines only: not a hairline (page border, rule), and running most of the length.
+    const lines = runs.filter((r) => r.len >= 4 && r.cov >= 8);
+    if (lines.length < 2) return 0;
+    const l1 = lines[0], l2 = lines[1];
+    if (l1.start > firstMax) return 0;                                          // must hug the edge
+    const gap = l2.start - l1.end;
+    if (gap < minGap || gap > maxGap) return 0;                                 // lines close together
+    if (Math.max(l1.len, l2.len) / Math.min(l1.len, l2.len) > 1.9) return 0;    // alike in thickness
+    if (Math.min(l1.peak, l2.peak) / Math.max(l1.peak, l2.peak) < 0.5) return 0; // and in strength
+    if (Math.abs(l1.cov - l2.cov) > 3) return 0;                                 // and in how much of the width they span
+    // Exactly two: reject when a THIRD thin text line follows right behind them
+    // (a paragraph). A much thicker dense block (a barcode) is not a text line.
+    const ref = (l1.len + l2.len) / 2;
+    const windowEnd = Math.min(strip, l2.end + Math.round(depthMax * 0.06));
+    if (lines.slice(2).some((r) => r.start <= windowEnd && r.len < ref * 1.4)) return 0;
+    if (geo) { geo.lo = l1.start / depthMax; geo.hi = (l2.end + 1) / depthMax; } // where the MRZ sits, as fractions of the image depth from this edge
+    return l1.peak + l2.peak;
   }
 
   // Rotates a mask by `turns` clockwise quarter turns (index remap only).
@@ -418,16 +527,17 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
   function detectOrientation(canvas) {
     const { w, h, gray } = grayScaled(canvas, 800);
     const ink = inkMask(gray, w, h);
+    const geos = { bottom: {}, right: {}, top: {}, left: {} };
     const scores = {
-      bottom: mrzEdgeScore(ink, w, h, "bottom"), right: mrzEdgeScore(ink, w, h, "right"),
-      top: mrzEdgeScore(ink, w, h, "top"), left: mrzEdgeScore(ink, w, h, "left"),
+      bottom: mrzEdgeScore(ink, w, h, "bottom", geos.bottom), right: mrzEdgeScore(ink, w, h, "right", geos.right),
+      top: mrzEdgeScore(ink, w, h, "top", geos.top), left: mrzEdgeScore(ink, w, h, "left", geos.left),
     };
     const TURNS = { bottom: 0, right: 1, top: 2, left: 3 }; // MRZ edge → turns that bring it to the bottom
     const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
     const bestEdge = ranked[0][0], best = ranked[0][1];
     const second = ranked[1][1];
     if (best >= 0.3 && best >= second * 1.3) {
-      return { turns: TURNS[bestEdge], confidence: Math.min(1, (best - second) / best), method: "mrz", detail: scores };
+      return { turns: TURNS[bestEdge], confidence: Math.min(1, (best - second) / best), method: "mrz", detail: scores, mrz: { edge: bestEdge, lo: geos[bestEdge].lo, hi: geos[bestEdge].hi } };
     }
     // No MRZ evidence (an ordinary document, or a photo too blurry/tilted to
     // show one). Text-shape cues for up-vs-down were tried and are NOT
@@ -614,7 +724,7 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
       // status bar / toast) by finding the colourful document block.
       const rect = detectContentBounds(canvas, { tolerance: 20 });
       if (rect && rect.width * rect.height >= canvas.width * canvas.height * 0.4) cropTo(rect);
-      const doc = detectDocumentBounds(canvas);
+      const doc = chooseDocumentRect(canvas); // never a crop that hides the MRZ
       if (doc && doc.width * doc.height >= canvas.width * canvas.height * 0.2) cropTo(doc);
     };
     trimNow(); // the MRZ only hugs the DOCUMENT's edge, so crop to the document before looking for it
@@ -632,7 +742,15 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
         const c = q ? rotateQuarter(canvas, q) : canvas;
         const sk = detectSkewAngle(c);
         if (!sk) continue;
-        const leveled = Math.abs(sk.angle) >= 0.3 ? rotateCanvasByAngle(c, c.width, c.height, sk.angle) : c;
+        let leveled = Math.abs(sk.angle) >= 0.3 ? rotateCanvasByAngle(c, c.width, c.height, sk.angle) : c;
+        // Levelling a tilted photo leaves blank corners, pushing the MRZ away
+        // from the canvas edge — crop them (uniform margins only) before looking.
+        const tight = detectContentBounds(leveled, { tolerance: 20 });
+        if (tight && tight.width * tight.height >= leveled.width * leveled.height * 0.4) {
+          const tc = makeCanvas(tight.width, tight.height);
+          tc.getContext("2d").drawImage(leveled, tight.x, tight.y, tight.width, tight.height, 0, 0, tight.width, tight.height);
+          leveled = tc;
+        }
         const o2 = detectOrientation(leveled);
         if (o2.method === "mrz") { chosen = { q, leveled, sk, o2 }; break; }
         if (q === 0) chosen = { q: 0, leveled, sk, o2 };
@@ -662,7 +780,7 @@ function detectContentBounds(sourceCanvas, { tolerance = 20 } = {}) {
   }
 
   window.NkImagePrep = {
-    detectOrientation, detectSkewAngle, rotateCanvasByAngle, rotateQuarter, detectContentBounds, detectDocumentBounds,
+    detectOrientation, detectSkewAngle, rotateCanvasByAngle, rotateQuarter, detectContentBounds, detectDocumentBounds, chooseDocumentRect,
     enhanceForOcr, prepareForOcr, toCanvas, canvasToBlob,
     _internals: { grayScaled, inkMask, mrzEdgeScore, rotateMask },
   };

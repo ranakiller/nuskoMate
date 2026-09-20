@@ -136,8 +136,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // comment for what "stuck" means and why this only ever flags, never
 // auto-fixes.
 const PIPELINE_WATCHDOG_ALARM = "nkPipelineWatchdog";
-chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === PIPELINE_WATCHDOG_ALARM) WA_PIPELINE.checkStuckReservations(); });
-function armPipelineWatchdog() { chrome.alarms.create(PIPELINE_WATCHDOG_ALARM, { periodInMinutes: 5 }); }
+// Second, faster alarm: automatic recovery for a mutamer that never reaches
+// "Completed" (see WA_PIPELINE.recoverIncomplete — it re-checks and re-feeds).
+const PIPELINE_RECOVER_ALARM = "nkPipelineRecover";
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === PIPELINE_WATCHDOG_ALARM) WA_PIPELINE.checkStuckReservations();
+  else if (alarm.name === PIPELINE_RECOVER_ALARM) WA_PIPELINE.recoverIncomplete();
+});
+function armPipelineWatchdog() {
+  chrome.alarms.create(PIPELINE_WATCHDOG_ALARM, { periodInMinutes: 5 });
+  chrome.alarms.create(PIPELINE_RECOVER_ALARM, { periodInMinutes: 1 });
+}
 chrome.runtime.onInstalled.addListener(armPipelineWatchdog);
 chrome.runtime.onStartup.addListener(armPipelineWatchdog);
 

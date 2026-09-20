@@ -1770,7 +1770,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const groupLine = r.groupName ? ` — group: ${r.groupName}` : "";
       const repliedTag = r.repliedAt ? " ✓ replied" : "";
       const stageTag = (r.status === "confirmed" || r.status === "pending") && !r.repliedAt && r.stage ? ` [${r.stage}]` : "";
-      msg.appendChild(document.createTextNode(paxLine + stageTag + groupLine + repliedTag));
+      const waitTag = !r.repliedAt && !r.groupName && Array.isArray(r.notCompleted) && r.notCompleted.length ? ` — waiting for Completed in Masar: ${r.notCompleted.join(", ")}` : "";
+      msg.appendChild(document.createTextNode(paxLine + stageTag + waitTag + groupLine + repliedTag));
 
       row.append(resNo, msg);
 

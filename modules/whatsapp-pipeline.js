@@ -578,7 +578,10 @@ const WA_PIPELINE = (() => {
   //   • If the background read itself can't run (not activated, no OCR key,
   //     server/offscreen failure) that attachment falls back to the old path:
   //     feed the original and let the Masar page read it (FIFO-matched).
-  async function feedMessagesToMasar(reservationNo, waId, messageIds) {
+  async function feedMessagesToMasar(reservationNo, waId, messageIds, { refeed = null } = {}) {
+    // `refeed` (a Set of passport numbers): re-feeding people ALREADY tracked for
+    // this reservation (see recoverReservation) — they keep their existing
+    // mutamer/confirm-queue tracking instead of being added a second time.
     const scanned = [];  // { messageId, dataUrl, filename, scan, summary } — read here, tracked before feeding
     const legacy = [];   // { messageId, dataUrl, filename } — background read unavailable
     let unreadImages = 0;
@@ -635,7 +638,13 @@ const WA_PIPELINE = (() => {
     // BEFORE feeding, so the Mutamer List check knows what to look for.
     const toFeed = [];
     for (const item of scanned) {
-      if (await continueAfterMasarScan(reservationNo, item.messageId, item.summary)) toFeed.push(item);
+      if (refeed && refeed.has(item.summary.passportNo)) {
+        item.refeed = true;
+        await ensureConfirmEntry({ reservationNo, messageId: item.messageId, passportNo: item.summary.passportNo });
+        toFeed.push(item);
+      } else if (await continueAfterMasarScan(reservationNo, item.messageId, item.summary)) {
+        toFeed.push(item);
+      }
     }
 
     if (!toFeed.length && !legacy.length) {
@@ -674,8 +683,9 @@ const WA_PIPELINE = (() => {
   // tracking done for them (mutamer entries, confirm-queue entries, FIFO).
   async function rollbackFeed(reservationNo, toFeed, legacy) {
     for (const f of legacy) await removeFeedOrder(reservationNo, f.messageId);
-    if (!toFeed.length) return;
-    const gone = new Set(toFeed.map((i) => i.summary.passportNo));
+    const fresh = toFeed.filter((i) => !i.refeed); // re-fed people keep their existing tracking
+    if (!fresh.length) return;
+    const gone = new Set(fresh.map((i) => i.summary.passportNo));
     const record = await getRecord(reservationNo);
     if (record) await saveRecord(reservationNo, { mutamers: (record.mutamers || []).filter((m) => !gone.has(m.passportNo)) });
     const { [CONFIRM_QUEUE_KEY]: queue } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
@@ -855,6 +865,14 @@ const WA_PIPELINE = (() => {
   // one. Exactly the cycle described: feed → (their workflow saves it) →
   // Mutamer List appears → Nuskomate confirms + redirects back → feed the
   // next → repeat.
+  // Makes sure a passport is waiting in the confirm queue exactly once.
+  async function ensureConfirmEntry(entry) {
+    const { [CONFIRM_QUEUE_KEY]: list } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
+    const existing = Array.isArray(list) ? list : [];
+    if (existing.some((e) => e.reservationNo === entry.reservationNo && e.passportNo === entry.passportNo)) return;
+    await pushConfirmQueue(entry);
+  }
+
   async function pushConfirmQueue(entry) {
     const { [CONFIRM_QUEUE_KEY]: list } = await chrome.storage.local.get([CONFIRM_QUEUE_KEY]);
     const next = Array.isArray(list) ? list : [];
@@ -881,7 +899,7 @@ const WA_PIPELINE = (() => {
   // reservation arrive later (a following day, say), that's a real, accepted
   // case here, not a bug — see the "already has a group" branch below, which
   // is what handles it (flagged for manual addition, not automated).
-  async function handleMutamerConfirmed({ reservationNo, confirmations, stillQueued }) {
+  async function handleMutamerConfirmed({ reservationNo, confirmations, incomplete, stillQueued }) {
     return withReservationLock(reservationNo, async () => {
       const record = await getRecord(reservationNo);
       if (!record) {
@@ -889,6 +907,7 @@ const WA_PIPELINE = (() => {
         return;
       }
       const newPassports = (confirmations || []).map((c) => c.passportNo).filter(Boolean);
+      const incompleteNow = (incomplete || []).map((i) => i.passportNo).filter(Boolean);
 
       // A group was already created for this reservation — the passport(s)
       // just confirmed arrived AFTER that (e.g. the customer sent the rest
@@ -905,7 +924,31 @@ const WA_PIPELINE = (() => {
       for (const p of newPassports) { if (!confirmed.includes(p)) confirmed.push(p); }
       await saveRecord(reservationNo, { confirmedPassports: confirmed });
 
-      if (!confirmed.length) return; // shouldn't happen (confirmations always carry a real passportNo), but never create an empty group
+      // Group creation waits for EVERY tracked mutamer to be marked Completed
+      // by Masar itself (the Mutamer List's status column) — not merely to
+      // exist on the list. A person still "Not Completed" holds the whole
+      // group back; it is created the moment the last one flips to Completed
+      // (the next Mutamer List visit re-checks whatever is still pending).
+      const tracked = (record.mutamers || []).map((m) => m.passportNo).filter(Boolean);
+      const waitingOn = tracked.filter((p) => !confirmed.includes(p));
+      const prevWaiting = record.notCompleted || [];
+      // lastListCheckAt/lastStillQueued/notCompletedSince feed recoverIncomplete()
+      // below: it only steps in once Masar has been idle (nothing queued) for a
+      // while and something is STILL not Completed.
+      await saveRecord(reservationNo, {
+        notCompleted: waitingOn,
+        lastListCheckAt: Date.now(),
+        lastStillQueued: !!stillQueued,
+        notCompletedSince: waitingOn.length ? (record.notCompletedSince || Date.now()) : null,
+      });
+      if (waitingOn.length) {
+        if (incompleteNow.length || waitingOn.join() !== prevWaiting.join()) {
+          await pLog("info", `Pipeline: reservation ${reservationNo} — ${confirmed.length} of ${tracked.length} mutamer(s) Completed in Masar; waiting on ${waitingOn.join(", ")}${incompleteNow.length ? " (saved, but Masar shows Not Completed)" : " (not seen on the Mutamer List yet)"} before creating the group.`);
+        }
+        return;
+      }
+
+      if (!confirmed.length) return; // nothing Completed yet (only incomplete/unseen rows) — never create an empty group
 
       const expectedPax = record.expectedPax || (record.crm && record.crm.pax) || null;
       if (expectedPax && confirmed.length > expectedPax) {
@@ -1011,7 +1054,7 @@ const WA_PIPELINE = (() => {
       if (now - lastProgress < threshold) continue;
       if (r.stuckNotifiedAt && r.stuckNotifiedAt >= lastProgress) continue; // already flagged since the last real progress — don't re-notify every watchdog tick
       const minutes = Math.round((now - lastProgress) / 60000);
-      const stageLabel = r.stage || "processing";
+      const stageLabel = (r.stage || "processing") + (r.notCompleted && r.notCompleted.length ? `; not yet Completed in Masar: ${r.notCompleted.join(", ")}` : "");
       await saveRecord(reservationNo, { stuckAt: now, stuckNotifiedAt: now });
       await pLog("warn", `Pipeline: reservation ${reservationNo} looks STUCK — no progress in ${minutes} min (stage: ${stageLabel}). Use the Queue's Retry button, or check Masar/CRM manually.`);
       const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
@@ -1019,6 +1062,100 @@ const WA_PIPELINE = (() => {
         await sendReply(r.waId, { text: `Reservation ${reservationNo} seems stuck in our system (${stageLabel}, ${minutes} min with no progress) — could someone check it?`, mentionWaId: waMentionId }).catch(() => {});
       }
     }
+  }
+
+  // ── Automatic recovery for a mutamer that never reaches "Completed" ──────
+  // Nobody is meant to babysit this: when a tracked mutamer is still not
+  // Completed (saved but incomplete, or never even shown on the list) after
+  // Masar has been idle for a while, the pipeline looks again ITSELF — opens
+  // the Mutamer List and re-checks — and if it's still not Completed, feeds
+  // that person again (re-fetching the photo from WhatsApp and re-reading it)
+  // and lets the normal confirm-on-Mutamer-List flow verify it. A couple of
+  // attempts, then the team is @mentioned once — the only point a human is
+  // asked, because further automatic tries would just repeat the same result.
+  const RECOVER_IDLE_MS = 90 * 1000;      // Masar must have been quiet this long since the last list check
+  const RECOVER_GAP_MS = 3 * 60 * 1000;   // and this long since the previous recovery attempt on the same reservation
+  const RECOVER_MAX_ATTEMPTS = 2;         // automatic re-feeds per person before asking a human
+  const CONFIRMING_SILENT_MS = 10 * 60 * 1000; // "confirming" this long with no Mutamer List news at all = treat everyone unconfirmed as waiting
+  let recovering = false;
+
+  // Who a reservation is still waiting on: whatever the last Mutamer List check
+  // said, or — when there hasn't been any news for a long time (the people
+  // never showed up on the list at all, so no check ever reported on them) —
+  // every tracked passport that isn't confirmed yet.
+  function waitingList(r, now) {
+    if ((r.notCompleted || []).length) return r.notCompleted;
+    if (r.stage === "confirming" && now - (r.stageAt || 0) > CONFIRMING_SILENT_MS) {
+      const done = new Set(r.confirmedPassports || []);
+      return (r.mutamers || []).map((m) => m.passportNo).filter((p) => p && !done.has(p));
+    }
+    return [];
+  }
+
+  async function recoverIncomplete() {
+    if (recovering) return; // one recovery pass at a time — they drive the shared Masar tab
+    recovering = true;
+    try {
+      const { [DB_KEY]: db } = await chrome.storage.local.get([DB_KEY]);
+      const now = Date.now();
+      // Never interrupt Masar while ANY reservation is actively feeding it.
+      const busy = Object.values(db || {}).some((x) => !x.groupName && !x.repliedAt && (
+        x.status === "pending" ||
+        (x.stage === "feeding" && now - (x.stageAt || 0) < 5 * 60 * 1000) ||
+        (x.lastStillQueued && now - (x.lastListCheckAt || 0) < 5 * 60 * 1000)));
+      if (busy) return;
+      for (const reservationNo of Object.keys(db || {})) {
+        const r = db[reservationNo];
+        if (r.status !== "confirmed" || r.groupName || r.repliedAt) continue;
+        if (!waitingList(r, now).length) continue;
+        if (r.lastStillQueued) continue;                                   // Masar is still working through its own queue
+        if (now - (r.lastListCheckAt || 0) < RECOVER_IDLE_MS) continue;    // a check just happened — give it time
+        if (now - (r.lastRecoverAt || 0) < RECOVER_GAP_MS) continue;
+        await recoverReservation(reservationNo).catch((err) => pLog("error", `Pipeline: automatic recovery for reservation ${reservationNo} failed: ${err.message}`));
+      }
+    } finally { recovering = false; }
+  }
+
+  async function recoverReservation(reservationNo) {
+    await withReservationLock(reservationNo, () => saveRecord(reservationNo, { lastRecoverAt: Date.now() }));
+    await pLog("info", `Pipeline: reservation ${reservationNo} still has mutamer(s) not Completed after Masar went idle — re-checking the Mutamer List myself.`);
+    // Fresh look first (also picks up anyone Masar has completed in the meantime).
+    // Deliberately NOT under the reservation lock: the check's result arrives
+    // as a message handled under that same lock.
+    try { await recheckMasarConfirmations(); } catch (err) { await pLog("warn", `Pipeline: couldn't re-open the Mutamer List for reservation ${reservationNo}: ${err.message}`); }
+    await sleep(5000);
+
+    await withReservationLock(reservationNo, async () => {
+      const record = await getRecord(reservationNo);
+      if (!record || record.groupName || record.groupCreatedAt) return;
+      const waiting = waitingList(record, Date.now());
+      if (!waiting.length) { await pLog("info", `Pipeline: reservation ${reservationNo} — everyone is Completed now.`); return; }
+
+      const attempts = { ...(record.recoverAttempts || {}) };
+      const retry = waiting.filter((p) => (attempts[p] || 0) < RECOVER_MAX_ATTEMPTS);
+      if (!retry.length) {
+        if (!record.recoverGaveUpAt) {
+          await saveRecord(reservationNo, { recoverGaveUpAt: Date.now() });
+          const notice = `Reservation ${reservationNo}: ${waiting.join(", ")} still not Completed in Masar after ${RECOVER_MAX_ATTEMPTS} automatic re-feed(s) — needs a manual look.`;
+          await pLog("error", `Pipeline: ${notice}`);
+          const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
+          if (waMentionId) await sendReply(record.waId, { text: notice, mentionWaId: waMentionId }).catch(() => {});
+        }
+        return;
+      }
+
+      const byMessage = new Map(); // one feed call per source message, only for the people to retry
+      for (const p of retry) {
+        const m = (record.mutamers || []).find((x) => x.passportNo === p);
+        if (m && m.messageId) byMessage.set(m.messageId, true);
+        attempts[p] = (attempts[p] || 0) + 1;
+      }
+      await saveRecord(reservationNo, { recoverAttempts: attempts, stage: "feeding", stageAt: Date.now() });
+      await pLog("info", `Pipeline: re-feeding ${retry.join(", ")} for reservation ${reservationNo} (automatic attempt ${Math.max(...retry.map((p) => attempts[p]))} of ${RECOVER_MAX_ATTEMPTS}).`);
+      const result = await feedMessagesToMasar(reservationNo, record.waId, Array.from(byMessage.keys()), { refeed: new Set(retry) });
+      if (!result.ok) await pLog("warn", `Pipeline: automatic re-feed for reservation ${reservationNo} didn't go through: ${result.error}`);
+      else await saveRecord(reservationNo, { stage: "confirming", stageAt: Date.now() }); // back to waiting for the Mutamer List to show them Completed
+    });
   }
 
   // Asks modules/masar-add-mutamer.js to immediately re-check the Mutamer
@@ -1116,6 +1253,6 @@ const WA_PIPELINE = (() => {
     handleMutamerConfirmed: withKeepAlive(handleMutamerConfirmed),
     retryReservation: withKeepAlive(retryReservation),
     registerTestFeed, callWaAction, callCrmBridge, lookupReservationInCrm, sendReply, getRecord, clearStuckQueue, clearAllQueue,
-    checkStuckReservations,
+    checkStuckReservations, recoverIncomplete: withKeepAlive(recoverIncomplete),
   };
 })();
