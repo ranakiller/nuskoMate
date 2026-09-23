@@ -113,6 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-talabcopy": "talabcopy",
       "toggle-autodatepicker": "autodatepicker",
       "toggle-packagecreator": "packagecreator",
+      "toggle-accounts": "masaraccounts",
     };
 
     // Is a given tool unlocked for the current key? (features null = all
@@ -171,7 +172,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now (autorules also
       // accepts the 3 old ids it replaced — see has() above).
-      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"], ["ft-upsell", "ft-content", "filetools"], ["mg-upsell", "mg-content", "mediagrabber"]].forEach(([up, ct, feat]) => {
+      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"], ["ft-upsell", "ft-content", "filetools"], ["mg-upsell", "mg-content", "mediagrabber"], ["acct-upsell", "acct-content", "masaraccounts"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -251,7 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn", "ft-upsell-btn", "mg-upsell-btn"].forEach((idb) => {
+    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn", "ft-upsell-btn", "mg-upsell-btn", "acct-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -417,12 +418,31 @@ document.addEventListener("DOMContentLoaded", () => {
   function activateTab(name) {
     tabs.forEach(t => t.classList.toggle("tab-active", t.dataset.tab === name));
     panels.forEach(p => p.classList.toggle("tab-panel-active", p.id === "panel-" + name));
+    // Accounts is search-first — land the cursor there the moment the tab
+    // becomes active (a click, or the popup reopening straight into it,
+    // since the last-active tab is remembered via uiTab below) so the user
+    // can start typing immediately. Doesn't trap anything — it's just where
+    // focus starts; clicking or tabbing elsewhere still works normally.
+    if (name === "accounts") {
+      const search = document.getElementById("acct-search");
+      if (search) setTimeout(() => search.focus(), 0);
+    }
   }
 
   tabs.forEach(t => t.addEventListener("click", () => {
     activateTab(t.dataset.tab);
     chrome.storage.local.set({ uiTab: t.dataset.tab });
   }));
+
+  // Masar Accounts lives here instead of the sidebar tab list now — same
+  // activateTab()/uiTab plumbing as every other tab, just triggered from a
+  // header-actions icon button (between undo/redo and the side-panel dock
+  // button) instead of a .tab in the sidebar.
+  const acctTopBtn = document.getElementById("acct-top-btn");
+  if (acctTopBtn) acctTopBtn.addEventListener("click", () => {
+    activateTab("accounts");
+    chrome.storage.local.set({ uiTab: "accounts" });
+  });
 
   chrome.storage.local.get(["uiTab"], (res) => {
     if (res.uiTab && document.getElementById("panel-" + res.uiTab)) activateTab(res.uiTab);
@@ -479,6 +499,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { id: "toggle-autodatepicker", key: "moduleAutoDatePicker"           },
     { id: "toggle-packagecreator", key: "modulePackageCreator", offLabel: true },
     { id: "toggle-pipeline",    key: "modulePipeline", offLabel: true, lockPanel: "panel-pipeline" },
+    { id: "toggle-accounts",    key: "moduleMasarAccounts", offLabel: true },
   ];
 
   // ALL modules default ON for new installs (key never set = treat as true).
@@ -1265,11 +1286,24 @@ document.addEventListener("DOMContentLoaded", () => {
   // waits, so this brings the target tab to the front first regardless of
   // what the user currently has focused. Shared by every pipeline test
   // harness in this section.
-  function withFocusedTab(urlPattern, notFoundMsg, fn) {
+  // `shouldFocus(target)` — optional; return false to skip actually
+  // bringing the tab/window forward and call `fn(target)` directly instead.
+  // Needed because tabs.update({active:true})/windows.update({focused:true})
+  // below steals window focus from THIS popup — which, in the regular
+  // toolbar-button popup (not the side panel, which persists through focus
+  // changes), makes Chrome auto-close it immediately, before any toast a
+  // caller queues afterward ever gets seen. Fine — even desirable — for a
+  // switch that's actually going to attempt something in that tab; wrong
+  // for a check that's about to reject immediately without touching the
+  // tab at all (confirmed live 2026-09-23: the not-signed-in check used to
+  // sit inside the focus callback, so clicking Login on Masar's sign-in
+  // page silently closed the popup before showing its own error toast).
+  function withFocusedTab(urlPattern, notFoundMsg, fn, shouldFocus) {
     chrome.tabs.query({ url: urlPattern }, (allTabs) => {
       const tabs = allTabs || [];
       if (!tabs.length) { window.nkToast(notFoundMsg, "error"); fn(null); return; }
       const target = tabs.find((t) => t.active) || tabs[0];
+      if (shouldFocus && !shouldFocus(target)) { fn(target); return; }
       chrome.tabs.update(target.id, { active: true }, () => {
         if (target.windowId != null) chrome.windows.update(target.windowId, { focused: true }, () => fn(target));
         else fn(target);
@@ -2095,6 +2129,481 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPipelineQueue();
   loadPipelineLogs();
   loadPipelineMonitor();
+
+  // ── MASAR ACCOUNTS ────────────────────────────────────────────
+  // Cards built from what modules/masar-accounts.js scans off Masar's own
+  // "Registered Entities" picker + account header (nkMasarEntities,
+  // nkMasarCurrentEntity in storage). The switch itself is fire-and-relay,
+  // NOT request/response: a switch that needs to navigate first kills the
+  // sendMessage channel it was sent on (a hard navigation tears down that
+  // content-script context), so the actual outcome is picked up here via
+  // chrome.storage (nkMasarSwitchResult) instead of the sendMessage
+  // callback, which is only used as a "did the tab hear me at all" check.
+  (function () {
+    const infoBtn = document.getElementById("acct-info-btn");
+    const infoPanel = document.getElementById("acct-info-panel");
+    if (infoBtn && infoPanel) infoBtn.addEventListener("click", () => {
+      const open = infoPanel.style.display !== "none";
+      infoPanel.style.display = open ? "none" : "";
+      infoBtn.classList.toggle("info-btn-open", !open);
+    });
+
+    const list = document.getElementById("acct-list");
+    const empty = document.getElementById("acct-empty");
+    const refreshBtn = document.getElementById("acct-refresh");
+    const searchInput = document.getElementById("acct-search");
+    const scanNowBtn = document.getElementById("acct-scan-now");
+    const clearAllBtn = document.getElementById("acct-clear-all");
+    if (!list || !empty) return;
+
+    let current = null;          // { name, username, updatedAt }
+    let entitiesByEmail = {};    // last-loaded raw storage value
+    let searchTerm = "";
+    // In-memory only (popups are recreated fresh each open in MV3, so both
+    // "collapsed by default" and "password editor closed by default" fall
+    // out of this naturally without needing to persist either).
+    const expanded = new Set();     // emails whose entity list is expanded
+    const credsOpen = new Set();    // emails whose inline password editor is open
+    const anorm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const ICON_TRASH = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
+    const ICON_CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>';
+    const ICON_KEY = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>';
+    const ICON_EYE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+    // ── Keyboard nav (search box: Up/Down to move, Enter to log in) ──────
+    // Scoped to whatever's actually rendered right now — since a collapsed
+    // group shows no entity cards at all, this naturally only ever
+    // navigates the currently-visible (typically search-matched) results,
+    // without needing to separately track "what matched" itself. Only
+    // counts buttons that can actually do something (skips "Current" and
+    // "Deactivated", which are rendered disabled) — per the user's own
+    // call, so Enter always lands on something useful instead of
+    // occasionally hitting a dead disabled button.
+    let selectedIndex = 0;
+    function actionableButtons() {
+      return Array.from(document.querySelectorAll("#acct-list button.act-btn")).filter((b) => !b.disabled);
+    }
+    // Reuses .module-card's own :hover look (border-color + box-shadow) for
+    // the "selected" state — already the app's existing visual language for
+    // "this card has your attention," so no new CSS needed here.
+    function updateSelectionHighlight() {
+      const btns = actionableButtons();
+      btns.forEach((btn, i) => {
+        const card = btn.closest(".module-card");
+        if (!card) return;
+        if (i === selectedIndex) {
+          card.style.borderColor = "var(--accent)";
+          card.style.boxShadow = "var(--shadow-sm)";
+          card.scrollIntoView({ block: "nearest" });
+        } else {
+          card.style.borderColor = "";
+          card.style.boxShadow = "";
+        }
+      });
+    }
+
+    // "umrah companies" above "umrah external" above "umrah sub external"
+    // above anything unrecognized — per the user's own account structure.
+    function typeTier(description) {
+      const d = (description || "").toLowerCase();
+      if (d.includes("compan")) return 0;
+      if (d.includes("sub")) return 2;
+      if (d.includes("external")) return 1;
+      return 3;
+    }
+
+    // Which known email the CURRENTLY active entity belongs to, by matching
+    // nkMasarCurrentEntity's name against every scanned group's own list —
+    // more reliable than trusting nkMasarLastLoginEmail directly (that's
+    // just whatever was last seen typed into the login form THIS session,
+    // and can be stale/empty if the browser had a saved session already).
+    // Returns null when it can't be determined, so callers can fall back to
+    // the live on-page check rather than risk a false "wrong email" block.
+    function findCurrentEmail() {
+      if (!current || !current.name) return null;
+      const map = (entitiesByEmail && typeof entitiesByEmail === "object") ? entitiesByEmail : {};
+      for (const email of Object.keys(map)) {
+        const list = (map[email] && map[email].list) || [];
+        if (list.some((e) => anorm(e.name) === anorm(current.name))) return email;
+      }
+      return null;
+    }
+
+    function switchEntity(entity, btn) {
+      // Caught right here, before any navigation, whenever we can already
+      // tell it's hopeless — the user asked for this specifically: trying
+      // to switch to an entity under a different email than the one
+      // currently signed in used to silently navigate to the services page
+      // and only fail there.
+      const currentEmail = findCurrentEmail();
+      if (currentEmail && entity.email && currentEmail !== entity.email) {
+        window.nkToast(`You're signed in with ${currentEmail} — "${entity.name}" belongs to ${entity.email}. Sign in with that account first.`, "error");
+        return;
+      }
+
+      btn.disabled = true;
+      const prevText = btn.textContent;
+      btn.textContent = "Logging in…";
+      const requestedAt = Date.now();
+      let settled = false;
+      let timeoutId = null;
+      const finish = (toastFn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        chrome.storage.onChanged.removeListener(onResult);
+        btn.disabled = false;
+        btn.textContent = prevText;
+        if (toastFn) toastFn();
+      };
+      function onResult(changes, area) {
+        if (area !== "local" || !changes.nkMasarSwitchResult) return;
+        const r = changes.nkMasarSwitchResult.newValue;
+        if (!r || r.name !== entity.name || (r.at || 0) < requestedAt) return;
+        finish(() => {
+          if (r.ok && r.status === "already") window.nkToast(`Already signed in as ${r.currentName || r.name}.`, "info");
+          else if (r.ok) window.nkToast(`Switched to ${r.name}.`, "success");
+          else if (r.reason === "not-found") window.nkToast(`Not found on the entity picker — you're signed in with a different email than the one "${entity.name}" belongs to${entity.email ? ` (${entity.email})` : ""}. Sign in with that account first.`, "error");
+          else if (r.reason === "not-logged-in") window.nkToast("You're not signed in to Masar yet — sign in first, then try Login again.", "error");
+          else window.nkToast(`Couldn't log in (${r.reason || "unknown error"}).`, "error");
+        });
+      }
+      chrome.storage.onChanged.addListener(onResult);
+      timeoutId = setTimeout(() => finish(() => window.nkToast("Timed out waiting for the switch to finish — check the Masar tab.", "error")), 25000);
+
+      const isLoginPage = (tab) => { try { return new URL(tab.url || "").pathname === "/pub/login"; } catch (_) { return false; } };
+
+      withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", (target) => {
+        if (!target) { finish(); return; }
+        // Caught right here too, same spirit as the cross-email check above —
+        // if the tab is sitting on Masar's own sign-in page, there's no
+        // session to switch within at all, so don't even send the message.
+        // The shouldFocus predicate below is what stops withFocusedTab from
+        // ever bringing this tab to the front for this case, so this popup
+        // itself stays open long enough to show the toast (confirmed live:
+        // once the tab/window gets focused, Chrome auto-closes the plain
+        // toolbar popup, cutting the toast off before it's ever seen — the
+        // side panel doesn't have that problem since it persists through
+        // focus changes, which is exactly why this only broke there).
+        if (isLoginPage(target)) { finish(() => window.nkToast("You're not signed in to Masar yet — sign in first, then try Login again.", "error")); return; }
+        chrome.tabs.sendMessage(target.id, { type: "nkMasarSwitchEntity", name: entity.name, email: entity.email }, (resp) => {
+          if (chrome.runtime.lastError) finish(() => window.nkToast("Could not reach the Masar tab — refresh it and try again.", "error"));
+          // else: just an ack — the real outcome arrives via onResult above.
+        });
+      }, (target) => !isLoginPage(target));
+    }
+
+    function deleteEmailGroup(email) {
+      window.nkConfirm(`Remove the scanned list for ${email || "this email"}? It'll reappear next time that entity picker is scanned. Any saved password is kept.`, { confirmText: "Remove", danger: true }).then((ok) => {
+        if (!ok) return;
+        chrome.storage.local.get(["nkMasarEntities"], (res) => {
+          const all = (res.nkMasarEntities && typeof res.nkMasarEntities === "object") ? res.nkMasarEntities : {};
+          delete all[email];
+          chrome.storage.local.set({ nkMasarEntities: all }, () => window.nkToast(`Removed ${email || "that email"}'s scanned list.`, "success"));
+        });
+      });
+    }
+
+    // Inline "edit this email's saved password" — expands directly under
+    // that email's own header card (same click-to-expand idea as the
+    // chevron, just a second independent toggle), instead of one shared
+    // field elsewhere editing whichever email happens to be typed into it.
+    function buildCredsEditor(email) {
+      const wrap = document.createElement("div");
+      wrap.className = "module-card";
+      wrap.style.cssText = "margin-left:14px; border-top:2px dashed var(--border);";
+
+      const label = document.createElement("div");
+      label.className = "module-desc";
+      label.style.cssText = "margin-bottom:8px;";
+      label.textContent = `Password for ${email || "this email"}`;
+
+      const row = document.createElement("div");
+      row.className = "act-row";
+
+      const inputWrap = document.createElement("div");
+      inputWrap.className = "act-input-wrap";
+      const pwInput = document.createElement("input");
+      pwInput.type = "password";
+      pwInput.className = "act-input";
+      pwInput.placeholder = "Password (auto-captured from sign-in)";
+      pwInput.autocomplete = "off";
+      pwInput.spellcheck = false;
+      const eyeBtn = document.createElement("button");
+      eyeBtn.type = "button";
+      eyeBtn.className = "act-eye";
+      eyeBtn.title = "Show / hide password";
+      eyeBtn.setAttribute("aria-label", "Show password");
+      eyeBtn.innerHTML = ICON_EYE;
+      eyeBtn.addEventListener("click", () => {
+        pwInput.type = pwInput.type === "password" ? "text" : "password";
+        eyeBtn.classList.toggle("on", pwInput.type === "text");
+      });
+      inputWrap.append(pwInput, eyeBtn);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.className = "act-btn";
+      saveBtn.textContent = "Save";
+      saveBtn.addEventListener("click", () => {
+        const password = pwInput.value;
+        if (!password) { window.nkToast("Type a password first.", "error"); return; }
+        chrome.storage.local.get(["nkMasarCredentials"], (res) => {
+          const all = (res.nkMasarCredentials && typeof res.nkMasarCredentials === "object") ? res.nkMasarCredentials : {};
+          all[email] = { password, updatedAt: Date.now() };
+          chrome.storage.local.set({ nkMasarCredentials: all }, () => window.nkToast(`Password saved for ${email || "this email"}.`, "success"));
+        });
+      });
+
+      row.append(inputWrap, saveBtn);
+      wrap.append(label, row);
+
+      chrome.storage.local.get(["nkMasarCredentials"], (res) => {
+        const saved = (res.nkMasarCredentials || {})[email];
+        if (saved && saved.password) pwInput.value = saved.password;
+      });
+      return wrap;
+    }
+
+    function buildEntityCard(entity, email) {
+      const card = document.createElement("div");
+      card.className = "module-card";
+      card.style.cssText = "display:flex; align-items:center; gap:10px; margin-left:14px;";
+
+      const info = document.createElement("div");
+      info.style.cssText = "flex:1; min-width:0;";
+
+      const nameEl = document.createElement("div");
+      nameEl.style.cssText = "font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+      nameEl.title = entity.name;
+      nameEl.textContent = entity.name;
+
+      const descEl = document.createElement("div");
+      descEl.className = "module-desc";
+      const isCurrent = !!(current && anorm(current.name) === anorm(entity.name));
+      const isDeactivated = /deactivat/i.test(entity.status || "");
+      const bits = [entity.description, entity.status && !/^activated$/i.test(entity.status) ? entity.status : ""].filter(Boolean);
+      descEl.textContent = bits.join(" — ") + (isCurrent ? "  ✓ current" : "");
+
+      info.append(nameEl, descEl);
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "act-btn";
+      btn.style.cssText = "flex-shrink:0;";
+      // Deactivated accounts can't be logged into at all — Masar itself has
+      // no working Login for them (confirmed live 2026-09-23), so this is
+      // disabled rather than left clickable-but-doomed-to-fail.
+      if (isCurrent) { btn.textContent = "Current"; btn.disabled = true; }
+      else if (isDeactivated) { btn.textContent = "Deactivated"; btn.disabled = true; btn.style.cssText += "background:var(--text-sub); opacity:.6;"; }
+      else { btn.textContent = "Login"; btn.addEventListener("click", () => switchEntity({ ...entity, email }, btn)); }
+
+      card.append(info, btn);
+      return card;
+    }
+
+    function render() {
+      const map = (entitiesByEmail && typeof entitiesByEmail === "object") ? entitiesByEmail : {};
+      const emails = Object.keys(map)
+        .filter((k) => map[k] && Array.isArray(map[k].list) && map[k].list.length)
+        // Oldest-scanned email first — per-email firstSeenAt is set once,
+        // the first time that email's entities were ever scanned, and never
+        // touched again on later rescans.
+        .sort((a, b) => (map[a].firstSeenAt || 0) - (map[b].firstSeenAt || 0));
+
+      const term = searchTerm.trim().toLowerCase();
+      const isSearching = !!term;
+      const groups = emails.map((email) => {
+        const all = map[email].list.slice().sort((a, b) => (typeTier(a.description) - typeTier(b.description)) || (a.name || "").localeCompare(b.name || ""));
+        const matched = isSearching ? all.filter((e) => `${e.name || ""} ${email || ""} ${e.description || ""}`.toLowerCase().includes(term)) : all;
+        return { email, all, matched };
+      }).filter((g) => (isSearching ? g.matched.length : true));
+
+      if (!groups.length) {
+        empty.style.display = "block";
+        empty.textContent = isSearching
+          ? "No entities match that search."
+          : "Nothing scanned yet — open Masar's entity picker (your name → Registered Entities) once and your entities will show up here.";
+        list.innerHTML = "";
+        return;
+      }
+      empty.style.display = "none";
+
+      const frag = document.createDocumentFragment();
+      groups.forEach((group) => {
+        // A search always shows its matches, regardless of the group's own
+        // collapsed/expanded state — that state still applies once the
+        // search box is cleared again.
+        const isOpen = isSearching || expanded.has(group.email);
+        const shown = isSearching ? group.matched : group.all;
+
+        const hdr = document.createElement("div");
+        hdr.className = "module-card";
+        hdr.style.cssText = "display:flex; align-items:center; gap:8px; margin-top:10px; cursor:pointer;";
+
+        const chevron = document.createElement("span");
+        chevron.innerHTML = ICON_CHEVRON;
+        chevron.style.cssText = `flex-shrink:0; display:flex; color:var(--text-muted); transition:transform .15s; transform:rotate(${isOpen ? 90 : 0}deg);`;
+
+        const emailInfo = document.createElement("div");
+        emailInfo.style.cssText = "flex:1; min-width:0;";
+        const emailNameEl = document.createElement("div");
+        emailNameEl.style.cssText = "font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+        emailNameEl.title = group.email || "(unknown email)";
+        emailNameEl.textContent = group.email || "(unknown email)";
+        const countEl = document.createElement("div");
+        countEl.className = "module-desc";
+        countEl.textContent = `${group.all.length} entit${group.all.length === 1 ? "y" : "ies"}` +
+          (isSearching && group.matched.length !== group.all.length ? ` · ${group.matched.length} match${group.matched.length === 1 ? "" : "es"}` : "");
+        emailInfo.append(emailNameEl, countEl);
+
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "email-del"; // same small hover-icon-button styling as the delete icon below
+        editBtn.style.cssText = "opacity:1;"; // see the note on delBtn below — same reason
+        editBtn.title = `Edit the saved password for ${group.email || "this email"}`;
+        editBtn.setAttribute("aria-label", editBtn.title);
+        editBtn.innerHTML = ICON_KEY;
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (credsOpen.has(group.email)) credsOpen.delete(group.email); else credsOpen.add(group.email);
+          render();
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "email-del";
+        // .email-del is opacity:0 by default, only revealed by a sibling
+        // ".email-item:hover" rule (the Sites tab's own row class) that
+        // doesn't apply inside this .module-card header — force it visible.
+        delBtn.style.cssText = "opacity:1;";
+        delBtn.title = `Remove the scanned list for ${group.email || "this email"}`;
+        delBtn.setAttribute("aria-label", delBtn.title);
+        delBtn.innerHTML = ICON_TRASH;
+        delBtn.addEventListener("click", (e) => { e.stopPropagation(); deleteEmailGroup(group.email); });
+
+        hdr.append(chevron, emailInfo, editBtn, delBtn);
+        hdr.addEventListener("click", () => {
+          if (isSearching) return; // collapse state changes apply once search is cleared, not mid-search
+          if (expanded.has(group.email)) expanded.delete(group.email); else expanded.add(group.email);
+          render();
+        });
+        frag.appendChild(hdr);
+
+        if (credsOpen.has(group.email)) frag.appendChild(buildCredsEditor(group.email));
+        if (isOpen) shown.forEach((entity) => frag.appendChild(buildEntityCard(entity, group.email)));
+      });
+      list.innerHTML = "";
+      list.appendChild(frag);
+
+      // Rebuilding the list above wipes any inline highlight styling from
+      // last time, and the set of actionable buttons may have changed size
+      // (a re-render can come from a storage change, not just typing) — clamp
+      // then reapply so the highlight always matches what's actually there.
+      const navBtns = actionableButtons();
+      if (selectedIndex >= navBtns.length) selectedIndex = Math.max(0, navBtns.length - 1);
+      updateSelectionHighlight();
+    }
+
+    function load() {
+      chrome.storage.local.get(["nkMasarEntities", "nkMasarCurrentEntity"], (res) => {
+        entitiesByEmail = res.nkMasarEntities || {};
+        current = res.nkMasarCurrentEntity || null;
+        render();
+      });
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener("click", load);
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        searchTerm = searchInput.value;
+        selectedIndex = 0; // back to the top result whenever what's matched changes
+        render();
+      });
+      searchInput.addEventListener("keydown", (e) => {
+        const btns = actionableButtons();
+        if (!btns.length) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          selectedIndex = Math.min(selectedIndex + 1, btns.length - 1);
+          updateSelectionHighlight();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          selectedIndex = Math.max(selectedIndex - 1, 0);
+          updateSelectionHighlight();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const btn = btns[selectedIndex];
+          if (btn) btn.click(); // same handler as a mouse click — no separate login path to keep in sync
+        }
+      });
+    }
+
+    // Type-to-search: if focus ends up somewhere else in this tab (clicked a
+    // card, tabbed away, whatever) and the user just starts typing a plain
+    // character without clicking back into the search box first, redirect
+    // it there instead of losing the keystroke. Doesn't touch typing that's
+    // clearly meant for another field (the per-card password editor's
+    // input) or any modifier/navigation key combo.
+    const panelEl = document.getElementById("panel-accounts");
+    if (panelEl && searchInput) {
+      document.addEventListener("keydown", (e) => {
+        if (!panelEl.classList.contains("tab-panel-active")) return;
+        if (document.activeElement === searchInput) return; // already typing there — let its own handler above run
+        const activeTag = (document.activeElement && document.activeElement.tagName) || "";
+        if (activeTag === "INPUT" || activeTag === "TEXTAREA") return; // deliberately typing into something else
+        if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return; // only plain printable characters
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.value += e.key;
+        searchTerm = searchInput.value;
+        selectedIndex = 0;
+        render();
+      });
+    }
+
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener("click", () => {
+        window.nkConfirm("Clear the entire scanned entity list, for every email? Everything reappears as you revisit each entity picker. Saved passwords are kept.", { confirmText: "Clear All", danger: true }).then((ok) => {
+          if (!ok) return;
+          chrome.storage.local.set({ nkMasarEntities: {} }, () => window.nkToast("Cleared.", "success"));
+        });
+      });
+    }
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      if (changes.nkMasarEntities || changes.nkMasarCurrentEntity) load();
+    });
+    load();
+
+    // ── Manual "Scan Now" ── forces an immediate scan attempt instead of
+    // waiting on the automatic route-change/mutation/poll triggers; surfaces
+    // a specific reason when it can't, instead of those paths' silent no-op.
+    if (scanNowBtn) {
+      scanNowBtn.addEventListener("click", () => {
+        scanNowBtn.disabled = true;
+        const prevText = scanNowBtn.textContent;
+        scanNowBtn.textContent = "Scanning…";
+        withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", (target) => {
+          if (!target) { scanNowBtn.disabled = false; scanNowBtn.textContent = prevText; return; }
+          chrome.tabs.sendMessage(target.id, { type: "nkMasarScanNow" }, (resp) => {
+            scanNowBtn.disabled = false;
+            scanNowBtn.textContent = prevText;
+            if (chrome.runtime.lastError) { window.nkToast("Could not reach the Masar tab — refresh it and try again.", "error"); return; }
+            if (resp && resp.ok) { window.nkToast(`Scanned ${resp.count} entit${resp.count === 1 ? "y" : "ies"}.`, "success"); return; }
+            const reason = resp && resp.reason;
+            const msg = {
+              "wrong-page": "Open Masar's entity picker (your name → Registered Entities) first, then try again.",
+              "no-cards": "No entity cards found on that page yet — give it a moment and try again.",
+              "license": "Masar Accounts isn't included in your current license.",
+              "module-off": "Masar Accounts is turned off — flip its toggle on above first.",
+            }[reason] || `Couldn't scan (${reason || "unknown error"}).`;
+            window.nkToast(msg, "error");
+          });
+        });
+      });
+    }
+  })();
 
   chrome.storage.local.get(["emailList", "activeEmailId"], (res) => {
     emailList     = res.emailList || [];

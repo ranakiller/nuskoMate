@@ -22,6 +22,9 @@
         <button id="hist-redo" class="ui-mode-btn" title="Redo (Ctrl+Y)" disabled>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
         </button>
+        <button id="acct-top-btn" class="ui-mode-btn" title="Masar Accounts — switch entity with one click">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </button>
         <button id="ui-mode-btn" class="ui-mode-btn" title="Dock as side panel">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
         </button>
@@ -48,6 +51,9 @@
       <!-- Left sidebar nav -->
       <nav class="tabbar">
         <div class="side-group">
+          <!-- Masar Accounts moved off the sidebar and into the top-bar
+               "logo button" (header-actions, between undo/redo and the
+               side-panel dock button) — see #acct-top-btn below. -->
           <button class="tab tab-active" data-tab="modules" title="Modules">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
             <span>Modules</span>
@@ -1302,6 +1308,67 @@
     </div>
     </div><!-- /us-content -->
     </div><!-- /panel-urlshift -->
+
+    <!-- Panel: Masar Accounts -->
+    <div class="tab-panel" id="panel-accounts">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Masar Accounts <button id="acct-info-btn" class="info-btn" type="button" title="How Masar Accounts works" aria-label="How Masar Accounts works">i</button></div>
+            <div class="module-desc">Switch between your Masar entities in one click</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-accounts" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="acct-info-panel" style="display:none;">
+          <li>Nuskomate watches masar.nusuk.sa in the background: every time you open the entity picker (your name → <b>Registered Entities</b>), it remembers every card it sees there — no need to visit that page from here first.</li>
+          <li>It also always knows which entity you're currently signed into, read straight off the account header.</li>
+          <li>Click a card below to switch: already on it → just a heads-up; otherwise Nuskomate opens the entity picker itself and clicks that entity's own <b>Login</b> button for you.</li>
+          <li>Card not found on the entity picker when you try to switch? You're signed in with a different email than the one that entity belongs to — sign in with the right email first, then it'll show up here again.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="acct-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+      </div>
+      <div class="premium-upsell-title">Masar Accounts is a premium tool</div>
+      <div class="premium-upsell-text">One-click switching between your Masar entities, auto-scanned from the entity picker. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="acct-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="acct-content">
+    <div class="section">
+      <div class="ac-toolbar-compact">
+        <input type="search" id="acct-search" class="logs-search" placeholder="Search name, email, or type…" autocomplete="off" />
+        <button id="acct-scan-now" type="button" class="act-btn" title="Scan immediately — only works while you're on Masar's entity picker (your name → Registered Entities)" style="white-space:nowrap;">Scan Now</button>
+        <button id="acct-clear-all" type="button" class="ac-icon-btn ac-icon-btn-danger" title="Clear the whole scanned list" aria-label="Clear the whole scanned list">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+        <button id="acct-refresh" type="button" class="ac-icon-btn" title="Refresh" aria-label="Refresh">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+      </div>
+      <!-- Per-email "edit password" (key icon, right before each header
+           card's delete icon) now lives inline in popup.js's render() —
+           it expands that specific email's own card, same as the
+           chevron does for its entity list, instead of one shared
+           always-there-somewhere field editing an email picked from a
+           dropdown of one. -->
+
+      <div id="acct-empty" class="logs-empty">Nothing scanned yet — open Masar's entity picker (your name → Registered Entities) once and your entities will show up here.</div>
+      <div id="acct-list"></div>
+    </div>
+    </div><!-- /acct-content -->
+    </div><!-- /panel-accounts -->
 
     <!-- panel-groups removed — Groups Export is now a one-click module card
          in Modules > Utilities, see above. -->

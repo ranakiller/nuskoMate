@@ -251,6 +251,12 @@
     element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     element.click();
   }
+  // Shared with any other content-script module that needs to click a real
+  // element on masar.nusuk.sa (e.g. modules/masar-accounts.js) — the
+  // pointerdown/pointerup/click sequence above is what this Angular/PrimeNG
+  // app actually needs to register a click; every module should reuse this
+  // instead of re-deriving its own version.
+  window.nkClickElement = clickElement;
 
   // ── Date/time formatting (for fill rules whose value is "today's date") ───
   // Tokens: YYYY YY MMM MM DD HH mm ss. Longer tokens are listed first in the

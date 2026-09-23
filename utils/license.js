@@ -26,7 +26,7 @@
   // autoclick/fillrules/autoselect are the pre-merge ids for what's now the
   // single "autorules" tool — kept in the list (not removed) since already-
   // issued keys may still carry them; featOK("autorules") accepts all 4.
-  const FEATURES = ["ocr", "father", "bulk", "batch", "vaccine", "issuedate", "reload", "overlay", "autorules", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups", "brnrequest", "translaterules", "mvtotals", "talabcopy", "autodatepicker", "packagecreator", "filetools"];
+  const FEATURES = ["ocr", "father", "bulk", "batch", "vaccine", "issuedate", "reload", "overlay", "autorules", "autoclick", "autofill", "fillrules", "autoselect", "workflows", "urlshift", "groups", "brnrequest", "translaterules", "mvtotals", "talabcopy", "autodatepicker", "packagecreator", "filetools", "masaraccounts"];
 
   // ── Entitlement cache (for gating premium content-script modules) ─────────
   // Fail-closed: in enforced mode we assume NOT activated until storage confirms
