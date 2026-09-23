@@ -266,6 +266,21 @@ body {
 /* Master-off dims the panels but not the tab bar */
 .ext-disabled .tab-panel { opacity: 0.45; pointer-events: none; }
 
+/* ── Sub-tabs — a smaller nested version of the same show/hide pattern,
+   currently just the Automation tab (Automation rules / Flows / URL
+   Shifter). A segmented-pill row instead of the sidebar's full tab
+   styling, since this sits inline at the top of an already-scrolled panel. */
+.am-subtabs { display: flex; gap: 4px; padding: 10px 14px 0; }
+.am-subtab {
+  flex: 1; padding: 7px 8px; border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text-sub); font-size: 11.5px; font-weight: 600; border-radius: var(--radius-xs);
+  cursor: pointer; text-align: center;
+}
+.am-subtab:hover { border-color: var(--accent); color: var(--text); }
+.am-subtab-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.subtab-panel { display: none; }
+.subtab-panel-active { display: block; }
+
 /* ── Sections ─────────────────────────────────────────────── */
 .section {
   padding: 14px 14px 0;

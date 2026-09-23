@@ -66,17 +66,9 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/></svg>
             <span>Passport</span>
           </button>
-          <button class="tab" data-tab="autorules" title="Automation (click / fill / select rules)">
+          <button class="tab" data-tab="autorules" title="Automation — Automation rules, Flows, and URL Shifter">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 9 2"/></svg>
             <span>Automation</span>
-          </button>
-          <button class="tab" data-tab="workflows" title="Workflows">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-            <span>Flows</span>
-          </button>
-          <button class="tab" data-tab="urlshift" title="URL Shifter">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-            <span>Redirect</span>
           </button>
           <button class="tab" data-tab="brnrequest" title="BRN Request">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="12" x2="9" y2="12.01"/><line x1="9" y1="15" x2="9" y2="15.01"/></svg>
@@ -1035,9 +1027,18 @@
     </div>
     </div><!-- /panel-logs -->
 
-    <!-- Panel: Automation (click + fill + select rules, merged from 3 tabs
-         into one — Translate stays its own separate tab, see panel-translate) -->
+    <!-- Panel: Automation — Automation rules, Flows, and URL Shifter as -->
+    <!-- sub-tabs of one outer tab (Translate and everything else stays -->
+    <!-- its own separate top-level tab, see panel-translate). -->
     <div class="tab-panel" id="panel-autorules">
+
+    <div class="am-subtabs" role="tablist">
+      <button class="am-subtab am-subtab-active" type="button" data-subtab="automation" role="tab" aria-selected="true">Automation</button>
+      <button class="am-subtab" type="button" data-subtab="flows" role="tab" aria-selected="false">Flows</button>
+      <button class="am-subtab" type="button" data-subtab="urlshift" role="tab" aria-selected="false">URL Shifter</button>
+    </div>
+
+    <div class="subtab-panel subtab-panel-active" id="subtab-automation">
 
     <div class="section">
       <div class="module-card">
@@ -1101,6 +1102,142 @@
       <div id="ar-list" class="ac-list"><div class="logs-empty">No rules yet</div></div>
     </div>
     </div><!-- /ar-content -->
+    </div><!-- /subtab-automation -->
+
+    <div class="subtab-panel" id="subtab-flows">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">Workflows <button id="wf-info-btn" class="info-btn" type="button" title="How workflows work" aria-label="How workflows work">i</button></div>
+            <div class="module-desc">Programmable step sequences (loops, data, hotkeys)</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-workflows" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="wf-info-panel" style="display:none;">
+          <li>Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press <b>▶ Run</b> to play it.</li>
+          <li>Or press <b>● Rec</b> and just do the actions on the page — your clicks, typing and dropdown picks are captured as steps automatically.</li>
+          <li>Hover between steps for a <b>+</b> to insert one exactly there (e.g. a Delay).</li>
+          <li>Drag the <b>☰</b> handle to reorder steps.</li>
+          <li>Use <b>◎</b> to flash a step's element on the page.</li>
+          <li>Use <b>⚙</b> for run mode / hotkey / repeat / CSV data.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="wf-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">Workflows is a premium tool</div>
+      <div class="premium-upsell-text">Build ordered automations with waits, loops, conditions and CSV data. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="wf-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="wf-content">
+    <div class="section" id="wf-section">
+      <div class="ac-toolbar-compact">
+        <input type="search" id="wf-search" class="logs-search" placeholder="Search workflows…" autocomplete="off" />
+        <button id="wf-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="New workflow" aria-label="New workflow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="wf-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button id="wf-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="wf-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="wf-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="wf-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <input id="wf-import-file" type="file" accept=".json" style="display:none;" />
+      </div>
+      <div id="wf-list" class="ac-list"></div>
+    </div>
+    </div><!-- /wf-content -->
+    </div><!-- /subtab-flows -->
+
+    <div class="subtab-panel" id="subtab-urlshift">
+
+    <div class="section">
+      <div class="module-card">
+        <div class="module-header">
+          <div class="module-icon clicker-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+          </div>
+          <div class="module-info">
+            <div class="module-name">URL Shifter <button id="us-info-btn" class="info-btn" type="button" title="How URL Shifter works" aria-label="How URL Shifter works">i</button></div>
+            <div class="module-desc">Auto-redirect when the page URL matches</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="toggle-urlshift" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <ul class="info-panel" id="us-info-panel" style="display:none;">
+          <li>Click <b>+</b>, name the rule, choose a <b>Trigger</b>, then set a <b>redirect to</b> URL.</li>
+          <li><b>Trigger: URL matches</b> — <b>Exact</b> / <b>Partial</b> match the page's path (e.g. <code>/umrah/mutamer/add-mutamer</code>); <b>Partial</b> matches anything starting with it. <b>Contains</b> / <b>Not contains</b> match anywhere in the full URL — useful for query strings or a domain fragment.</li>
+          <li><b>Trigger: Element appears on the page</b> — pick (or type) a selector; the rule fires as soon as that element shows up, even if it's inserted dynamically after the page loads.</li>
+          <li>Redirect to can be a full URL or a path on this site (e.g. <code>/umrah/mutamer-group</code>).</li>
+          <li>Works with Angular's in-app navigation, not just full page loads — a rule fires once per page/route, so it won't loop.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="us-upsell" class="premium-upsell" style="display:none;">
+      <div class="premium-upsell-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="premium-upsell-title">URL Shifter is a premium tool</div>
+      <div class="premium-upsell-text">Automatically redirect away from — or into — a page when its URL matches a rule. Enter your activation key in <b>Settings</b> to unlock it.</div>
+      <button id="us-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+    </div>
+
+    <div id="us-content">
+    <div class="section">
+      <div class="ac-toolbar-compact">
+        <input type="search" id="us-search" class="logs-search" placeholder="Search redirect rules…" autocomplete="off" />
+        <button id="us-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add redirect rule" aria-label="Add redirect rule">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="us-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button id="us-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <button id="us-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+        <button id="us-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="us-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <button id="us-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all redirect rules" aria-label="Delete all redirect rules">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+        <input id="us-import-file" type="file" accept=".json" style="display:none;" />
+      </div>
+      <div id="us-list" class="ac-list"><div class="logs-empty">No redirect rules yet</div></div>
+    </div>
+    </div><!-- /us-content -->
+    </div><!-- /subtab-urlshift -->
+
     </div><!-- /panel-autorules -->
 
     <!-- Panel: Translation Rules -->
@@ -1173,141 +1310,7 @@
     </div><!-- /tr-content -->
     </div><!-- /panel-translate -->
 
-    <!-- Panel: Workflows -->
-    <div class="tab-panel" id="panel-workflows">
 
-    <div class="section">
-      <div class="module-card">
-        <div class="module-header">
-          <div class="module-icon clicker-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-          </div>
-          <div class="module-info">
-            <div class="module-name">Workflows <button id="wf-info-btn" class="info-btn" type="button" title="How workflows work" aria-label="How workflows work">i</button></div>
-            <div class="module-desc">Programmable step sequences (loops, data, hotkeys)</div>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-workflows" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <ul class="info-panel" id="wf-info-panel" style="display:none;">
-          <li>Build an ordered sequence (click → fill → <b>wait for element</b> → click…) and press <b>▶ Run</b> to play it.</li>
-          <li>Or press <b>● Rec</b> and just do the actions on the page — your clicks, typing and dropdown picks are captured as steps automatically.</li>
-          <li>Hover between steps for a <b>+</b> to insert one exactly there (e.g. a Delay).</li>
-          <li>Drag the <b>☰</b> handle to reorder steps.</li>
-          <li>Use <b>◎</b> to flash a step's element on the page.</li>
-          <li>Use <b>⚙</b> for run mode / hotkey / repeat / CSV data.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div id="wf-upsell" class="premium-upsell" style="display:none;">
-      <div class="premium-upsell-icon">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      </div>
-      <div class="premium-upsell-title">Workflows is a premium tool</div>
-      <div class="premium-upsell-text">Build ordered automations with waits, loops, conditions and CSV data. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="wf-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
-    </div>
-
-    <div id="wf-content">
-    <div class="section" id="wf-section">
-      <div class="ac-toolbar-compact">
-        <input type="search" id="wf-search" class="logs-search" placeholder="Search workflows…" autocomplete="off" />
-        <button id="wf-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="New workflow" aria-label="New workflow">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-        <button id="wf-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button id="wf-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
-        <button id="wf-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        </button>
-        <button id="wf-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button id="wf-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </button>
-        <input id="wf-import-file" type="file" accept=".json" style="display:none;" />
-      </div>
-      <div id="wf-list" class="ac-list"></div>
-    </div>
-    </div><!-- /wf-content -->
-    </div><!-- /panel-workflows -->
-
-    <!-- Panel: URL Shifter (redirect rules) -->
-    <div class="tab-panel" id="panel-urlshift">
-
-    <div class="section">
-      <div class="module-card">
-        <div class="module-header">
-          <div class="module-icon clicker-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-          </div>
-          <div class="module-info">
-            <div class="module-name">URL Shifter <button id="us-info-btn" class="info-btn" type="button" title="How URL Shifter works" aria-label="How URL Shifter works">i</button></div>
-            <div class="module-desc">Auto-redirect when the page URL matches</div>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-urlshift" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <ul class="info-panel" id="us-info-panel" style="display:none;">
-          <li>Click <b>+</b>, name the rule, choose a <b>Trigger</b>, then set a <b>redirect to</b> URL.</li>
-          <li><b>Trigger: URL matches</b> — <b>Exact</b> / <b>Partial</b> match the page's path (e.g. <code>/umrah/mutamer/add-mutamer</code>); <b>Partial</b> matches anything starting with it. <b>Contains</b> / <b>Not contains</b> match anywhere in the full URL — useful for query strings or a domain fragment.</li>
-          <li><b>Trigger: Element appears on the page</b> — pick (or type) a selector; the rule fires as soon as that element shows up, even if it's inserted dynamically after the page loads.</li>
-          <li>Redirect to can be a full URL or a path on this site (e.g. <code>/umrah/mutamer-group</code>).</li>
-          <li>Works with Angular's in-app navigation, not just full page loads — a rule fires once per page/route, so it won't loop.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div id="us-upsell" class="premium-upsell" style="display:none;">
-      <div class="premium-upsell-icon">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      </div>
-      <div class="premium-upsell-title">URL Shifter is a premium tool</div>
-      <div class="premium-upsell-text">Automatically redirect away from — or into — a page when its URL matches a rule. Enter your activation key in <b>Settings</b> to unlock it.</div>
-      <button id="us-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
-    </div>
-
-    <div id="us-content">
-    <div class="section">
-      <div class="ac-toolbar-compact">
-        <input type="search" id="us-search" class="logs-search" placeholder="Search redirect rules…" autocomplete="off" />
-        <button id="us-add" class="ac-icon-btn ac-icon-btn-primary" type="button" title="Add redirect rule" aria-label="Add redirect rule">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-        <button id="us-expand-toggle" class="ac-icon-btn" type="button" title="Expand/collapse all" aria-label="Expand/collapse all">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button id="us-share" class="ac-icon-btn" type="button" title="Share link" aria-label="Share link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        </button>
-        <button id="us-import-link" class="ac-icon-btn" type="button" title="Import link" aria-label="Import link">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        </button>
-        <button id="us-export" class="ac-icon-btn" type="button" title="Export as JSON" aria-label="Export as JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </button>
-        <button id="us-import" class="ac-icon-btn" type="button" title="Import from JSON" aria-label="Import from JSON">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </button>
-        <button id="us-delete-all" class="ac-icon-btn ac-icon-btn-danger" type="button" title="Delete all redirect rules" aria-label="Delete all redirect rules">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-        <input id="us-import-file" type="file" accept=".json" style="display:none;" />
-      </div>
-      <div id="us-list" class="ac-list"><div class="logs-empty">No redirect rules yet</div></div>
-    </div>
-    </div><!-- /us-content -->
-    </div><!-- /panel-urlshift -->
 
     <!-- Panel: Masar Accounts -->
     <div class="tab-panel" id="panel-accounts">
@@ -1385,6 +1388,9 @@
             <div class="module-name">BRN Request <button id="brn-info-btn" class="info-btn" type="button" title="How BRN Request works" aria-label="How BRN Request works">i</button></div>
             <div class="module-desc">Quick hotel search bar + auto-fill on agreement pages</div>
           </div>
+          <button id="brn-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-brnrequest" />
             <span class="slider"></span>
@@ -1392,11 +1398,27 @@
         </div>
         <ul class="info-panel" id="brn-info-panel" style="display:none;">
           <li>Press the hotkey below on any Masar page to open a floating search bar: type a hotel name (autocomplete from the list below), a date shorthand, tick <b>Full Talab</b> if needed, and press Enter to jump straight to the right agreement page.</li>
-          <li><b>Quick Send</b> below does the exact same thing from right here in the popup — handy when you're not on a Masar tab at all yet; it opens/navigates whichever Masar tab is currently active.</li>
+          <li>Or press the <b>send icon</b> on any hotel in the list below to do the exact same thing from right here in the popup — handy when you're not on a Masar tab at all yet; it opens/navigates whichever Masar tab is currently active.</li>
           <li>Date shorthand: a single number (<code>28</code>) means a 3-night stay starting there; <code>22+5</code> means start day 22 for 5 nights; <code>28 05</code> is an explicit start/end day.</li>
           <li>The hotel list fills itself in — just visit any hotel's page on Masar once and it's captured automatically (name + ID). Edit or bulk-replace it below if you ever need to.</li>
           <li>On a Create Agreement page, the price field and regulations checkbox are filled in automatically.</li>
         </ul>
+        <div class="module-extra" id="brn-module-extra" style="display:none;">
+          <div class="k-row">
+            <div style="flex:1; min-width:0;">
+              <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotkey</label>
+              <div id="brn-hotkey-row"></div>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <label class="k-mini-label" title="Auto-filled into the price field on Create Agreement pages">Default price</label>
+              <input type="text" id="brn-default-price" class="field-input" placeholder="1" autocomplete="off" />
+            </div>
+            <div style="flex:1; min-width:0;">
+              <label class="k-mini-label" title='Nights added when only a single date is entered, e.g. "28" → 28 + N nights'>Default nights</label>
+              <input type="number" id="brn-default-nights" class="field-input" min="1" placeholder="3" autocomplete="off" />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1410,23 +1432,6 @@
     </div>
 
     <div id="brn-content">
-      <div class="section">
-        <div class="section-title">Hotkey &amp; Defaults</div>
-        <div class="k-row">
-          <div style="flex:1; min-width:0;">
-            <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotkey</label>
-            <div id="brn-hotkey-row"></div>
-          </div>
-          <div style="flex:1; min-width:0;">
-            <label class="k-mini-label" title="Auto-filled into the price field on Create Agreement pages">Default price</label>
-            <input type="text" id="brn-default-price" class="field-input" placeholder="1" autocomplete="off" />
-          </div>
-          <div style="flex:1; min-width:0;">
-            <label class="k-mini-label" title='Nights added when only a single date is entered, e.g. "28" → 28 + N nights'>Default nights</label>
-            <input type="number" id="brn-default-nights" class="field-input" min="1" placeholder="3" autocomplete="off" />
-          </div>
-        </div>
-      </div>
 
       <div class="section">
         <div class="section-title">Hotel List <span class="k-count-inline" id="brn-count">(0)</span></div>

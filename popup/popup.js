@@ -448,6 +448,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (res.uiTab && document.getElementById("panel-" + res.uiTab)) activateTab(res.uiTab);
   });
 
+  // ── Automation sub-tabs — Automation rules / Flows / URL Shifter, nested
+  // inside the single "Automation" sidebar tab. Same show/hide + persisted-
+  // last-open pattern as the sidebar tabs above, just scoped to .am-subtab/
+  // .subtab-panel instead of .tab/.tab-panel. ─────────────────────────────
+  const subtabBtns = [...document.querySelectorAll(".am-subtab")];
+  const subtabPanels = [...document.querySelectorAll(".subtab-panel")];
+  function activateSubtab(name) {
+    subtabBtns.forEach((b) => {
+      const on = b.dataset.subtab === name;
+      b.classList.toggle("am-subtab-active", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    subtabPanels.forEach((p) => p.classList.toggle("subtab-panel-active", p.id === "subtab-" + name));
+  }
+  subtabBtns.forEach((b) => b.addEventListener("click", () => {
+    activateSubtab(b.dataset.subtab);
+    chrome.storage.local.set({ uiAutomationSubtab: b.dataset.subtab });
+  }));
+  chrome.storage.local.get(["uiAutomationSubtab"], (res) => {
+    if (res.uiAutomationSubtab && document.getElementById("subtab-" + res.uiAutomationSubtab)) activateSubtab(res.uiAutomationSubtab);
+  });
+
 
   // ── UI mode: popup ↔ side panel ─────────────────────────────
   // The side panel loads this same page with ?panel=1 so we know the context.
@@ -611,6 +633,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   wireGearToggle("batch-settings-btn", "batch-module-extra");
   wireGearToggle("reload-settings-btn", "reload-module-extra");
+  wireGearToggle("brn-settings-btn", "brn-module-extra");
 
   // Auto Date Picker's "i" info panel — no settings/gear, just this.
   (function () {
