@@ -1425,6 +1425,10 @@ input:checked + .slider::before {
 .k-item-meta div { line-height: 1.5; }
 .k-item-btns { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
 .k-item-editing { cursor: default; }
+.k-item-sending { flex-wrap: wrap; }
+.brn-send-row { display: flex; align-items: center; gap: 6px; flex-basis: 100%; margin-top: 8px; }
+.brn-send-row .field-input { flex: 1; min-width: 0; }
+.brn-send-full { width: 15px; height: 15px; flex-shrink: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .k-copy-done { border-color: var(--accent2) !important; color: var(--accent2) !important; }
 .k-mini {
   border: 1px solid var(--border); background: var(--surface2);

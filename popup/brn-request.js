@@ -29,11 +29,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const nightsInput = document.getElementById("brn-default-nights");
   const infoBtn = document.getElementById("brn-info-btn");
   const infoPanel = document.getElementById("brn-info-panel");
-  const qsHotel = document.getElementById("brn-qs-hotel");
-  const qsHotelList = document.getElementById("brn-qs-hotel-list");
-  const qsDate = document.getElementById("brn-qs-date");
-  const qsFull = document.getElementById("brn-qs-full");
-  const qsSend = document.getElementById("brn-qs-send");
 
   if (infoBtn && infoPanel) {
     infoBtn.addEventListener("click", () => {
@@ -45,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── Icon-only row buttons — same visual language as Keys admin's list ──
   const ICON = {
+    send:  '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
     copy:  '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     check: '<polyline points="20 6 9 17 4 12"/>',
     edit:  '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
@@ -132,6 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let hotels = {};   // { name: id }
   let search = "";
   let editingName = null; // hotel name currently shown as an inline edit form (null = none)
+  let sendingName = null; // hotel name currently showing its inline "Send" date/Full-Talab row (null = none)
 
   function saveHotels(next, cb) {
     hotels = next;
@@ -243,16 +240,71 @@ document.addEventListener("DOMContentLoaded", () => {
       const meta = document.createElement("div"); meta.className = "k-item-meta"; meta.textContent = `ID: ${id}`;
       main.append(nameEl, meta);
 
+      const sending = name === sendingName;
       const btns = document.createElement("div"); btns.className = "k-item-btns";
       btns.append(
+        iconBtn("send", "Send BRN request", () => {
+          sendingName = sending ? null : name;
+          editingName = null;
+          render();
+        }),
         copyBtn(name, id),
-        iconBtn("edit", "Edit", () => { editingName = name; render(); }),
+        iconBtn("edit", "Edit", () => { editingName = name; sendingName = null; render(); }),
         iconBtn("trash", "Delete", () => deleteHotel(name), true),
       );
 
       item.append(main, btns);
+      if (sending) {
+        item.classList.add("k-item-sending");
+        item.appendChild(buildSendRow(name));
+      }
       listEl.appendChild(item);
     });
+  }
+
+  // Inline "Send" popup — a date field and a bare Full-Talab checkbox (no
+  // label: the common case IS full talab, so it just carries over from
+  // whatever was used last; the box stays only for the rare time it needs
+  // to be unchecked). Same date syntax the on-page floating bar accepts.
+  function buildSendRow(name) {
+    const row = document.createElement("div"); row.className = "brn-send-row";
+
+    const dateInp = document.createElement("input");
+    dateInp.type = "text"; dateInp.className = "field-input"; dateInp.autocomplete = "off";
+    dateInp.placeholder = "e.g. 28 05";
+    dateInp.title = 'A single number ("28") means a 3-night stay starting there; "22+5" means start day 22 for 5 nights; "28 05" is an explicit start/end day.';
+
+    const fullChk = document.createElement("input");
+    fullChk.type = "checkbox"; fullChk.className = "brn-send-full";
+    fullChk.title = "Full Talab";
+
+    const goBtn = document.createElement("button");
+    goBtn.type = "button"; goBtn.className = "act-btn"; goBtn.textContent = "Send";
+
+    chrome.storage.local.get(["brnLastUsed"], (res) => {
+      const last = res.brnLastUsed || {};
+      dateInp.value = last.date || "";
+      fullChk.checked = last.fullTalab === undefined ? true : !!last.fullTalab;
+    });
+
+    const doSend = () => {
+      const dates = dateInp.value.trim();
+      if (!dates) { window.nkToast("Enter dates first.", "error"); return; }
+      quickSendFor(name, dates, fullChk.checked);
+      sendingName = null;
+      render();
+    };
+    const doClose = () => { sendingName = null; render(); };
+
+    dateInp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); doSend(); }
+      if (e.key === "Escape") { e.preventDefault(); doClose(); }
+    });
+    goBtn.addEventListener("click", doSend);
+
+    row.append(dateInp, fullChk, goBtn);
+    setTimeout(() => dateInp.focus(), 0);
+    return row;
   }
 
   if (searchEl) {
@@ -271,45 +323,20 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.local.get([LIST_KEY], (res) => {
     hotels = res[LIST_KEY] || {};
     render();
-    refreshQsDatalist();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes[LIST_KEY]) { hotels = changes[LIST_KEY].newValue || {}; render(); refreshQsDatalist(); }
+    if (changes[LIST_KEY]) { hotels = changes[LIST_KEY].newValue || {}; render(); }
   });
 
   // ── Quick Send — same hotel/date/Full-Talab search as the on-page floating
-  // bar (modules/brn-request.js), triggered from here instead of a hotkey on
-  // a Masar tab. The popup has no page of its own to navigate, so it asks
-  // whichever Masar tab is active to do it via BRN_QUICK_SEARCH — same
-  // lookup, date math and URL the on-page bar uses, so results never differ
-  // depending on which one you happened to use. ──
-  function refreshQsDatalist() {
-    if (!qsHotelList) return;
-    qsHotelList.innerHTML = "";
-    Object.keys(hotels).sort((a, b) => a.localeCompare(b)).forEach((h) => {
-      const opt = document.createElement("option");
-      opt.value = h;
-      qsHotelList.appendChild(opt);
-    });
-  }
-
-  if (qsHotel || qsDate || qsFull) {
-    chrome.storage.local.get(["brnLastUsed"], (res) => {
-      const last = res.brnLastUsed || {};
-      if (qsHotel) qsHotel.value = last.hotel || "";
-      if (qsDate) qsDate.value = last.date || "";
-      if (qsFull) qsFull.checked = !!last.fullTalab;
-    });
-  }
-
-  function quickSend() {
-    const hotelName = (qsHotel && qsHotel.value.trim()) || "";
-    const dates = (qsDate && qsDate.value.trim()) || "";
-    const fullTalab = !!(qsFull && qsFull.checked);
-    if (!hotelName || !dates) { window.nkToast("Enter a hotel name and dates first.", "error"); return; }
-
+  // bar (modules/brn-request.js), triggered from a hotel's own "Send" button
+  // in the list below instead of a hotkey on a Masar tab. The popup has no
+  // page of its own to navigate, so it asks whichever Masar tab is active to
+  // do it via BRN_QUICK_SEARCH — same lookup, date math and URL the on-page
+  // bar uses, so results never differ depending on which one you used. ──
+  function quickSendFor(hotelName, dates, fullTalab) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0] || !tabs[0].id) { window.nkToast("Open a Masar page first.", "error"); return; }
       chrome.tabs.sendMessage(tabs[0].id, { action: "BRN_QUICK_SEARCH", hotelName, dates, fullTalab }, (resp) => {
@@ -319,9 +346,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
-  if (qsSend) qsSend.addEventListener("click", quickSend);
-  if (qsDate) qsDate.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); quickSend(); } });
-  if (qsHotel) qsHotel.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); quickSend(); } });
 
   // ── Bulk edit (JSON) — same power-editing capability as the original
   // Tampermonkey script's on-page modal, just relocated into this tab. ──
