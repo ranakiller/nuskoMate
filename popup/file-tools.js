@@ -89,9 +89,23 @@ function canvasToBlob(canvas, type, quality) {
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = filename;
+  a.href = url; a.download = window.nkBrandFilename ? window.nkBrandFilename(filename) : filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// A blob: URL made in THIS popup document can't be navigated to from a
+// freshly created tab — Chrome blocks cross-process blob: navigation, which
+// is exactly why background.js's own "open screenshot in a tab" path
+// (see chrome.tabs.create there) hands off a data: URL instead of a blob:
+// one. Same fix here: base64 the blob and point the new tab straight at
+// the data: URL — Chrome's native viewer (image/PDF/text) takes it from
+// there, no dedicated viewer page needed.
+function openBlobInTab(blob) {
+  const r = new FileReader();
+  r.onload = () => chrome.tabs.create({ url: r.result });
+  r.onerror = () => window.nkToast && window.nkToast("Couldn't open that file", "error");
+  r.readAsDataURL(blob);
 }
 
 // "invoice.pdf" picked twice (or a tool that would otherwise emit the same
@@ -109,82 +123,16 @@ function dedupeNames(results) {
   });
 }
 
-// ── Minimal ZIP writer (STORE — no compression) ─────────────────────────────
-// Every result here is already compressed (JPEG/WebP/PDF), so re-compressing
-// the archive itself would barely shrink it further — not worth vendoring a
-// whole deflate implementation for. STORE-method zips are still 100% standard
-// and open in anything (Explorer, macOS Finder, 7-Zip, …).
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-function dosDateTime(d) {
-  return {
-    time: ((d.getHours() & 0x1f) << 11) | ((d.getMinutes() & 0x3f) << 5) | ((d.getSeconds() >> 1) & 0x1f),
-    date: (((d.getFullYear() - 1980) & 0x7f) << 9) | (((d.getMonth() + 1) & 0xf) << 5) | (d.getDate() & 0x1f),
-  };
-}
-async function makeZip(entries) {
-  const enc = new TextEncoder();
-  const { time, date } = dosDateTime(new Date());
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  for (const { name, blob } of entries) {
-    const data = new Uint8Array(await blob.arrayBuffer());
-    const nameBytes = enc.encode(name);
-    const crc = crc32(data);
-    const local = new Uint8Array(30 + nameBytes.length);
-    const dv = new DataView(local.buffer);
-    dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0, true);
-    dv.setUint16(8, 0, true); dv.setUint16(10, time, true); dv.setUint16(12, date, true);
-    dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true); dv.setUint32(22, data.length, true);
-    dv.setUint16(26, nameBytes.length, true); dv.setUint16(28, 0, true);
-    local.set(nameBytes, 30);
-    chunks.push(local, data);
-    central.push({ nameBytes, crc, size: data.length, offset });
-    offset += local.length + data.length;
-  }
-  let centralSize = 0;
-  const centralChunks = central.map((c) => {
-    const buf = new Uint8Array(46 + c.nameBytes.length);
-    const dv = new DataView(buf.buffer);
-    dv.setUint32(0, 0x02014b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 20, true);
-    dv.setUint16(8, 0, true); dv.setUint16(10, 0, true); dv.setUint16(12, time, true); dv.setUint16(14, date, true);
-    dv.setUint32(16, c.crc, true); dv.setUint32(20, c.size, true); dv.setUint32(24, c.size, true);
-    dv.setUint16(28, c.nameBytes.length, true); dv.setUint16(30, 0, true); dv.setUint16(32, 0, true);
-    dv.setUint16(34, 0, true); dv.setUint16(36, 0, true); dv.setUint32(38, 0, true); dv.setUint32(42, c.offset, true);
-    buf.set(c.nameBytes, 46);
-    centralSize += buf.length;
-    return buf;
-  });
-  const eocd = new Uint8Array(22);
-  const dv = new DataView(eocd.buffer);
-  dv.setUint32(0, 0x06054b50, true);
-  dv.setUint16(8, central.length, true); dv.setUint16(10, central.length, true);
-  dv.setUint32(12, centralSize, true); dv.setUint32(16, offset, true);
-  return new Blob([...chunks, ...centralChunks, eocd], { type: "application/zip" });
-}
-
 // Two ways to get a batch of results out, offered as separate buttons —
-// one .zip file (via makeZip below), or every file downloaded on its own.
-// Staggered: firing N downloads in the same instant is exactly the pattern
-// Chrome's own "site is trying to download multiple files" guard watches for.
+// one .zip file (via the shared utils/zip-mini.js writer, window.NkZip), or
+// every file downloaded on its own. Staggered: firing N downloads in the
+// same instant is exactly the pattern Chrome's own "site is trying to
+// download multiple files" guard watches for.
 function downloadEach(results) {
   results.forEach((r, i) => setTimeout(() => downloadBlob(r.blob, r.name), i * 350));
 }
 async function downloadAsZip(results, zipName) {
-  downloadBlob(await makeZip(results), zipName);
+  downloadBlob(await window.NkZip.blob(results), zipName);
 }
 
 // Any image type the browser can decode → a JPEG Blob at the page's natural
@@ -316,6 +264,7 @@ const ICONS = {
   text2pdf:'<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>',
   droplet: '<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>',
   copy:    '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  opennew: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
   check:   '<polyline points="20 6 9 17 4 12"/>',
   back:    '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   camera:  '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
@@ -338,7 +287,7 @@ const TOOLS = [
     id: "webshot", group: "web", icon: "camera", iconClass: "ocr-icon",
     name: "Element Screenshot", desc: "Drag from one element to another on any web page to capture just that area",
     noFile: true, runLabel: "Capture Elements", commandId: "nk-webshot-start",
-    fields: [{ key: "delivery", label: "When done", type: "radio", options: [
+    fields: [{ key: "delivery", label: "When done", type: "radio", storageKey: "ftScreenshotDelivery", options: [
       { value: "tool", label: "Show here, in File Tools" },
       { value: "download", label: "Download automatically" },
       { value: "clipboard", label: "Copy to clipboard" },
@@ -349,7 +298,6 @@ const TOOLS = [
     async run(files, v) {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.id || !/^https?:/.test(tab.url || "")) throw new Error("Open a regular web page first — this can't run on a browser-internal page");
-      await chrome.storage.local.set({ ftScreenshotDelivery: v.delivery });
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["utils/notify.js", "utils/webshot-picker.js"] });
       window.close();
       return [];
@@ -411,17 +359,27 @@ const TOOLS = [
   },
   {
     id: "pdfmerge", group: "pdf", icon: "merge", iconClass: "batch-icon",
-    name: "Merger", desc: "Combine several PDFs into one, in the order listed",
-    accept: "application/pdf", multiple: true, reorder: true, runLabel: "Merge",
+    name: "Merger", desc: "Combine several PDFs and/or images into one PDF, in the order listed",
+    accept: "application/pdf,image/jpeg,image/png,image/webp", multiple: true, reorder: true, runLabel: "Merge",
     fields: [],
     async run(files, v, { onProgress }) {
       const { PDFDocument } = window.PDFLib;
       const out = await PDFDocument.create();
       for (let i = 0; i < files.length; i++) {
-        onProgress(`Adding ${files[i].name}…`);
-        const src = await loadPdfLib(files[i]);
-        const pages = await out.copyPages(src, src.getPageIndices());
-        pages.forEach((p) => out.addPage(p));
+        const file = files[i];
+        onProgress(`Adding ${file.name}…`);
+        if (file.type === "application/pdf") {
+          const src = await loadPdfLib(file);
+          const pages = await out.copyPages(src, src.getPageIndices());
+          pages.forEach((p) => out.addPage(p));
+        } else {
+          // Image page — normalize to JPEG (same as Images -> PDF) and add
+          // one page at the image's natural size.
+          const { blob, width, height } = await imageToJpegBlob(file);
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const img = await out.embedJpg(bytes);
+          out.addPage([width, height]).drawImage(img, { x: 0, y: 0, width, height });
+        }
       }
       const bytes = await out.save();
       return [{ name: "merged.pdf", blob: new Blob([bytes], { type: "application/pdf" }) }];
@@ -1270,6 +1228,19 @@ function buildToolPanel(tool, panelOpts) {
   let files = [];
   const values = {};
   tool.fields.forEach((f) => { values[f.key] = f.default !== undefined ? f.default : ""; });
+  // A field can declare `storageKey` to remember the user's last choice
+  // across popup reopens (chrome.storage.local, same pattern as everywhere
+  // else in this extension) — loaded here, persisted on change below.
+  tool.fields.forEach((f) => {
+    if (!f.storageKey) return;
+    chrome.storage.local.get(f.storageKey, (r) => {
+      const stored = r && r[f.storageKey];
+      if (stored !== undefined && stored !== null && values[f.key] !== stored) {
+        values[f.key] = stored;
+        renderFields();
+      }
+    });
+  });
 
   // A tool with no file input at all (Text -> PDF) can run once its fields
   // have what they need; every other tool needs at least one file.
@@ -1289,7 +1260,10 @@ function buildToolPanel(tool, panelOpts) {
 
     drop = document.createElement("div");
     drop.className = "ft-drop";
-    drop.innerHTML = `${svg("upload", 22)}<span class="ft-drop-label">Click to choose ${tool.multiple ? "file(s)" : "a file"}</span><span class="ft-drop-hint">${tool.accept.includes("pdf") ? "PDF" : "JPG, PNG or WebP"}</span>`;
+    const acceptHint = tool.accept.includes("pdf") && tool.accept.includes("image")
+      ? "PDF, JPG, PNG or WebP"
+      : tool.accept.includes("pdf") ? "PDF" : "JPG, PNG or WebP";
+    drop.innerHTML = `${svg("upload", 22)}<span class="ft-drop-label">Click to choose ${tool.multiple ? "file(s)" : "a file"}</span><span class="ft-drop-hint">${acceptHint} — or paste with Ctrl+V</span>`;
     drop.addEventListener("click", () => input.click());
     ["dragover", "dragenter"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.add("ft-drop-over"); }));
     ["dragleave", "dragend", "drop"].forEach((ev) => drop.addEventListener(ev, () => drop.classList.remove("ft-drop-over")));
@@ -1364,7 +1338,11 @@ function buildToolPanel(tool, panelOpts) {
           const txt = document.createElement("span"); txt.textContent = o.label;
           lab.append(inp, txt); group.appendChild(lab);
         });
-        group.addEventListener("change", (e) => { values[f.key] = e.target.value; afterChange(); });
+        group.addEventListener("change", (e) => {
+          values[f.key] = e.target.value;
+          if (f.storageKey) chrome.storage.local.set({ [f.storageKey]: values[f.key] });
+          afterChange();
+        });
         wrap.append(groupLabel, group);
         fieldsWrap.appendChild(wrap);
         return;
@@ -1377,7 +1355,11 @@ function buildToolPanel(tool, panelOpts) {
         const box = document.createElement("span"); box.className = "ft-check-box";
         const txt = document.createElement("span"); txt.className = "ft-check-text"; txt.textContent = f.label;
         lab.append(inp, box, txt);
-        inp.addEventListener("change", () => { values[f.key] = inp.checked ? onVal : offVal; afterChange(); });
+        inp.addEventListener("change", () => {
+          values[f.key] = inp.checked ? onVal : offVal;
+          if (f.storageKey) chrome.storage.local.set({ [f.storageKey]: values[f.key] });
+          afterChange();
+        });
         wrap.className += " ft-check-field";
         wrap.appendChild(lab);
         fieldsWrap.appendChild(wrap);
@@ -1400,6 +1382,7 @@ function buildToolPanel(tool, panelOpts) {
       control.value = values[f.key];
       control.addEventListener("change", (e) => {
         values[f.key] = e.target.value;
+        if (f.storageKey) chrome.storage.local.set({ [f.storageKey]: values[f.key] });
         if (tool.fields.some((x) => x.showIf)) renderFields();
         refreshRunEnabled();
         updateRunLabel();
@@ -1484,6 +1467,7 @@ function buildToolPanel(tool, panelOpts) {
   // renderResults) for "just this one out of the batch".
   const resultsActions = document.createElement("div"); resultsActions.className = "ft-results-actions"; resultsActions.style.display = "none";
   const dlOneBtn = document.createElement("button"); dlOneBtn.type = "button"; dlOneBtn.className = "act-btn ft-dl-one-btn"; dlOneBtn.textContent = "Download";
+  const tabOneBtn = document.createElement("button"); tabOneBtn.type = "button"; tabOneBtn.className = "wf-mini ft-tab-one-btn"; tabOneBtn.textContent = "Open in new tab";
   const dlEachBtn = document.createElement("button"); dlEachBtn.type = "button"; dlEachBtn.className = "wf-mini"; dlEachBtn.textContent = "Download individually";
   const dlZipBtn = document.createElement("button"); dlZipBtn.type = "button"; dlZipBtn.className = "wf-mini"; dlZipBtn.textContent = "Download as .zip";
   // One button, whether there's a single result or a whole batch — it hands
@@ -1492,7 +1476,7 @@ function buildToolPanel(tool, panelOpts) {
   // nothing currently open here could take these results as input.
   const applyBtn = document.createElement("button"); applyBtn.type = "button"; applyBtn.className = "wf-mini ft-apply-btn"; applyBtn.textContent = "Apply another tool";
   applyBtn.addEventListener("click", () => panelOpts.onChain(applyBtn, lastResults));
-  resultsActions.append(dlOneBtn, dlEachBtn, dlZipBtn, applyBtn);
+  resultsActions.append(dlOneBtn, tabOneBtn, dlEachBtn, dlZipBtn, applyBtn);
 
   let lastResults = [];
   function renderResults() {
@@ -1530,17 +1514,22 @@ function buildToolPanel(tool, panelOpts) {
       const dl = document.createElement("button"); dl.type = "button"; dl.className = "wf-mini wf-icon-btn ft-result-dl"; dl.innerHTML = svg("download", 12);
       dl.title = "Download"; dl.addEventListener("click", () => downloadBlob(r.blob, r.name));
       actions.appendChild(dl);
+      const openTab = document.createElement("button"); openTab.type = "button"; openTab.className = "wf-mini wf-icon-btn ft-result-open"; openTab.innerHTML = svg("opennew", 12);
+      openTab.title = "Open in new tab"; openTab.addEventListener("click", () => openBlobInTab(r.blob));
+      actions.appendChild(openTab);
       item.append(info, actions);
       results.appendChild(item);
     });
     resultsActions.style.display = lastResults.length >= 1 ? "flex" : "none";
     dlOneBtn.style.display = lastResults.length === 1 ? "" : "none";
+    tabOneBtn.style.display = lastResults.length === 1 ? "" : "none";
     dlEachBtn.style.display = lastResults.length > 1 ? "" : "none";
     dlZipBtn.style.display = lastResults.length > 1 ? "" : "none";
     applyBtn.style.display = compatibleChainTools(lastResults).length ? "" : "none";
   }
   const zipName = tool.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".zip";
   dlOneBtn.addEventListener("click", () => lastResults[0] && downloadBlob(lastResults[0].blob, lastResults[0].name));
+  tabOneBtn.addEventListener("click", () => lastResults[0] && openBlobInTab(lastResults[0].blob));
   dlEachBtn.addEventListener("click", () => downloadEach(lastResults));
   dlZipBtn.addEventListener("click", async () => {
     dlZipBtn.disabled = true; dlZipBtn.textContent = "Zipping…";
@@ -1598,6 +1587,30 @@ function buildToolPanel(tool, panelOpts) {
       card.classList.remove("ft-panel-drag-over");
       const dropped = [...(e.dataTransfer.files || [])];
       if (dropped.length) setFiles(tool.multiple ? [...files, ...dropped] : [dropped[0]]);
+    });
+
+    // Ctrl+V — a screenshot or a file copied from Explorer/Finder lands in
+    // the clipboard as a file item, same as a drop. Listens on `document`
+    // (paste targets whatever has focus, which is rarely this card itself)
+    // but only acts while THIS panel is actually the one on screen — panels
+    // are built once and cached (see the bootstrap below), so every other
+    // cached tool's card sits detached from the document until reopened,
+    // and `card.isConnected` is false for it. Plain text pasted into a
+    // field (e.g. Splitter's page-range box) is left alone: the clipboard
+    // only carries "file" items when an actual image/file was copied, so
+    // the text-paste case never reaches preventDefault below.
+    document.addEventListener("paste", (e) => {
+      if (!card.isConnected) return;
+      const clipped = [...((e.clipboardData && e.clipboardData.files) || [])];
+      if (!clipped.length) return;
+      e.preventDefault();
+      const accepted = tool.accept ? tool.accept.split(",").map((s) => s.trim()) : null;
+      const pasted = clipped.filter((f) => !accepted || accepted.includes(f.type));
+      if (!pasted.length) {
+        window.nkToast && window.nkToast(`${tool.name} doesn't accept that file type`, "error");
+        return;
+      }
+      setFiles(tool.multiple ? [...files, ...pasted] : [pasted[0]]);
     });
   }
 

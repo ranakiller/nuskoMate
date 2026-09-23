@@ -1156,7 +1156,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!rules.length) { window.nkToast("No rules to export.", "error"); return; }
         const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a"); a.href = url; a.download = `${cfg.file}-${new Date().toISOString().slice(0, 10)}.json`;
+        const name = `${cfg.file}-${new Date().toISOString().slice(0, 10)}.json`;
+        const a = document.createElement("a"); a.href = url; a.download = window.nkBrandFilename ? window.nkBrandFilename(name) : name;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       });
     };
@@ -2016,7 +2017,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!wfs.length) { window.nkToast("No workflows to export.", "error"); return; }
       const blob = new Blob([JSON.stringify(wfs, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `workflows-${new Date().toISOString().slice(0, 10)}.json`;
+      const name = `workflows-${new Date().toISOString().slice(0, 10)}.json`;
+      const a = document.createElement("a"); a.href = url; a.download = window.nkBrandFilename ? window.nkBrandFilename(name) : name;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     });
   };
@@ -2315,7 +2317,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!rules.length) { window.nkToast("No redirect rules to export.", "error"); return; }
       const blob = new Blob([JSON.stringify(rules, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `redirect-rules-${new Date().toISOString().slice(0, 10)}.json`;
+      const name = `redirect-rules-${new Date().toISOString().slice(0, 10)}.json`;
+      const a = document.createElement("a"); a.href = url; a.download = window.nkBrandFilename ? window.nkBrandFilename(name) : name;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     });
   };

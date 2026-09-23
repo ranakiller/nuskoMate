@@ -1349,7 +1349,6 @@
     <div class="section">
       <div class="ac-toolbar-compact">
         <input type="search" id="acct-search" class="logs-search" placeholder="Search name, email, or type…" autocomplete="off" />
-        <button id="acct-scan-now" type="button" class="act-btn" title="Scan immediately — only works while you're on Masar's entity picker (your name → Registered Entities)" style="white-space:nowrap;">Scan Now</button>
         <button id="acct-clear-all" type="button" class="ac-icon-btn ac-icon-btn-danger" title="Clear the whole scanned list" aria-label="Clear the whole scanned list">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
@@ -1854,6 +1853,7 @@
         <div class="mg-actions">
           <button type="button" class="act-btn" id="mg-dl-selected" disabled>Download Selected</button>
           <button type="button" class="wf-mini" id="mg-dl-all" disabled>Download All</button>
+          <button type="button" class="wf-mini" id="mg-dl-all-zip" disabled>Download All (zip)</button>
           <button type="button" class="wf-mini" id="mg-select-all" disabled>Select All</button>
           <button type="button" class="wf-mini" id="mg-select-none" disabled>Select None</button>
         </div>
@@ -1936,6 +1936,8 @@
 
     <script src="../utils/logger.js"></script>
     <script src="../utils/notify.js"></script>
+    <script src="../utils/filename.js"></script>
+    <script src="../utils/zip-mini.js"></script>
     <script src="../utils/license.js"></script>
     <script src="../utils/passport-parser.js"></script>
     <script src="../utils/xlsx-mini.js"></script>

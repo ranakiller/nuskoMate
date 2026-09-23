@@ -165,6 +165,7 @@
     const rescanBtn = document.getElementById("mg-rescan");
     const dlSelectedBtn = document.getElementById("mg-dl-selected");
     const dlAllBtn = document.getElementById("mg-dl-all");
+    const dlAllZipBtn = document.getElementById("mg-dl-all-zip");
     const selectAllBtn = document.getElementById("mg-select-all");
     const selectNoneBtn = document.getElementById("mg-select-none");
     const typeChipsEl = document.getElementById("mg-type-chips");
@@ -179,6 +180,32 @@
     let activeTypes = null; // null = "all types present" (set lazily once items are known)
     let visible = [];      // indices into items currently shown, after filter+sort
 
+    // ── Range selection: shift+click a checkbox, or press-drag across cards
+    // (Explorer/Photos-style "paint" select). Both work in terms of
+    // POSITION WITHIN `visible` (what's actually on screen right now), not
+    // the raw `items` index, since that's what "everything between here and
+    // there" means to someone looking at the grid.
+    let cbByIndex = new Map();  // item index -> its live checkbox element, rebuilt every render
+    let lastVisIdx = null;      // shift-click anchor
+    let dragging = false, dragPaintValue = null, dragLastVisIdx = null;
+    function setCheck(idx, val) {
+      if (items[idx].unavailable) return;
+      checks[idx] = val;
+      const cb = cbByIndex.get(idx);
+      if (cb) cb.checked = val;
+    }
+    function paintRange(fromVisIdx, toVisIdx, val) {
+      const lo = Math.min(fromVisIdx, toVisIdx), hi = Math.max(fromVisIdx, toVisIdx);
+      for (let p = lo; p <= hi; p++) setCheck(visible[p], val);
+      refreshSelectedEnabled();
+    }
+    // A drag that ends outside the grid (or outside the window entirely)
+    // still has to stop "painting" — mouseup only reliably reaches
+    // `document` if the button comes up while still inside it, so `blur`
+    // covers the mouse leaving the window mid-drag too.
+    document.addEventListener("mouseup", () => { dragging = false; });
+    window.addEventListener("blur", () => { dragging = false; });
+
     // Download Selected always reflects the GLOBAL selection (checks persist
     // across filter changes — you can check some SVGs, switch the type
     // filter to Documents, check a couple of those too, and Download
@@ -189,6 +216,7 @@
     }
     function setVisibleButtonsEnabled(has) {
       dlAllBtn.disabled = !has;
+      dlAllZipBtn.disabled = !has;
       selectAllBtn.disabled = !has;
       selectNoneBtn.disabled = !has;
     }
@@ -276,7 +304,8 @@
         const ext = extOf(item) || (item.type === "video" ? "mp4" : item.type === "audio" ? "mp3" : item.type === "document" ? "pdf" : "jpg");
         name = `${name}.${ext}`;
       }
-      return name.replace(/[\\/:*?"<>|]/g, "_");
+      name = name.replace(/[\\/:*?"<>|]/g, "_");
+      return window.nkBrandFilename ? window.nkBrandFilename(name) : name;
     }
 
     function downloadOne(item, i) {
@@ -289,6 +318,60 @@
       list.forEach(({ item, i }, n) => setTimeout(() => downloadOne(item, i), n * 350));
     }
 
+    // chrome.downloads.download() from a blob: URL, same pattern as
+    // groups.js's own Excel export — the blob URL is only revoked once the
+    // download actually finishes, since chrome.downloads needs it to stay
+    // alive while it reads the data.
+    function downloadBlobFile(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      chrome.downloads.download({ url, filename, saveAs: false }, (downloadId) => {
+        if (chrome.runtime.lastError || !downloadId) { URL.revokeObjectURL(url); return; }
+        const onChanged = (delta) => {
+          if (delta.id !== downloadId || !delta.state) return;
+          URL.revokeObjectURL(url);
+          chrome.downloads.onChanged.removeListener(onChanged);
+        };
+        chrome.downloads.onChanged.addListener(onChanged);
+      });
+    }
+
+    // Unlike a single item's download (handed straight to chrome.downloads
+    // as a URL — Chrome fetches it directly, the popup never touches the
+    // bytes), a zip needs the actual bytes in hand to pack, so this fetches
+    // every item itself first. host_permissions is <all_urls>, so this
+    // fetch isn't subject to the target page's own CORS policy the way a
+    // content script's would be.
+    async function downloadAllAsZip() {
+      const list = visible.filter((i) => !items[i].unavailable);
+      if (!list.length) return;
+      const label = dlAllZipBtn.textContent;
+      dlAllZipBtn.disabled = true; dlAllZipBtn.textContent = "Zipping…";
+      try {
+        const used = new Set();
+        const entries = [];
+        for (const i of list) {
+          let name = filenameFor(items[i], i);
+          if (used.has(name)) {
+            const dot = name.lastIndexOf(".");
+            let n = 2, candidate;
+            do { candidate = dot < 0 ? `${name} (${n})` : `${name.slice(0, dot)} (${n})${name.slice(dot)}`; n++; } while (used.has(candidate));
+            name = candidate;
+          }
+          used.add(name);
+          const blob = await fetch(items[i].url).then((r) => r.blob());
+          entries.push({ name, blob });
+        }
+        const zipBlob = await window.NkZip.blob(entries);
+        const zipName = window.nkBrandFilename ? window.nkBrandFilename("media.zip") : "media.zip";
+        downloadBlobFile(zipBlob, zipName);
+      } catch (err) {
+        window.nkToast && window.nkToast("Couldn't build the zip: " + ((err && err.message) || "unknown error"), "error");
+      } finally {
+        dlAllZipBtn.disabled = !visible.length;
+        dlAllZipBtn.textContent = label;
+      }
+    }
+
     function card(item, i) {
       const el = document.createElement("div");
       el.className = "mg-card" + (item.unavailable ? " mg-unavailable" : "");
@@ -299,6 +382,7 @@
       if (thumbSrc && !item.unavailable) {
         const img = document.createElement("img");
         img.src = thumbSrc; img.loading = "lazy"; img.alt = item.name || "";
+        img.draggable = false; // otherwise a native image-drag ghost fights the press-drag select below
         img.addEventListener("error", () => {
           thumbWrap.textContent = "";
           thumbWrap.classList.add("mg-thumb-icon");
@@ -316,7 +400,18 @@
       cb.type = "checkbox";
       cb.checked = !!checks[i];
       cb.disabled = !!item.unavailable;
-      cb.addEventListener("change", () => { checks[i] = cb.checked; refreshSelectedEnabled(); });
+      cbByIndex.set(i, cb);
+      // State is fully driven by the card's own mousedown handler below
+      // (checked directly on it, not just the checkbox) — this just
+      // swallows the checkbox's native click-to-toggle default action so it
+      // can never race against our own write. Without this, a click landing
+      // exactly on the checkbox toggles it natively as PART OF the click
+      // event's default action; since that happens AFTER our mousedown
+      // handler already wrote the correct value, the browser's own toggle
+      // silently overwrites it right back on the one checkbox actually
+      // clicked — which looked like "the range applies to everything
+      // except the one I clicked."
+      cb.addEventListener("click", (e) => e.preventDefault());
       check.appendChild(cb);
 
       const dl = document.createElement("button");
@@ -334,6 +429,42 @@
       if (item.width && item.height) {
         const dimSpan = document.createElement("span"); dimSpan.className = "mg-dim"; dimSpan.textContent = `${item.width}×${item.height}`;
         meta.appendChild(dimSpan);
+      }
+
+      // Press-and-drag across cards (e.g. from row 1 down through row 3,
+      // then release) selects everything the pointer passed over — same
+      // "paint" gesture as Google Photos/Explorer. Starts from ANYWHERE on
+      // the card, including the checkbox itself (its own native toggle is
+      // fully disabled above, precisely so this one handler is the single
+      // source of truth instead of fighting the browser's default action) —
+      // everything except the standalone download button. Shift+click is
+      // handled here too, before the drag-start branch, since a plain
+      // drag-start would otherwise treat a shift+click as "start a new
+      // one-item drag here" instead of "extend the range from last click".
+      if (!item.unavailable) {
+        el.addEventListener("mousedown", (e) => {
+          if (e.button !== 0 || e.target.closest(".mg-dl-btn")) return;
+          e.preventDefault(); // don't let the browser start a text/image selection while painting
+          const visIdx = visible.indexOf(i);
+          if (e.shiftKey && lastVisIdx !== null) {
+            paintRange(lastVisIdx, visIdx, true);
+            lastVisIdx = visIdx;
+            return;
+          }
+          dragging = true;
+          dragPaintValue = !checks[i];
+          dragLastVisIdx = visIdx;
+          lastVisIdx = visIdx;
+          setCheck(i, dragPaintValue);
+          refreshSelectedEnabled();
+        });
+        el.addEventListener("mouseenter", () => {
+          if (!dragging) return;
+          const visIdx = visible.indexOf(i);
+          paintRange(dragLastVisIdx, visIdx, dragPaintValue);
+          dragLastVisIdx = visIdx;
+          lastVisIdx = visIdx;
+        });
       }
 
       el.append(check, thumbWrap, dl, meta);
@@ -380,6 +511,7 @@
 
     dlSelectedBtn.addEventListener("click", () => downloadMany(items.map((item, i) => ({ item, i })).filter((_, i) => checks[i])));
     dlAllBtn.addEventListener("click", () => downloadMany(visible.map((i) => ({ item: items[i], i })).filter(({ item }) => !item.unavailable)));
+    dlAllZipBtn.addEventListener("click", downloadAllAsZip);
     selectAllBtn.addEventListener("click", () => {
       visible.forEach((i) => { if (!items[i].unavailable) checks[i] = true; });
       applyFiltersAndSort();

@@ -2226,7 +2226,7 @@ html.as-panel .ac-list { max-height: none; }
 .ft-result-size { font-size: 9.5px; color: var(--text-sub); }
 .ft-result-btns { display: flex; gap: 4px; flex-shrink: 0; }
 .ft-results-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
-.ft-dl-one-btn, .ft-apply-btn { flex-shrink: 0; }
+.ft-dl-one-btn, .ft-tab-one-btn, .ft-apply-btn { flex-shrink: 0; }
 
 /* "Apply another tool"'s own screen — a second, filtered ft-grid, not a
    dropdown; morphs open the same way the main grid -> tool panel does (see
@@ -2316,7 +2316,9 @@ html.as-panel .ac-list { max-height: none; }
 .mg-card {
   position: relative; display: flex; flex-direction: column; gap: 4px;
   background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 6px;
+  user-select: none; /* press-drag-to-select shouldn't also start a text selection */
 }
+.mg-card:not(.mg-unavailable) { cursor: pointer; }
 .mg-card.mg-unavailable { opacity: .55; }
 .mg-thumb {
   width: 100%; aspect-ratio: 1 / 1; border-radius: 4px; overflow: hidden;

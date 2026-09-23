@@ -115,14 +115,15 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.classList.toggle("busy", busy);
   }
 
-  // "NuskoGroups-DDMMYY-hh.mm.ss" — local time, so it matches the clock the
-  // export was actually made on rather than UTC.
+  // "Groups-DDMMYY-hh.mm.ss" — local time, so it matches the clock the
+  // export was actually made on rather than UTC. The "Nuskomate" part of
+  // the final filename comes from download() below, not here.
   function exportFileName() {
     const d = new Date();
     const p = (n) => String(n).padStart(2, "0");
     const DD = p(d.getDate()), MM = p(d.getMonth() + 1), YY = p(d.getFullYear() % 100);
     const hh = p(d.getHours()), mm = p(d.getMinutes()), ss = p(d.getSeconds());
-    return `NuskoGroups-${DD}${MM}${YY}-${hh}.${mm}.${ss}`;
+    return `Groups-${DD}${MM}${YY}-${hh}.${mm}.${ss}`;
   }
 
   // chrome.downloads.download() instead of an <a download> + synthetic
@@ -134,6 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // chrome.downloads needs it to stay alive while it reads the data.
   function download(blob, filename) {
     const url = URL.createObjectURL(blob);
+    filename = window.nkBrandFilename ? window.nkBrandFilename(filename) : filename;
     chrome.downloads.download({ url, filename, saveAs: false }, (downloadId) => {
       if (chrome.runtime.lastError || !downloadId) {
         URL.revokeObjectURL(url);

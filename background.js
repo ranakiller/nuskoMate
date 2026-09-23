@@ -518,7 +518,11 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function makeScreenshotFilename(title) {
   const slug = String(title || "screenshot").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "screenshot";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  return `${slug}-${stamp}.png`;
+  // Every file this extension saves to disk carries "Nuskomate" in its name
+  // — background.js is a separate service-worker context from the popup, so
+  // it can't reach popup/../utils/filename.js's window.nkBrandFilename;
+  // this is the one download site outside that scope, hence the inline tag.
+  return `Nuskomate-${slug}-${stamp}.png`;
 }
 
 // One retry, on the specific rate-limit error only — everything else (the

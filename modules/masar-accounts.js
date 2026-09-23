@@ -351,22 +351,6 @@
     if (location.pathname === SERVICES_PATH) scanEntities();
   }, 2000);
 
-  // Manual "Scan Now" (popup button) — bypasses nothing, just forces the
-  // same scanEntities() attempt right now instead of waiting on a route
-  // change/mutation/poll tick, with an explicit reason back for the toast
-  // instead of the automatic paths' silent no-op.
-  async function scanNow() {
-    if (!premiumOK()) return { ok: false, reason: "license" };
-    const { moduleMasarAccounts, extensionEnabled } = await chrome.storage.local.get(["moduleMasarAccounts", "extensionEnabled"]);
-    if (extensionEnabled === false || moduleMasarAccounts === false) return { ok: false, reason: "module-off" };
-    if (location.pathname !== SERVICES_PATH) return { ok: false, reason: "wrong-page" };
-    const gotCards = await waitFor(() => findEntityCards().length > 0, { timeout: 6000 });
-    if (!gotCards) return { ok: false, reason: "no-cards" };
-    const count = findEntityCards().length;
-    await scanEntities();
-    return { ok: true, count };
-  }
-
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg) return;
 
@@ -378,11 +362,6 @@
       sendResponse({ ok: true, status: "started" });
       beginSwitch(msg.name, msg.email);
       return;
-    }
-
-    if (msg.type === "nkMasarScanNow") {
-      scanNow().then(sendResponse).catch((err) => sendResponse({ ok: false, reason: "error", error: (err && err.message) || String(err) }));
-      return true;
     }
   });
 })();

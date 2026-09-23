@@ -265,7 +265,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function download(blob, filename) {
     const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    const a = Object.assign(document.createElement("a"), { href: url, download: window.nkBrandFilename ? window.nkBrandFilename(filename) : filename });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

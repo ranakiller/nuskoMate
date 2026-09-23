@@ -2152,7 +2152,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const empty = document.getElementById("acct-empty");
     const refreshBtn = document.getElementById("acct-refresh");
     const searchInput = document.getElementById("acct-search");
-    const scanNowBtn = document.getElementById("acct-scan-now");
     const clearAllBtn = document.getElementById("acct-clear-all");
     if (!list || !empty) return;
 
@@ -2575,34 +2574,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (changes.nkMasarEntities || changes.nkMasarCurrentEntity) load();
     });
     load();
-
-    // ── Manual "Scan Now" ── forces an immediate scan attempt instead of
-    // waiting on the automatic route-change/mutation/poll triggers; surfaces
-    // a specific reason when it can't, instead of those paths' silent no-op.
-    if (scanNowBtn) {
-      scanNowBtn.addEventListener("click", () => {
-        scanNowBtn.disabled = true;
-        const prevText = scanNowBtn.textContent;
-        scanNowBtn.textContent = "Scanning…";
-        withFocusedTab("https://masar.nusuk.sa/*", "Open a masar.nusuk.sa tab first.", (target) => {
-          if (!target) { scanNowBtn.disabled = false; scanNowBtn.textContent = prevText; return; }
-          chrome.tabs.sendMessage(target.id, { type: "nkMasarScanNow" }, (resp) => {
-            scanNowBtn.disabled = false;
-            scanNowBtn.textContent = prevText;
-            if (chrome.runtime.lastError) { window.nkToast("Could not reach the Masar tab — refresh it and try again.", "error"); return; }
-            if (resp && resp.ok) { window.nkToast(`Scanned ${resp.count} entit${resp.count === 1 ? "y" : "ies"}.`, "success"); return; }
-            const reason = resp && resp.reason;
-            const msg = {
-              "wrong-page": "Open Masar's entity picker (your name → Registered Entities) first, then try again.",
-              "no-cards": "No entity cards found on that page yet — give it a moment and try again.",
-              "license": "Masar Accounts isn't included in your current license.",
-              "module-off": "Masar Accounts is turned off — flip its toggle on above first.",
-            }[reason] || `Couldn't scan (${reason || "unknown error"}).`;
-            window.nkToast(msg, "error");
-          });
-        });
-      });
-    }
   })();
 
   chrome.storage.local.get(["emailList", "activeEmailId"], (res) => {
