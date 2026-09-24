@@ -427,6 +427,7 @@
           <li><b>Mutamers List</b> page — copies group number, group name (+ trip length in days, parsed from its flight dates), a numbered passport + name list, and the shirka name.</li>
           <li><b>Groups List</b> page — copies a numbered list of visible groups as <code>N. GroupNumber xMutamers (State)</code>, a totals line, and the shirka name.</li>
           <li><b>Hotel Agreement Details</b> page — copies agreement number, hotel name + city, dates + days + beds, and the shirka (company) name.</li>
+          <li><b>Catering Agreement Details</b> page — same format: agreement number, provider name + catering location, dates + days + pax, and the shirka name (reads provider name/location from the Service Details tab, switching there and back automatically).</li>
           <li><b>Agreements</b> list page — copies a 3-line block per agreement (number, hotel name + city, dates + days + rooms) and the shirka name.</li>
           <li>Press the keyboard shortcut below (default <b>Alt+Shift+C</b>, changeable) on any of these pages to copy without clicking the button.</li>
           <li>Untick a line below to leave it out of that page's copied text from now on.</li>
@@ -465,6 +466,17 @@
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.days" checked /> Days</label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.beds" checked /> Beds</label>
               <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="agreementDetails.shirkaName" checked /> Shirka name</label>
+            </div>
+            <div class="k-group">
+              <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Catering Agreement Details</b></label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.agreementNumber" checked /> Agreement number</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.providerName" checked /> Provider name</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.city" checked /> Catering location</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.startDate" checked /> Start date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.endDate" checked /> End date</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.days" checked /> Days</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.pax" checked /> Pax</label>
+              <label class="k-check"><input type="checkbox" class="talabcopy-field" data-field="cateringAgreement.shirkaName" checked /> Shirka name</label>
             </div>
             <div class="k-group">
               <label class="k-check k-group-head"><input type="checkbox" class="talabcopy-group-all" /> <b>Agreements List</b></label>
@@ -722,6 +734,16 @@
         </div>
       </div>
 
+      <div id="pipeline-upsell" class="premium-upsell" style="display:none;">
+        <div class="premium-upsell-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+        </div>
+        <div class="premium-upsell-title">WhatsApp Pipeline is a premium tool</div>
+        <div class="premium-upsell-text">Detect passports from WhatsApp, feed Masar, and auto-reply — end to end. Enter your activation key in <b>Settings</b> to unlock it.</div>
+        <button id="pipeline-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      </div>
+
+      <div id="pipeline-content">
       <div class="section" id="pipeline-monitor-section">
         <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Live Monitor</span>
@@ -884,6 +906,7 @@
           <pre id="wa-test-result" class="test-result-pre"></pre>
         </div>
       </div>
+      </div><!-- /pipeline-content -->
     </div><!-- /panel-pipeline -->
 
     <!-- Panel: Passport -->
@@ -1386,7 +1409,7 @@
           </div>
           <div class="module-info">
             <div class="module-name">BRN Request <button id="brn-info-btn" class="info-btn" type="button" title="How BRN Request works" aria-label="How BRN Request works">i</button></div>
-            <div class="module-desc">Quick hotel search bar + auto-fill on agreement pages</div>
+            <div class="module-desc">Quick hotel + catering search bars, auto-fill on agreement pages</div>
           </div>
           <button id="brn-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1397,24 +1420,29 @@
           </label>
         </div>
         <ul class="info-panel" id="brn-info-panel" style="display:none;">
-          <li>Press the hotkey below on any Masar page to open a floating search bar: type a hotel name (autocomplete from the list below), a date shorthand, tick <b>Full Talab</b> if needed, and press Enter to jump straight to the right agreement page.</li>
-          <li>Or press the <b>send icon</b> on any hotel in the list below to do the exact same thing from right here in the popup — handy when you're not on a Masar tab at all yet; it opens/navigates whichever Masar tab is currently active.</li>
-          <li>Date shorthand: a single number (<code>28</code>) means a 3-night stay starting there; <code>22+5</code> means start day 22 for 5 nights; <code>28 05</code> is an explicit start/end day.</li>
-          <li>The hotel list fills itself in — just visit any hotel's page on Masar once and it's captured automatically (name + ID). Edit or bulk-replace it below if you ever need to.</li>
-          <li>On a Create Agreement page, the price field and regulations checkbox are filled in automatically.</li>
+          <li><b>Hotel:</b> press its hotkey below on any Masar page to open a floating search bar: type a hotel name (autocomplete from the list below), a date shorthand, tick <b>Full Talab</b> if needed, and press Enter to jump straight to the right agreement page. Or press the <b>send icon</b> on any hotel in the list below to do the same from right here in the popup.</li>
+          <li>Hotel date shorthand: a single number (<code>28</code>) means a 3-night stay starting there; <code>22+5</code> means start day 22 for 5 nights; <code>28 05</code> is an explicit start/end day.</li>
+          <li>The hotel list fills itself in — just visit any hotel's page on Masar once and it's captured automatically (name + ID). On a Create Agreement page, the price field and regulations checkbox are filled in automatically.</li>
+          <li><b>Food:</b> its own hotkey opens a floating bar for provider/menu name, pilgrim count, and the same date shorthand as Hotel above. The catering list fills itself in automatically the first time you open a catering agreement page for a given provider + menu — the "I agree to terms" checkbox is auto-checked there too.</li>
         </ul>
         <div class="module-extra" id="brn-module-extra" style="display:none;">
           <div class="k-row">
             <div style="flex:1; min-width:0;">
-              <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotkey</label>
+              <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Hotel Hotkey</label>
               <div id="brn-hotkey-row"></div>
             </div>
             <div style="flex:1; min-width:0;">
-              <label class="k-mini-label" title="Auto-filled into the price field on Create Agreement pages">Default price</label>
+              <label class="k-mini-label" title="Click the box, then press the combo (must include Ctrl/Alt/Cmd)">Food Hotkey</label>
+              <div id="brn-food-hotkey-row"></div>
+            </div>
+          </div>
+          <div class="k-row">
+            <div style="flex:1; min-width:0;">
+              <label class="k-mini-label" title="Auto-filled into the price field on Create Agreement pages (Hotel only)">Default price (Hotel)</label>
               <input type="text" id="brn-default-price" class="field-input" placeholder="1" autocomplete="off" />
             </div>
             <div style="flex:1; min-width:0;">
-              <label class="k-mini-label" title='Nights added when only a single date is entered, e.g. "28" → 28 + N nights'>Default nights</label>
+              <label class="k-mini-label" title='Days added when only a single date is entered, e.g. "28" → 28 + N days. Shared by Hotel and Food.'>Default nights (shared)</label>
               <input type="number" id="brn-default-nights" class="field-input" min="1" placeholder="3" autocomplete="off" />
             </div>
           </div>
@@ -1432,6 +1460,13 @@
     </div>
 
     <div id="brn-content">
+
+      <div class="brn-subtabs" role="tablist">
+        <button class="brn-subtab brn-subtab-active" type="button" data-brnsubtab="hotel" role="tab" aria-selected="true">Hotel</button>
+        <button class="brn-subtab" type="button" data-brnsubtab="food" role="tab" aria-selected="false">Food</button>
+      </div>
+
+      <div class="brn-subtab-panel brn-subtab-panel-active" id="brn-subtab-hotel">
 
       <div class="section">
         <div class="section-title">Hotel List <span class="k-count-inline" id="brn-count">(0)</span></div>
@@ -1456,6 +1491,35 @@
       <div class="section">
         <div id="brn-list" class="k-list"><div class="logs-empty">No hotels captured yet — visit any hotel's page on Masar once to capture it automatically.</div></div>
       </div>
+      </div><!-- /brn-subtab-hotel -->
+
+      <div class="brn-subtab-panel" id="brn-subtab-food">
+
+      <div class="section">
+        <div class="section-title">Catering List <span class="k-count-inline" id="brn-food-count">(0)</span></div>
+        <div class="ac-toolbar-compact">
+          <input type="search" id="brn-food-search" class="logs-search" placeholder="Search catering (provider or menu)…" autocomplete="off" />
+          <button id="brn-food-bulk-toggle" class="ac-icon-btn" type="button" title="Bulk edit as JSON" aria-label="Bulk edit as JSON">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="section" id="brn-food-bulk-section" style="display:none;">
+        <div class="section-title">Bulk edit (JSON) <span id="brn-food-bulk-count" style="font-weight:400; opacity:.7;"></span></div>
+        <textarea id="brn-food-bulk-textarea" class="field-input" spellcheck="false" rows="10" style="font-family:Consolas,monospace; font-size:12.5px; resize:vertical;"></textarea>
+        <div id="brn-food-bulk-error" class="k-hint" style="display:none; color:var(--overlay-fg);"></div>
+        <div class="k-actions">
+          <button id="brn-food-bulk-save" class="bulk-btn bulk-btn-primary">Save</button>
+          <button id="brn-food-bulk-cancel" class="bulk-btn bulk-btn-soft">Cancel</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div id="brn-food-list" class="k-list"><div class="logs-empty">No catering services captured yet — open a catering create-agreement page on Masar once to capture it automatically.</div></div>
+      </div>
+      </div><!-- /brn-subtab-food -->
+
     </div><!-- /brn-content -->
     </div><!-- /panel-brnrequest -->
 

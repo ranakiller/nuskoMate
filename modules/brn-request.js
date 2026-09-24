@@ -21,6 +21,19 @@
   const DEFAULT_PRICE = "1";
   const DEFAULT_NIGHTS = 3;
 
+  // ── Food/Catering BRN — same idea as hotels above, but foodMenuId is an
+  // opaque signed token, not a small plain number, and (unlike a hotel's own
+  // standalone detail page) the only place it's ever seen alongside
+  // serviceProviderId is this exact create-agreement URL, once a provider +
+  // menu has already been picked via Masar's own service-provider search.
+  // So capture happens right there instead of some other detail page — see
+  // tryCaptureCatering below.
+  const CATERING_LIST_KEY = "brnCateringList"; // { "Provider — Menu": { serviceProviderId, foodMenuId } }
+  const FOOD_LAST_KEY = "brnFoodLastUsed";     // { name, pilgrimsCount, startDate, endDate }
+  const FOOD_HOTKEY_KEY = "brnFoodHotkey";     // e.g. "Alt+F" — toggles the food search bar
+  const DEFAULT_FOOD_HOTKEY = "Alt+F";
+  const CATERING_PATH = "/umrah/service-providers/catering/create-agreement";
+
   const wlog = (m) => { try { (window.nkLog || console.log)("[Nuskomate BRN] " + m); } catch (_) { console.log(m); } };
 
   let moduleEnabled = false;
@@ -29,6 +42,9 @@
   let hotkeyCombo = DEFAULT_HOTKEY;
   let defaultPrice = DEFAULT_PRICE;
   let defaultNights = DEFAULT_NIGHTS;
+  let catering = {};
+  let foodLastUsed = { name: "", pilgrimsCount: "", date: "" };
+  let foodHotkeyCombo = DEFAULT_FOOD_HOTKEY;
 
   // ── Hotkey combo matching — self-contained (same reasoning as
   // modules/url-shifter.js: no load-order dependency on auto-clicker.js) ──
@@ -67,20 +83,34 @@
     </label>
   `;
 
+  // Same floating-bar UI, a separate instance (own hotkey below) since the
+  // fields don't overlap with the hotel bar's (no Full Talab here — that's
+  // hotel-only, per the user's own call).
+  const foodBar = document.createElement("div");
+  foodBar.id = "nkBrnFoodBar";
+  foodBar.innerHTML = `
+    <input id="nkBrnFoodName" list="nkBrnFoodList" placeholder="Provider — Menu…" autocomplete="off" />
+    <datalist id="nkBrnFoodList"></datalist>
+    <input id="nkBrnFoodPilgrims" type="number" min="1" placeholder="Pilgrims" autocomplete="off" />
+    <input id="nkBrnFoodDate" placeholder="e.g. 28 05" autocomplete="off" />
+  `;
+
   const style = document.createElement("style");
   style.textContent = `
-    #nkBrnBar {
+    #nkBrnBar, #nkBrnFoodBar {
       position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
       background: #fff; padding: 12px 15px; border-radius: 12px;
       box-shadow: 0 0 25px rgba(0,0,0,0.3); display: none; z-index: 999999;
       font-family: 'Segoe UI', sans-serif; transition: all 0.25s ease-in-out;
     }
-    #nkBrnBar.active { box-shadow: 0 0 25px rgba(0,200,100,0.6); }
-    #nkBrnBar input[type="text"], #nkBrnBar input:not([type]) {
+    #nkBrnBar.active, #nkBrnFoodBar.active { box-shadow: 0 0 25px rgba(0,200,100,0.6); }
+    #nkBrnBar input[type="text"], #nkBrnBar input:not([type]),
+    #nkBrnFoodBar input[type="text"], #nkBrnFoodBar input:not([type]),
+    #nkBrnFoodBar input[type="number"] {
       margin: 5px; padding: 8px 10px; font-size: 14px;
       border: 1px solid #ccc; border-radius: 6px; outline: none; width: 200px;
     }
-    #nkBrnBar input:focus { border-color: #00aa66; box-shadow: 0 0 5px #00aa66; }
+    #nkBrnBar input:focus, #nkBrnFoodBar input:focus { border-color: #00aa66; box-shadow: 0 0 5px #00aa66; }
     #tm-hotel-auto-toast {
       position: fixed; bottom: 24px; right: 24px; padding: 10px 18px; border-radius: 8px;
       color: #fff; font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600;
@@ -94,8 +124,10 @@
     if (injected) return;
     document.head.appendChild(style);
     document.body.appendChild(bar);
+    document.body.appendChild(foodBar);
     injected = true;
     wireBar();
+    wireFoodBar();
   }
 
   const datalistEl = () => document.getElementById("nkBrnHotelList");
@@ -106,6 +138,18 @@
     Object.keys(hotels).sort((a, b) => a.localeCompare(b)).forEach((h) => {
       const opt = document.createElement("option");
       opt.value = h;
+      list.appendChild(opt);
+    });
+  }
+
+  const foodDatalistEl = () => document.getElementById("nkBrnFoodList");
+  function refreshFoodDatalist() {
+    const list = foodDatalistEl();
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(catering).sort((a, b) => a.localeCompare(b)).forEach((n) => {
+      const opt = document.createElement("option");
+      opt.value = n;
       list.appendChild(opt);
     });
   }
@@ -136,6 +180,32 @@
     if (!moduleEnabled) return;
     if (bar.style.display === "none" || !bar.style.display) showBar();
     else hideBar();
+  }
+
+  function showFoodBar() {
+    chrome.storage.local.get([CATERING_LIST_KEY, FOOD_LAST_KEY], (res) => {
+      catering = res[CATERING_LIST_KEY] || {};
+      foodLastUsed = res[FOOD_LAST_KEY] || { name: "", pilgrimsCount: "", date: "" };
+      refreshFoodDatalist();
+      const nameBox = document.getElementById("nkBrnFoodName");
+      const pilgrimsBox = document.getElementById("nkBrnFoodPilgrims");
+      const dateBox = document.getElementById("nkBrnFoodDate");
+      if (nameBox) nameBox.value = foodLastUsed.name || "";
+      if (pilgrimsBox) pilgrimsBox.value = foodLastUsed.pilgrimsCount || "";
+      if (dateBox) dateBox.value = foodLastUsed.date || "";
+      foodBar.style.display = "block";
+      foodBar.classList.add("active");
+      if (nameBox) nameBox.focus();
+    });
+  }
+  function hideFoodBar() {
+    foodBar.style.display = "none";
+    foodBar.classList.remove("active");
+  }
+  function toggleFoodBar() {
+    if (!moduleEnabled) return;
+    if (foodBar.style.display === "none" || !foodBar.style.display) showFoodBar();
+    else hideFoodBar();
   }
 
   // ── Date helpers (unchanged from the original script) ──────────────────
@@ -219,6 +289,28 @@
     return `${y}-${m}-${day}`;
   }
 
+  // Same date-shorthand box/syntax used EVERYWHERE dates are entered in
+  // Nuskomate (hotel's search bar, Package Creator, etc.) — a single number
+  // ("28") means N days from there (N = defaultNights, shared by both
+  // hotel and food, not hotel-specific), "22+5" adds an explicit day count,
+  // "28 05" is an explicit start/end day. Factored out of performSearch so
+  // performFoodSearch parses dates identically instead of inventing a
+  // second date UI (native <input type="date"> pickers) — that was wrong,
+  // corrected 2026-09-24 per the user: one consistent date pattern
+  // everywhere in the extension, not a per-feature choice.
+  function parseDateShorthand(dates) {
+    let d1, d2;
+    if (/^\d{1,4}$/.test(dates)) { d1 = `${dates}+${defaultNights}`; d2 = null; }
+    else if (dates.includes("+")) { d1 = dates; d2 = null; }
+    else {
+      [d1, d2] = dates.split(" ");
+      if (!d1 || !d2) return { ok: false, error: "Enter dates as: 28 05 or 22+18 (to add days in 1st date)" };
+    }
+    const parsed = makeDates(d1, d2);
+    if (!parsed) return { ok: false, error: "Invalid date." };
+    return { ok: true, start: parsed.start, end: parsed.end };
+  }
+
   // Shared by the on-page bar's Enter key AND the popup's own BRN tab
   // ("Quick Send", via the BRN_QUICK_SEARCH message below) — same hotel
   // lookup, date math, and URL-building either way, so the two can never
@@ -231,23 +323,36 @@
     const hotelId = hotels[hotelName];
     if (!hotelId) return { ok: false, error: "Hotel not found in list." };
 
-    let d1, d2;
-    if (/^\d{1,4}$/.test(dates)) { d1 = `${dates}+${defaultNights}`; d2 = null; }
-    else if (dates.includes("+")) { d1 = dates; d2 = null; }
-    else {
-      [d1, d2] = dates.split(" ");
-      if (!d1 || !d2) return { ok: false, error: "Enter dates as: 28 05 or 22+18 (to add days in 1st date)" };
-    }
-
-    const parsed = makeDates(d1, d2);
-    if (!parsed) return { ok: false, error: "Invalid date." };
-    const { start, end } = parsed;
+    const d = parseDateShorthand(dates);
+    if (!d.ok) return d;
+    const { start, end } = d;
 
     const url = fullTalab
       ? `https://masar.nusuk.sa/umrah/housing-agreement/create-agreement?hotelId=${hotelId}&start=${start}&end=${end}&startTime=12:00:00&endTime=10:00:00&hotelName=${encodeURIComponent(hotelName)}`
       : `https://masar.nusuk.sa/umrah/service-providers/housing/hotel/${hotelId}?from=${start}&to=${end}`;
 
     chrome.storage.local.set({ [LAST_KEY]: { hotel: hotelName, date: dates, fullTalab } });
+    window.location.href = url;
+    return { ok: true };
+  }
+
+  // Shared by the food bar's Enter key AND the popup's own BRN tab's Food
+  // "Send" — same lookup + URL-building either way. foodMenuId is stored
+  // decoded (URLSearchParams.get already decodes it when captured), so it
+  // must be re-encoded here to round-trip back into a URL correctly.
+  function performFoodSearch(name, pilgrimsCount, dates) {
+    const entry = catering[name];
+    if (!entry) return { ok: false, error: "Catering service not found in list." };
+    const count = parseInt(pilgrimsCount, 10);
+    if (!count || count < 1) return { ok: false, error: "Enter a valid pilgrim count." };
+
+    const d = parseDateShorthand(dates);
+    if (!d.ok) return d;
+    const { start, end } = d;
+
+    const url = `https://masar.nusuk.sa${CATERING_PATH}?foodMenuId=${encodeURIComponent(entry.foodMenuId)}&serviceProviderId=${encodeURIComponent(entry.serviceProviderId)}&pilgrimsCount=${count}&startDate=${start}&endDate=${end}`;
+
+    chrome.storage.local.set({ [FOOD_LAST_KEY]: { name, pilgrimsCount: count, date: dates } });
     window.location.href = url;
     return { ok: true };
   }
@@ -269,20 +374,51 @@
     });
   }
 
+  // Enter on ANY of the food bar's fields submits (unlike the hotel bar,
+  // where only the date box listens) — there's no natural "last field" here
+  // the way hotel's date box is, since pilgrim count/date are filled in
+  // whatever order feels natural.
+  function wireFoodBar() {
+    const nameBox = document.getElementById("nkBrnFoodName");
+    const pilgrimsBox = document.getElementById("nkBrnFoodPilgrims");
+    const dateBox = document.getElementById("nkBrnFoodDate");
+    if (!nameBox) return;
+
+    const trySubmit = () => {
+      const result = performFoodSearch(nameBox.value.trim(), pilgrimsBox.value.trim(), dateBox.value.trim());
+      if (!result.ok) { window.nkToast(result.error, "error"); return; }
+      hideFoodBar();
+      nameBox.value = ""; pilgrimsBox.value = ""; dateBox.value = "";
+    };
+    [nameBox, pilgrimsBox, dateBox].forEach((el) => {
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") trySubmit(); });
+    });
+  }
+
   // Lets the popup's BRN tab trigger the exact same search/navigate from its
   // own "Quick Send" box — the popup has no page of its own to navigate, so
   // it messages whichever Masar tab is active instead. Synchronous (no
   // `return true`): performSearch resolves immediately, no async work inside.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (!msg || msg.action !== "BRN_QUICK_SEARCH") return;
-    if (!moduleEnabled) { sendResponse({ ok: false, error: "BRN Request is off, or not included in your license." }); return; }
-    sendResponse(performSearch(String(msg.hotelName || "").trim(), String(msg.dates || "").trim(), !!msg.fullTalab));
+    if (!msg) return;
+    if (msg.action === "BRN_QUICK_SEARCH") {
+      if (!moduleEnabled) { sendResponse({ ok: false, error: "BRN Request is off, or not included in your license." }); return; }
+      sendResponse(performSearch(String(msg.hotelName || "").trim(), String(msg.dates || "").trim(), !!msg.fullTalab));
+      return;
+    }
+    if (msg.action === "BRN_FOOD_QUICK_SEARCH") {
+      if (!moduleEnabled) { sendResponse({ ok: false, error: "BRN Request is off, or not included in your license." }); return; }
+      sendResponse(performFoodSearch(String(msg.name || "").trim(), String(msg.pilgrimsCount || "").trim(), String(msg.dates || "").trim()));
+      return;
+    }
   });
 
   document.addEventListener("keydown", (e) => {
     if (!moduleEnabled) return;
-    if (e.key === "Escape") { hideBar(); return; }
-    if (comboFromEvent(e) === hotkeyCombo) { e.preventDefault(); toggleBar(); }
+    if (e.key === "Escape") { hideBar(); hideFoodBar(); return; }
+    const combo = comboFromEvent(e);
+    if (combo === hotkeyCombo) { e.preventDefault(); toggleBar(); return; }
+    if (combo === foodHotkeyCombo) { e.preventDefault(); toggleFoodBar(); }
   });
 
   // ── Autofill agreement details (create-agreement page) — unchanged ─────
@@ -318,6 +454,125 @@
     if (!agreementObserver) return;
     agreementObserver.disconnect();
     agreementObserver = null;
+  }
+
+  // ── Autofill catering agreement (auto-check "I agree to terms") ────────
+  // Real markup confirmed live by the user (2026-09-24): the checkbox has no
+  // distinguishing formcontrolname/id of its own (unlike hotel's regulations
+  // checkbox), so it's found by the text sitting next to it instead — same
+  // approach utils/masar-accounts.js already uses for its own label-matched
+  // fields. Checked-state reads the box's own data-p-highlight attribute
+  // (this page's PrimeNG renders that instead of a "p-highlight" class,
+  // unlike the hotel page's checkbox — confirmed against the real markup,
+  // not assumed from the hotel one).
+  function isCateringCreatePage() {
+    return location.pathname === CATERING_PATH;
+  }
+  function findCateringTermsCheckbox() {
+    const wrappers = Array.from(document.querySelectorAll("p-checkbox"));
+    for (const w of wrappers) {
+      const container = w.parentElement;
+      if (container && /i agree to all/i.test(container.textContent || "")) {
+        return w.querySelector(".p-checkbox-box");
+      }
+    }
+    return null;
+  }
+  let cateringAgreementObserver = null;
+  function startAutoFillCateringAgreement() {
+    if (cateringAgreementObserver) return;
+    let checked = false;
+    function tryFill() {
+      if (checked || !isCateringCreatePage()) return;
+      const box = findCateringTermsCheckbox();
+      if (box && box.getAttribute("data-p-highlight") !== "true") {
+        box.click();
+        checked = true;
+        stopAutoFillCateringAgreement();
+      }
+    }
+    cateringAgreementObserver = new MutationObserver(tryFill);
+    cateringAgreementObserver.observe(document.body, { childList: true, subtree: true });
+    tryFill();
+  }
+  function stopAutoFillCateringAgreement() {
+    if (!cateringAgreementObserver) return;
+    cateringAgreementObserver.disconnect();
+    cateringAgreementObserver = null;
+  }
+
+  // ── Auto capture catering service (create-agreement page itself) ───────
+  // Real markup confirmed live by the user (2026-09-24): both names sit in
+  // generic .dynamic-field blocks (also used for Kitchen Type/Catering
+  // Location on the same page), so they're found by label text, not by a
+  // dedicated class of their own.
+  function findDynamicFieldValue(labelText) {
+    const fields = Array.from(document.querySelectorAll(".dynamic-field"));
+    for (const f of fields) {
+      const label = f.querySelector(".dynamic-field__label");
+      if (label && label.textContent.replace(/\s+/g, " ").trim() === labelText) {
+        const value = f.querySelector(".dynamic-field__value");
+        return value ? value.textContent.replace(/\s+/g, " ").trim() : null;
+      }
+    }
+    return null;
+  }
+  let cateringCaptureObserver = null;
+  let cateringCaptured = false;
+  function tryCaptureCatering() {
+    if (cateringCaptured || !moduleEnabled || !isCateringCreatePage()) return;
+    const params = new URLSearchParams(location.search);
+    const foodMenuId = params.get("foodMenuId");
+    const serviceProviderId = params.get("serviceProviderId");
+    if (!foodMenuId || !serviceProviderId) return;
+
+    const providerName = findDynamicFieldValue("Service Provider Name");
+    const menuName = findDynamicFieldValue("Food Menu");
+    if (!providerName || !menuName) return; // Angular hasn't rendered these yet — observer retries
+
+    const displayName = `${providerName} — ${menuName}`;
+
+    chrome.storage.local.get([CATERING_LIST_KEY], (res) => {
+      const list = res[CATERING_LIST_KEY] || {};
+      // Matched by the two ids together (not by name) — a provider or menu
+      // can get renamed on Masar the same way a hotel can.
+      const existingEntry = Object.entries(list).find(([, v]) => v && String(v.serviceProviderId) === serviceProviderId && v.foodMenuId === foodMenuId);
+
+      if (existingEntry) {
+        const [existingKey] = existingEntry;
+        if (existingKey === displayName) { cateringCaptured = true; return; }
+        list[displayName] = list[existingKey];
+        delete list[existingKey];
+        chrome.storage.local.set({ [CATERING_LIST_KEY]: list }, () => {
+          catering = list;
+          refreshFoodDatalist();
+          cateringCaptured = true;
+          wlog(`renamed: ${existingKey} → ${displayName}`);
+          showAutoCaptureToast("🍽️ Catering renamed: " + displayName);
+        });
+        return;
+      }
+
+      list[displayName] = { serviceProviderId, foodMenuId };
+      chrome.storage.local.set({ [CATERING_LIST_KEY]: list }, () => {
+        catering = list;
+        refreshFoodDatalist();
+        cateringCaptured = true;
+        wlog(`captured: ${displayName}`);
+        showAutoCaptureToast("🍽️ Catering captured: " + displayName);
+      });
+    });
+  }
+  function startCateringCaptureObserver() {
+    if (cateringCaptureObserver) return;
+    cateringCaptureObserver = new MutationObserver(tryCaptureCatering);
+    cateringCaptureObserver.observe(document.body, { childList: true, subtree: true });
+    tryCaptureCatering();
+  }
+  function stopCateringCaptureObserver() {
+    if (!cateringCaptureObserver) return;
+    cateringCaptureObserver.disconnect();
+    cateringCaptureObserver = null;
   }
 
   // ── Auto hotel capture (hotel detail page) — unchanged mechanism ───────
@@ -404,8 +659,8 @@
   // navigation to a DIFFERENT hotel page gets re-evaluated.
   let lastPath = location.pathname;
   window.addEventListener("nusuk-route-change", () => {
-    if (location.pathname !== lastPath) { lastPath = location.pathname; captured = false; }
-    if (moduleEnabled) tryCapture();
+    if (location.pathname !== lastPath) { lastPath = location.pathname; captured = false; cateringCaptured = false; }
+    if (moduleEnabled) { tryCapture(); tryCaptureCatering(); }
   });
 
   // ── Module enable/disable (extension master switch + this module's own
@@ -417,10 +672,15 @@
       inject();
       startAutoFillAgreementDetails();
       startCaptureObserver();
+      startAutoFillCateringAgreement();
+      startCateringCaptureObserver();
     } else {
       hideBar();
+      hideFoodBar();
       stopAutoFillAgreementDetails();
       stopCaptureObserver();
+      stopAutoFillCateringAgreement();
+      stopCateringCaptureObserver();
     }
   }
 
@@ -433,11 +693,13 @@
     });
   }
 
-  chrome.storage.local.get([LIST_KEY, HOTKEY_KEY, PRICE_KEY, NIGHTS_KEY], (res) => {
+  chrome.storage.local.get([LIST_KEY, HOTKEY_KEY, PRICE_KEY, NIGHTS_KEY, CATERING_LIST_KEY, FOOD_HOTKEY_KEY], (res) => {
     hotels = res[LIST_KEY] || {};
     hotkeyCombo = normHotkey(res[HOTKEY_KEY]) || DEFAULT_HOTKEY;
     defaultPrice = (res[PRICE_KEY] || "").trim() || DEFAULT_PRICE;
     defaultNights = Math.max(1, Number(res[NIGHTS_KEY]) || DEFAULT_NIGHTS);
+    catering = res[CATERING_LIST_KEY] || {};
+    foodHotkeyCombo = normHotkey(res[FOOD_HOTKEY_KEY]) || DEFAULT_FOOD_HOTKEY;
     refreshEnabled();
   });
 
@@ -448,6 +710,8 @@
     if (changes[HOTKEY_KEY]) hotkeyCombo = normHotkey(changes[HOTKEY_KEY].newValue) || DEFAULT_HOTKEY;
     if (changes[PRICE_KEY]) defaultPrice = (changes[PRICE_KEY].newValue || "").trim() || DEFAULT_PRICE;
     if (changes[NIGHTS_KEY]) defaultNights = Math.max(1, Number(changes[NIGHTS_KEY].newValue) || DEFAULT_NIGHTS);
+    if (changes[CATERING_LIST_KEY]) { catering = changes[CATERING_LIST_KEY].newValue || {}; refreshFoodDatalist(); }
+    if (changes[FOOD_HOTKEY_KEY]) foodHotkeyCombo = normHotkey(changes[FOOD_HOTKEY_KEY].newValue) || DEFAULT_FOOD_HOTKEY;
   });
 
   window.NkLicense && window.NkLicense.onPremiumChange(() => refreshEnabled());

@@ -337,9 +337,19 @@ async function handleIncomingMessage(payload) {
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (sender.id !== WA_CAMPAIGNS_EXTENSION_ID) return; // unhandled — Chrome treats this the same as no listener at all
 
-  chrome.storage.local.get(["modulePipeline", "extensionEnabled"], (res) => {
+  chrome.storage.local.get(["modulePipeline", "extensionEnabled", "licenseValid", "licenseFeatures"], (res) => {
     const enabled = res.extensionEnabled !== false && res.modulePipeline !== false; // default on
     if (!enabled) return; // no sendResponse — port closes unanswered
+
+    // Mirrors utils/license.js's featureOK("pipeline") — duplicated here
+    // (not imported) because that file does `window.NkLicense = ...`, which
+    // throws in this service worker (no `window`). The popup locking the
+    // Pipeline tab is cosmetic on its own; this is the actual enforcement,
+    // since WA-Campaigns talks straight to this listener, never the popup.
+    let feats = null;
+    try { feats = res.licenseFeatures ? JSON.parse(res.licenseFeatures) : null; } catch (_) { feats = null; }
+    const licensed = !!res.licenseValid && (feats === null || (Array.isArray(feats) && feats.includes("pipeline")));
+    if (!licensed) return; // unlicensed — same "unanswered port" treatment as module-off
 
     if (msg && msg.type === "ping") {
       sendResponse({ ok: true });

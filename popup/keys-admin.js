@@ -31,6 +31,8 @@ document.addEventListener("DOMContentLoaded", () => {
     overlay: "Disable Overlay",
     filetools: "Tools",
     mediagrabber: "Media Grabber",
+    masaraccounts: "Masar Accounts",
+    pipeline: "WhatsApp Pipeline",
   };
   // Tools grouped the way they appear in the extension. Each group header is a
   // select-all checkbox: clicking it checks/unchecks every tool inside it.
@@ -44,6 +46,8 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Passport Parser",      tools: ["bulk"] },
     { name: "Utilities",            tools: ["reload", "overlay", "mvtotals", "groups", "talabcopy", "autodatepicker"] },
     { name: "File Tools",           tools: ["filetools", "mediagrabber"] },
+    { name: "Masar Accounts",       tools: ["masaraccounts"] },
+    { name: "WhatsApp Pipeline",    tools: ["pipeline"] },
   ];
 
   // Icon-only row buttons (Edit/Reset/Revoke/Del) — same visual language as

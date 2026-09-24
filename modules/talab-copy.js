@@ -221,6 +221,94 @@
   }
 
   /* ============================================================
+     Scenario E — Catering Agreement Details (same format as Scenario A,
+     the hotel version, per the user's explicit ask 2026-09-24 — "the way
+     we copy hotel agreement details in text i need same for this also").
+     Provider name + catering location only render on the Service Details
+     tab, so this switches there and back, same trick copyAgreementDetails()
+     uses for the hotel's own city.
+     ============================================================ */
+  function isCateringAgreementDetailsPage() {
+    return location.href.includes("/catering-agreement/details");
+  }
+
+  // Catering's Start/End Date fields are ISO "YYYY-MM-DD" — different from
+  // both formatDateDDMon's "DD/MM/YYYY" (hotel Agreement Details) and
+  // formatDashDate's "DD-MM-YYYY" (Agreements List table), so it needs its
+  // own formatter despite the shared "-" separator.
+  function formatIsoDate(dateStr) {
+    if (!dateStr) return "";
+    const parts = String(dateStr).trim().split("-");
+    if (parts.length < 3) return dateStr;
+    const [, month, day] = parts;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${day}${monthNames[parseInt(month, 10) - 1] || ""}`;
+  }
+
+  // Finds a tab by its exact visible text. Tries the Hotel Agreement
+  // Details page's own .p-tabview-nav-link class first (same Angular app/
+  // component library, so a reasonable bet), then falls back to a role="tab"
+  // or plain substring match — this page's own tab markup hasn't been
+  // confirmed against real DOM the way the hotel one was, so it degrades
+  // gracefully (provider name/city just come back "N/A") rather than assume.
+  function findTabByText(text) {
+    const candidates = Array.from(document.querySelectorAll(".p-tabview-nav-link, [role='tab'], a, button, div, span"));
+    return candidates.find((el) => el.children.length === 0 && el.textContent && el.textContent.trim() === text)
+      || candidates.find((el) => el.textContent && el.textContent.includes(text));
+  }
+
+  async function copyCateringAgreementDetails() {
+    const agreementNumber = getValueByLabel("Agreement number") || "N/A";
+    const startDate = formatIsoDate(getValueByLabel("Start Date")) || "N/A";
+    const endDate = formatIsoDate(getValueByLabel("End Date")) || "N/A";
+    const daysRaw = getValueByLabel("Number of Days") || "";
+    const numberOfDays = daysRaw ? `${daysRaw}D` : "N/A";
+    const paxRaw = getValueByLabel("Number of Mutamers") || "";
+    const totalPax = paxRaw ? `${paxRaw} Px` : "N/A";
+    const shirkaName = extractShirkaName(getLines());
+
+    let providerName = "N/A", cityAbbrev = "";
+    const serviceTab = findTabByText("Service Details");
+    if (serviceTab) {
+      serviceTab.click();
+      await sleep(400);
+      providerName = getValueByLabel("Service Provider Name") || "N/A";
+      const cityRaw = getValueByLabel("Catering Location") || "";
+      if (cityRaw) cityAbbrev = cityRaw.substring(0, 3).toUpperCase();
+      const mainTab = findTabByText("Agreement details");
+      if (mainTab) mainTab.click();
+    }
+
+    // Provider name + city share a line ("Bharat Asia Catering Services
+    // (MAK)"), each with its own toggle — same pattern as the hotel version.
+    const providerBits = [];
+    if (fieldOn("cateringAgreement.providerName")) providerBits.push(providerName);
+    if (fieldOn("cateringAgreement.city") && cityAbbrev) providerBits.push(`(${cityAbbrev})`);
+    const providerLine = providerBits.join(" ");
+
+    const dateBits = [];
+    if (fieldOn("cateringAgreement.startDate")) dateBits.push(startDate);
+    if (fieldOn("cateringAgreement.endDate")) dateBits.push(endDate);
+    let dateLine = dateBits.join(" | ");
+    const tailBits = [];
+    if (fieldOn("cateringAgreement.days")) tailBits.push(numberOfDays);
+    if (fieldOn("cateringAgreement.pax")) tailBits.push(totalPax);
+    if (tailBits.length) dateLine += (dateLine ? " - " : "") + tailBits.join(" / ");
+
+    const mainLines = [];
+    if (fieldOn("cateringAgreement.agreementNumber")) mainLines.push(agreementNumber);
+    if (providerLine) mainLines.push(providerLine);
+    if (dateLine) mainLines.push(dateLine);
+
+    const blocks = [];
+    if (mainLines.length) blocks.push(mainLines.join("\n"));
+    if (fieldOn("cateringAgreement.shirkaName")) blocks.push(shirkaName);
+    const output = blocks.join("\n\n");
+
+    copyToClipboard(output, `Copied: ${providerName}`);
+  }
+
+  /* ============================================================
      Scenario B — Group Details > Mutamers List
      Full format (group number/name/days + numbered passport+name list +
      shirka name) — the ORIGINAL script actually had this whole thing built,
@@ -619,6 +707,7 @@
   // actually matches the page you're currently on.
   function getCurrentScenarioCopyFn() {
     if (isAgreementDetailsPage()) return copyAgreementDetails;
+    if (isCateringAgreementDetailsPage()) return copyCateringAgreementDetails;
     if (isMutamerListPage()) return copyMutamerListDetails;
     if (isGroupsListPage()) return copyGroupsListSummary;
     if (isAgreementsListPage()) return copyAgreementsListSummary;
@@ -631,6 +720,9 @@
     if (isAgreementDetailsPage()) {
       btn = makeMasarButton("Copy", () => copyAgreementDetails());
       placed = placeOnAgreementPage(btn);
+    } else if (isCateringAgreementDetailsPage()) {
+      btn = makeMasarButton("Copy", () => copyCateringAgreementDetails());
+      placed = placeOnAgreementPage(btn); // same "Basic data" heading anchor, else falls back to the fixed floating button
     } else if (isMutamerListPage()) {
       btn = makeIconOnlyButton("pi-copy", "Copy mutamer list details", () => copyMutamerListDetails());
       placed = placeOnMutamerListPage(btn);

@@ -355,6 +355,18 @@
     if (!msg) return;
 
     if (msg.type === "nkMasarSwitchEntity") {
+      // Scanning is gated behind moduleEnabled everywhere, but this handler
+      // used to skip that check and let a switch through even while the
+      // module was off/unlicensed (the popup normally hides the whole tab
+      // in that case, but this closes the gap for any other caller). Report
+      // it the same way every other beginSwitch failure is reported — via
+      // finishSwitch/RESULT_KEY — so the popup's existing onResult listener
+      // picks it up immediately instead of waiting out its 25s timeout.
+      if (!moduleEnabled) {
+        sendResponse({ ok: false, status: "module-off" });
+        finishSwitch({ name: msg.name, email: msg.email, ok: false, reason: "module-off" });
+        return;
+      }
       // Just an ack that the request arrived — the real outcome is reported
       // via chrome.storage (RESULT_KEY), which survives the navigation this
       // sendMessage channel does not. beginSwitch runs after responding so a

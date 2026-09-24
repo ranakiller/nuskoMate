@@ -114,6 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "toggle-autodatepicker": "autodatepicker",
       "toggle-packagecreator": "packagecreator",
       "toggle-accounts": "masaraccounts",
+      "toggle-pipeline": "pipeline",
     };
 
     // Is a given tool unlocked for the current key? (features null = all
@@ -172,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (bulkSection) bulkSection.style.display = has(st, "bulk") ? "" : "none";
       // Automation tabs: each has its own tool id now (autorules also
       // accepts the 3 old ids it replaced — see has() above).
-      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"], ["ft-upsell", "ft-content", "filetools"], ["mg-upsell", "mg-content", "mediagrabber"], ["acct-upsell", "acct-content", "masaraccounts"]].forEach(([up, ct, feat]) => {
+      [["ar-upsell", "ar-content", ["autorules", "autoclick", "fillrules", "autoselect"]], ["wf-upsell", "wf-content", "workflows"], ["us-upsell", "us-content", "urlshift"], ["brn-upsell", "brn-content", "brnrequest"], ["tr-upsell", "tr-content", "translaterules"], ["pc-upsell", "pc-content", "packagecreator"], ["ft-upsell", "ft-content", "filetools"], ["mg-upsell", "mg-content", "mediagrabber"], ["acct-upsell", "acct-content", "masaraccounts"], ["pipeline-upsell", "pipeline-content", "pipeline"]].forEach(([up, ct, feat]) => {
         const ok = has(st, feat);
         const u = document.getElementById(up), c = document.getElementById(ct);
         if (u) u.style.display = ok ? "none" : "block";
@@ -252,7 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => keyIn && keyIn.focus(), 50);
     };
     if (upsellBtn) upsellBtn.addEventListener("click", jumpToSettings);
-    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn", "ft-upsell-btn", "mg-upsell-btn", "acct-upsell-btn"].forEach((idb) => {
+    ["ar-upsell-btn", "wf-upsell-btn", "us-upsell-btn", "brn-upsell-btn", "tr-upsell-btn", "pc-upsell-btn", "ft-upsell-btn", "mg-upsell-btn", "acct-upsell-btn", "pipeline-upsell-btn"].forEach((idb) => {
       const b = document.getElementById(idb);
       if (b) b.addEventListener("click", jumpToSettings);
     });
@@ -2287,6 +2288,7 @@ document.addEventListener("DOMContentLoaded", () => {
           else if (r.ok) window.nkToast(`Switched to ${r.name}.`, "success");
           else if (r.reason === "not-found") window.nkToast(`Not found on the entity picker — you're signed in with a different email than the one "${entity.name}" belongs to${entity.email ? ` (${entity.email})` : ""}. Sign in with that account first.`, "error");
           else if (r.reason === "not-logged-in") window.nkToast("You're not signed in to Masar yet — sign in first, then try Login again.", "error");
+          else if (r.reason === "module-off") window.nkToast("Masar Accounts is currently off or unlicensed on that tab — enable it under Modules first.", "error");
           else window.nkToast(`Couldn't log in (${r.reason || "unknown error"}).`, "error");
         });
       }

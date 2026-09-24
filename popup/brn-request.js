@@ -69,6 +69,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     return b;
   }
+  function foodCopyBtn(name, entry) {
+    const b = iconBtn("copy", "Copy provider/menu names + IDs", () => {
+      const text = `Provider: ${name.split(" — ")[0] || name}\nService Provider ID: ${entry.serviceProviderId}\nFood Menu ID: ${entry.foodMenuId}`;
+      navigator.clipboard.writeText(text).then(() => {
+        b.innerHTML = iconSvg("check");
+        b.classList.add("k-copy-done");
+        setTimeout(() => { b.innerHTML = iconSvg("copy"); b.classList.remove("k-copy-done"); }, 1200);
+      }).catch(() => {});
+    });
+    return b;
+  }
 
   // ── Hotkey recorder — click the box, press the combo (must include
   // Ctrl/Alt/Meta). Same widget/behavior as the Auto Clicker rule/workflow
@@ -392,6 +403,335 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (_) {
       bulkErrorEl.textContent = "❌ Invalid JSON — fix errors before saving.";
       bulkErrorEl.style.display = "";
+    }
+  });
+
+  // ── Hotel/Food sub-tabs — own wiring (not popup.js's Automation subtab
+  // code), see popup.css's comment on .brn-subtab for why: popup.js's
+  // existing subtab switcher queries .am-subtab/.subtab-panel globally with
+  // no group scoping, so sharing those classes here would let clicking one
+  // group's button corrupt the other's active state. ─────────────────────
+  const brnSubtabBtns = [...document.querySelectorAll(".brn-subtab")];
+  function activateBrnSubtab(name) {
+    brnSubtabBtns.forEach((b) => {
+      const on = b.dataset.brnsubtab === name;
+      b.classList.toggle("brn-subtab-active", on);
+      b.setAttribute("aria-selected", String(on));
+    });
+    document.querySelectorAll(".brn-subtab-panel").forEach((p) => {
+      p.classList.toggle("brn-subtab-panel-active", p.id === "brn-subtab-" + name);
+    });
+  }
+  brnSubtabBtns.forEach((b) => b.addEventListener("click", () => {
+    activateBrnSubtab(b.dataset.brnsubtab);
+    chrome.storage.local.set({ uiBrnSubtab: b.dataset.brnsubtab });
+  }));
+  chrome.storage.local.get(["uiBrnSubtab"], (res) => {
+    if (res.uiBrnSubtab && document.getElementById("brn-subtab-" + res.uiBrnSubtab)) activateBrnSubtab(res.uiBrnSubtab);
+  });
+
+  // ── Food (Catering) BRN — same shape as the hotel list above, but each
+  // entry carries two ids (serviceProviderId + the opaque foodMenuId token)
+  // instead of one, and Send asks for pilgrim count + explicit start/end
+  // dates instead of a date-shorthand + Full Talab checkbox (that's hotel-
+  // only, per the user's own call). ───────────────────────────────────────
+  const CATERING_LIST_KEY = "brnCateringList";
+  const FOOD_SEARCH_KEY = "brnFoodSearch";
+  const FOOD_HOTKEY_KEY = "brnFoodHotkey";
+  const DEFAULT_FOOD_HOTKEY = "Alt+F";
+
+  const foodListEl = document.getElementById("brn-food-list");
+  const foodCountEl = document.getElementById("brn-food-count");
+  const foodSearchEl = document.getElementById("brn-food-search");
+  const foodBulkToggleBtn = document.getElementById("brn-food-bulk-toggle");
+  const foodBulkSection = document.getElementById("brn-food-bulk-section");
+  const foodBulkTextarea = document.getElementById("brn-food-bulk-textarea");
+  const foodBulkCountEl = document.getElementById("brn-food-bulk-count");
+  const foodBulkErrorEl = document.getElementById("brn-food-bulk-error");
+  const foodBulkSaveBtn = document.getElementById("brn-food-bulk-save");
+  const foodBulkCancelBtn = document.getElementById("brn-food-bulk-cancel");
+  const foodHotkeyRow = document.getElementById("brn-food-hotkey-row");
+
+  if (foodHotkeyRow) {
+    chrome.storage.local.get([FOOD_HOTKEY_KEY], (res) => {
+      const hk = buildHotkeyRecorder(res[FOOD_HOTKEY_KEY] || DEFAULT_FOOD_HOTKEY, (v) => {
+        chrome.storage.local.set({ [FOOD_HOTKEY_KEY]: v || DEFAULT_FOOD_HOTKEY });
+      });
+      foodHotkeyRow.appendChild(hk);
+    });
+  }
+
+  if (!foodListEl) return; // panel not present — nothing further to wire
+
+  let catering = {};        // { "Provider — Menu": { serviceProviderId, foodMenuId } }
+  let foodSearch = "";
+  let editingFoodName = null;
+  let sendingFoodName = null;
+
+  function saveCatering(next, cb) {
+    catering = next;
+    chrome.storage.local.set({ [CATERING_LIST_KEY]: next }, cb);
+  }
+
+  function updateCatering(oldName, newName, newProviderId, newMenuId, onError) {
+    newName = newName.trim();
+    if (!newName) { onError("Name can't be empty."); return false; }
+    const idNum = parseInt(newProviderId, 10);
+    if (isNaN(idNum)) { onError("Service Provider ID must be a number."); return false; }
+    if (!newMenuId.trim()) { onError("Food Menu ID can't be empty."); return false; }
+    if (newName !== oldName && catering[newName] != null) { onError(`"${newName}" already exists in the list.`); return false; }
+    const next = { ...catering };
+    if (newName !== oldName) delete next[oldName];
+    next[newName] = { serviceProviderId: idNum, foodMenuId: newMenuId.trim() };
+    saveCatering(next, () => { editingFoodName = null; renderFood(); });
+    return true;
+  }
+
+  async function deleteCatering(name) {
+    if (!(await window.nkConfirm(`Remove "${name}" from the catering list?`, { confirmText: "Remove", danger: true }))) return;
+    const next = { ...catering };
+    delete next[name];
+    saveCatering(next, renderFood);
+  }
+
+  function matchesFood(name, entry) {
+    if (!foodSearch) return true;
+    return name.toLowerCase().includes(foodSearch) ||
+      String((entry && entry.serviceProviderId) || "").includes(foodSearch);
+  }
+
+  function renderFood() {
+    const names = Object.keys(catering).sort((a, b) => a.localeCompare(b));
+    const shown = names.filter((n) => matchesFood(n, catering[n]));
+    if (foodCountEl) foodCountEl.textContent = `(${names.length})`;
+
+    foodListEl.textContent = "";
+    if (!names.length) {
+      const e = document.createElement("div"); e.className = "logs-empty";
+      e.textContent = "No catering services captured yet — open a catering create-agreement page on Masar once to capture it automatically.";
+      foodListEl.appendChild(e); return;
+    }
+    if (!shown.length) {
+      const e = document.createElement("div"); e.className = "logs-empty";
+      e.textContent = "No catering services match your search.";
+      foodListEl.appendChild(e); return;
+    }
+
+    shown.forEach((name) => {
+      const entry = catering[name] || {};
+      const item = document.createElement("div"); item.className = "k-item";
+
+      if (name === editingFoodName) {
+        item.classList.add("k-item-editing");
+        const main = document.createElement("div"); main.className = "k-item-main";
+
+        const nameInp = document.createElement("input");
+        nameInp.type = "text"; nameInp.className = "inline-text-input";
+        nameInp.value = name; nameInp.placeholder = "Provider — Menu";
+        nameInp.title = "Enter to save · Esc to cancel";
+
+        const providerInp = document.createElement("input");
+        providerInp.type = "text"; providerInp.className = "inline-text-input";
+        providerInp.value = entry.serviceProviderId != null ? entry.serviceProviderId : "";
+        providerInp.placeholder = "Service Provider ID";
+        providerInp.title = "Enter to save · Esc to cancel";
+
+        const menuInp = document.createElement("input");
+        menuInp.type = "text"; menuInp.className = "inline-text-input";
+        menuInp.value = entry.foodMenuId || "";
+        menuInp.placeholder = "Food Menu ID (from the URL)";
+        menuInp.title = "Enter to save · Esc to cancel";
+
+        const errEl = document.createElement("div"); errEl.className = "inline-edit-error";
+
+        const doSave = () => {
+          updateCatering(name, nameInp.value, providerInp.value, menuInp.value, (msg) => {
+            nameInp.classList.add("email-input-error");
+            errEl.textContent = msg;
+            errEl.style.display = "";
+          });
+        };
+        const doCancel = () => { editingFoodName = null; renderFood(); };
+
+        [nameInp, providerInp, menuInp].forEach((inp) => {
+          inp.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); doSave(); }
+            if (e.key === "Escape") { e.preventDefault(); doCancel(); }
+          });
+          inp.addEventListener("input", () => {
+            nameInp.classList.remove("email-input-error");
+            errEl.style.display = "none";
+          });
+        });
+
+        item.addEventListener("focusout", () => {
+          setTimeout(() => { if (editingFoodName === name && !item.contains(document.activeElement)) doCancel(); }, 0);
+        });
+
+        main.append(nameInp, providerInp, menuInp, errEl);
+        item.append(main);
+        foodListEl.appendChild(item);
+        nameInp.focus();
+        nameInp.select();
+        return;
+      }
+
+      const main = document.createElement("div"); main.className = "k-item-main";
+      const nameEl = document.createElement("div"); nameEl.className = "k-item-name"; nameEl.textContent = name;
+      const meta = document.createElement("div"); meta.className = "k-item-meta"; meta.textContent = `Provider ID: ${entry.serviceProviderId}`;
+      main.append(nameEl, meta);
+
+      const sending = name === sendingFoodName;
+      const btns = document.createElement("div"); btns.className = "k-item-btns";
+      btns.append(
+        iconBtn("send", "Send BRN request", () => {
+          sendingFoodName = sending ? null : name;
+          editingFoodName = null;
+          renderFood();
+        }),
+        foodCopyBtn(name, entry),
+        iconBtn("edit", "Edit", () => { editingFoodName = name; sendingFoodName = null; renderFood(); }),
+        iconBtn("trash", "Delete", () => deleteCatering(name), true),
+      );
+
+      item.append(main, btns);
+      if (sending) {
+        item.classList.add("k-item-sending");
+        item.appendChild(buildFoodSendRow(name));
+      }
+      foodListEl.appendChild(item);
+    });
+  }
+
+  // Inline "Send" row — pilgrim count + the SAME date-shorthand box used
+  // everywhere else in Nuskomate (hotel's own Send row, the on-page bars,
+  // etc.) — no Full Talab here (hotel-only, per the user's own call).
+  // Corrected 2026-09-24: this originally used two native date pickers,
+  // which broke from the extension's one consistent date pattern.
+  function buildFoodSendRow(name) {
+    const row = document.createElement("div"); row.className = "brn-send-row";
+
+    const pilgrimsInp = document.createElement("input");
+    pilgrimsInp.type = "number"; pilgrimsInp.min = "1"; pilgrimsInp.className = "field-input";
+    pilgrimsInp.style.width = "90px";
+    pilgrimsInp.placeholder = "Pilgrims";
+
+    const dateInp = document.createElement("input");
+    dateInp.type = "text"; dateInp.className = "field-input"; dateInp.autocomplete = "off";
+    dateInp.placeholder = "e.g. 28 05";
+    dateInp.title = 'A single number ("28") means a default-length stay starting there; "22+5" means start day 22 for 5 days; "28 05" is an explicit start/end day.';
+
+    const goBtn = document.createElement("button");
+    goBtn.type = "button"; goBtn.className = "act-btn"; goBtn.textContent = "Send";
+
+    chrome.storage.local.get(["brnFoodLastUsed"], (res) => {
+      const last = res.brnFoodLastUsed || {};
+      pilgrimsInp.value = last.pilgrimsCount || "";
+      dateInp.value = last.date || "";
+    });
+
+    const doSend = () => {
+      const pilgrimsCount = pilgrimsInp.value.trim();
+      const dates = dateInp.value.trim();
+      if (!pilgrimsCount) { window.nkToast("Enter a pilgrim count first.", "error"); return; }
+      if (!dates) { window.nkToast("Enter dates first.", "error"); return; }
+      quickSendFoodFor(name, pilgrimsCount, dates);
+      sendingFoodName = null;
+      renderFood();
+    };
+    const doClose = () => { sendingFoodName = null; renderFood(); };
+
+    [pilgrimsInp, dateInp].forEach((inp) => {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); doSend(); }
+        if (e.key === "Escape") { e.preventDefault(); doClose(); }
+      });
+    });
+    goBtn.addEventListener("click", doSend);
+
+    row.append(pilgrimsInp, dateInp, goBtn);
+    setTimeout(() => pilgrimsInp.focus(), 0);
+    return row;
+  }
+
+  if (foodSearchEl) {
+    chrome.storage.local.get([FOOD_SEARCH_KEY], (res) => {
+      foodSearch = (res[FOOD_SEARCH_KEY] || "").trim().toLowerCase();
+      foodSearchEl.value = res[FOOD_SEARCH_KEY] || "";
+      renderFood();
+    });
+    foodSearchEl.addEventListener("input", (e) => {
+      foodSearch = e.target.value.trim().toLowerCase();
+      chrome.storage.local.set({ [FOOD_SEARCH_KEY]: e.target.value });
+      renderFood();
+    });
+  }
+
+  chrome.storage.local.get([CATERING_LIST_KEY], (res) => {
+    catering = res[CATERING_LIST_KEY] || {};
+    renderFood();
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[CATERING_LIST_KEY]) { catering = changes[CATERING_LIST_KEY].newValue || {}; renderFood(); }
+  });
+
+  // Mirrors quickSendFor above, for the food bar's BRN_FOOD_QUICK_SEARCH.
+  function quickSendFoodFor(name, pilgrimsCount, dates) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0] || !tabs[0].id) { window.nkToast("Open a Masar page first.", "error"); return; }
+      chrome.tabs.sendMessage(tabs[0].id, { action: "BRN_FOOD_QUICK_SEARCH", name, pilgrimsCount, dates }, (resp) => {
+        if (chrome.runtime.lastError) { window.nkToast("Open a Masar page and refresh it before sending a BRN request.", "error"); return; }
+        if (resp && resp.ok) window.nkToast(`Opening ${name}…`, "success");
+        else window.nkToast((resp && resp.error) || "Could not send — try again.", "error");
+      });
+    });
+  }
+
+  function updateFoodBulkCount() {
+    try {
+      const parsed = JSON.parse(foodBulkTextarea.value);
+      const n = Object.keys(parsed).length;
+      foodBulkCountEl.textContent = `${n} ${n !== 1 ? "entries" : "entry"}`;
+      foodBulkErrorEl.style.display = "none";
+    } catch (_) {
+      foodBulkCountEl.textContent = "";
+      foodBulkErrorEl.textContent = "⚠ Invalid JSON";
+      foodBulkErrorEl.style.display = "";
+    }
+  }
+
+  if (foodBulkToggleBtn) {
+    foodBulkToggleBtn.addEventListener("click", () => {
+      const opening = foodBulkSection.style.display === "none";
+      if (opening) {
+        foodBulkTextarea.value = JSON.stringify(catering, null, 2);
+        updateFoodBulkCount();
+        foodBulkSection.style.display = "";
+        foodBulkToggleBtn.classList.add("ac-icon-btn-primary");
+      } else {
+        foodBulkSection.style.display = "none";
+        foodBulkToggleBtn.classList.remove("ac-icon-btn-primary");
+      }
+    });
+  }
+  if (foodBulkTextarea) foodBulkTextarea.addEventListener("input", updateFoodBulkCount);
+  if (foodBulkCancelBtn) foodBulkCancelBtn.addEventListener("click", () => {
+    foodBulkSection.style.display = "none";
+    foodBulkToggleBtn.classList.remove("ac-icon-btn-primary");
+  });
+  if (foodBulkSaveBtn) foodBulkSaveBtn.addEventListener("click", () => {
+    try {
+      const parsed = JSON.parse(foodBulkTextarea.value);
+      saveCatering(parsed, () => {
+        renderFood();
+        foodBulkSection.style.display = "none";
+        foodBulkToggleBtn.classList.remove("ac-icon-btn-primary");
+      });
+    } catch (_) {
+      foodBulkErrorEl.textContent = "❌ Invalid JSON — fix errors before saving.";
+      foodBulkErrorEl.style.display = "";
     }
   });
 });

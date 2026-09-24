@@ -281,6 +281,23 @@ body {
 .subtab-panel { display: none; }
 .subtab-panel-active { display: block; }
 
+/* BRN Request's Hotel/Food split — same look as the Automation sub-tabs
+   above, but its own class names + wiring (in popup/brn-request.js, not
+   popup.js) so the two groups' buttons/panels never collide: popup.js's
+   subtab wiring queries ALL .am-subtab/.subtab-panel elements globally with
+   no group scoping, so sharing those classes here would make clicking one
+   group's button corrupt the other group's active-tab state. */
+.brn-subtabs { display: flex; gap: 4px; padding: 10px 14px 0; }
+.brn-subtab {
+  flex: 1; padding: 7px 8px; border: 1px solid var(--border); background: var(--surface2);
+  color: var(--text-sub); font-size: 11.5px; font-weight: 600; border-radius: var(--radius-xs);
+  cursor: pointer; text-align: center;
+}
+.brn-subtab:hover { border-color: var(--accent); color: var(--text); }
+.brn-subtab-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.brn-subtab-panel { display: none; }
+.brn-subtab-panel-active { display: block; }
+
 /* ── Sections ─────────────────────────────────────────────── */
 .section {
   padding: 14px 14px 0;
