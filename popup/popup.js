@@ -1285,6 +1285,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   wireApiKeyField("ocrApiKey", { input: "ocr-api-key", hint: "ocr-key-hint", view: "ocr-key-view", masked: "ocr-key-masked", edit: "ocr-key-edit-btn" });
   wireApiKeyField("removeBgApiKey", { input: "removebg-api-key", hint: "removebg-key-hint", view: "removebg-key-view", masked: "removebg-key-masked", edit: "removebg-key-edit-btn" });
+  wireApiKeyField("geminiApiKey", { input: "gemini-api-key", hint: "gemini-key-hint", view: "gemini-key-view", masked: "gemini-key-masked", edit: "gemini-key-edit-btn" });
   // CRM Lookup test — runs the pipeline's own lookup (through the CRM Bridge
   // extension, see the Settings field below), so it tests exactly what a real
   // reservation would do.

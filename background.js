@@ -43,6 +43,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err && err.message }));
     return true;
   }
+  if (msg.type === "nkAiChat") {                   // AI tab — see callGemini() below
+    callGemini(msg.messages)
+      .then((text) => sendResponse({ ok: true, text }))
+      .catch((err) => sendResponse({ ok: false, error: err && err.message }));
+    return true;
+  }
   if (msg.type === "nkWebshotSelected") {          // Element Screenshot — see runWebshotCapture() below
     const tabId = _sender.tab && _sender.tab.id;
     runWebshotCapture(tabId, msg.rect, msg.dpr || 1, msg.pageTitle || "screenshot")
@@ -495,6 +501,64 @@ async function removeBackground(fileB64, fileType) {
   }
   const out = new Uint8Array(await res.arrayBuffer());
   return { fileB64: bytesToBase64(out), fileType: "image/png" };
+}
+
+// ── AI tab (Gemini) ──────────────────────────────────────────────────────
+// Customer brings their own free Gemini API key (Settings), same pattern as
+// OCR/remove.bg. Called from here rather than popup/ai.js directly so the
+// key never needs a CORS-friendly path from the popup and every other
+// external call in this file follows the same rule.
+// "-latest" alias (not a pinned version) so Google can swap the model
+// underneath us without this breaking again the way gemini-2.0-flash did
+// (that one was fully retired, a 404, not just overloaded).
+const GEMINI_MODEL = "gemini-flash-latest";
+async function callGemini(messages) {
+  const key = (await chrome.storage.local.get(["geminiApiKey"])).geminiApiKey || "";
+  if (!key.trim()) throw new Error("Add your Gemini API key in Settings to use the AI tab");
+  // Images ride alongside text as an inlineData part — same multimodal
+  // request shape Gemini uses for any vision input (this is the path a
+  // future passport-OCR-via-Gemini feature would reuse).
+  const contents = (messages || []).map((m) => {
+    const parts = [];
+    if (m.text) parts.push({ text: m.text });
+    if (m.image && m.image.dataUrl) {
+      const commaIdx = m.image.dataUrl.indexOf(",");
+      const data = commaIdx >= 0 ? m.image.dataUrl.slice(commaIdx + 1) : m.image.dataUrl;
+      parts.push({ inlineData: { mimeType: m.image.mimeType || "image/jpeg", data } });
+    }
+    return { role: m.role === "assistant" ? "model" : "user", parts };
+  });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key.trim())}`;
+  const opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents }) };
+
+  // Free-tier flash models routinely 503 ("model overloaded") under load —
+  // a plain transient capacity issue on Google's side, not our request being
+  // wrong. Retry a few times with backoff before giving up.
+  let res, body;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      res = await fetch(url, opts);
+    } catch (err) {
+      // A rejected fetch (not an HTTP error response) — connection refused,
+      // DNS hiccup, or Google's edge briefly throttling a client that's
+      // firing requests too fast (seen from the batch decision tester).
+      throw new Error(`Couldn't reach Gemini (${err.message}) — if you just sent several messages quickly, wait a few seconds and try again.`);
+    }
+    body = await res.json().catch(() => null);
+    if (res.ok || res.status !== 503) break;
+    if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+  }
+  if (!res.ok) {
+    const detail = body && body.error && body.error.message;
+    throw new Error(detail || `Gemini request failed (${res.status})`);
+  }
+  const parts = body && body.candidates && body.candidates[0] && body.candidates[0].content && body.candidates[0].content.parts;
+  const text = parts ? parts.map((p) => p.text || "").join("") : "";
+  if (!text) {
+    const blockReason = body && body.promptFeedback && body.promptFeedback.blockReason;
+    throw new Error(blockReason ? `Gemini blocked the response (${blockReason})` : "Gemini returned an empty response");
+  }
+  return text;
 }
 
 // ── Element Screenshot ────────────────────────────────────────────────────

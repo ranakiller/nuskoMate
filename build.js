@@ -39,7 +39,7 @@ const STUB_FILES = new Set(["passport-parser.js"]);
 // zero benefit), and javascript-obfuscator's transforms aren't reliable
 // against pdf.js's ES module import/export syntax or its Worker internals —
 // breaking either would fail silently at runtime, not at build time.
-const VENDOR_FILES = new Set(["pdf-lib.min.js", "pdf.min.mjs", "pdf.worker.min.mjs"]);
+const VENDOR_FILES = new Set(["pdf-lib.min.js", "pdf.min.mjs", "pdf.worker.min.mjs", "web-llm.min.js"]);
 const PARSER_STUB =
   "/* Parsing runs on the Nuskomate license server. This stub ships in licensed builds. */\n" +
   "(function(){var s={parse:function(){return{details:{},nameBoxes:{},mrzValid:false,blurry:false};}};" +
