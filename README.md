@@ -23,7 +23,7 @@ This is the **source repository** (private). Built releases (obfuscated, zip onl
 | **Groups Export** | One click — fetches every page of Masar's Groups List (any filter tab) and immediately downloads a formatted `.xlsx`, clustered by Arrival date with a live `=SUM()` subtotal per date, a grand total, and a per-row Stay formula |
 | **Copy** | Adds a one-click copy button (plus a fully configurable keyboard shortcut) on the Hotel Agreement, Mutamers List, Groups List, and Agreements pages — copies a clean, paste-ready summary to your clipboard. Every line of every format can be turned on/off individually in Settings |
 
-> **OCR requires your own free ocr.space API key.** Every OCR-dependent feature (Passport OCR, Father Name, Batch Passports) sends that key to the license server with each scan, which uses it to call ocr.space on your behalf — there's no shared/fallback key. This is deliberate: with potentially thousands of installs, one shared key would hit ocr.space's free-tier rate limit for everyone at once. Add yours in Settings → OCR (a "get a free key" link is shown until one's saved); nothing OCR-related runs without it.
+> **OCR requires your own free ocr.space API key.** Every OCR-dependent feature (Passport OCR, Father Name, Batch Passports) sends that key to the license server with each scan, which uses it to call ocr.space on your behalf — there's no shared/fallback key. This is deliberate: with potentially thousands of installs, one shared key would hit ocr.space's free-tier rate limit for everyone at once. Add yours in the Passport OCR module's own gear-settings card (a "get a free key" link is shown until one's saved); nothing OCR-related runs without it.
 
 ## Automation Tabs — Reactive Rules & Workflows
 
@@ -56,6 +56,17 @@ Every rule/step/redirect-rule list shares the same tooling:
 
 ---
 
+## WhatsApp Command Channel & AI Bridge
+
+| Feature | What it does |
+|---|---|
+| **Command Chat** | A separate allow-list from Feeding Chats (which gates the passport pipeline) — designate a self-chat, DM, or group in Settings, then type `/Nusko...` there to control the extension over WhatsApp. Fails closed: an empty list means nothing is ever treated as a command. v1 scope: `/NuskoStatus` — replies with the WhatsApp pipeline's current counts (checking/feeding/confirming/grouping), how many need attention, license state, and whether live sending is on |
+| **Plain-English fallback (optional, off by default)** | Install the separate [AI Bridge](https://github.com/ranakiller/ai-bridge) extension, add a free Gemini API key **there** (AI Bridge holds it once, shared with CRM Bridge and WA-Campaigns too), then enable it in Settings. A Command Chat message that isn't an exact `/Nusko...` command is classified into one of the same commands above — never anything else — before falling back to "not recognized." Message text only ever reaches AI Bridge for a chat already on the Command Chat allow-list |
+
+The old in-popup **AI tab** (chat, model picker, local WebLLM models, batch decision tester) has been removed entirely — it now lives on as AI Bridge's own Chat tab, shared across every extension that used to have its own copy.
+
+---
+
 ## Installation
 
 ### For customers
@@ -84,6 +95,9 @@ Three buttons in Settings → Appearance: **System** (follows OS), **Light**, **
 
 ### Sidebar
 Double-click any tab button to collapse/expand the sidebar to icons-only. A single click still just switches tabs.
+
+### Masar Accounts (entity switcher)
+Click the header icon (between undo/redo and the side-panel dock button) to jump straight to your scanned Masar entities, search-first. `Alt+Shift+E` does the same thing as a keyboard shortcut — opens the popup straight into it if closed, or switches an already-open popup there live (customize the key at `chrome://extensions/shortcuts`).
 
 ### Enabling modules
 Each module/automation tab has its own on/off slider. Premium tools require an activated key with that tool included in its entitlement.
