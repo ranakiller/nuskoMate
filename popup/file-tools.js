@@ -935,8 +935,10 @@ const TOOLS = [
     id: "imgremovebg", group: "jpg", icon: "wand", iconClass: "clicker-icon",
     name: "BG Remover", desc: "Cut a subject out onto a transparent background",
     accept: "image/jpeg,image/png,image/webp", multiple: true, runLabel: "Remove Background",
-    fields: [],
-    note: "Uses your own remove.bg API key (Settings) — each image counts against remove.bg's own free-tier quota for that key.",
+    fields: [
+      { key: "apiKey", label: "remove.bg API key (required)", type: "text", placeholder: "Paste your own remove.bg API key", storageKey: "removeBgApiKey", full: true },
+    ],
+    note: "Get a free key at remove.bg/api — each image counts against that key's own free-tier quota.",
     resultsAsGrid: true,
     async run(files, v, { onProgress }) {
       const out = [];

@@ -335,7 +335,28 @@ async function handleIncomingMessage(payload) {
 // unanswered, so WA-Campaigns sees Nuskomate as unreachable, same as if
 // this module wasn't installed. No event is parsed, logged, or processed.
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  // A bare reachability ping from anyone OTHER than WA-Campaigns is answered unconditionally -
+  // this is what AI Bridge's own "Test connection" button pings to confirm this extension is
+  // installed and listening (it was failing before this: the gate below silently dropped it,
+  // since only WA-Campaigns' sender id ever got a response at all). Reveals nothing sensitive
+  // (name/version only), so it's the one exception to that gate. WA-Campaigns' OWN ping is
+  // untouched - it still flows through to the enabled/licensed-gated handler further down,
+  // since THAT one means something more specific for WA-Campaigns' own reachability indicator
+  // (module actually enabled and licensed, not just installed).
+  if (msg && msg.type === "ping" && sender.id !== WA_CAMPAIGNS_EXTENSION_ID) {
+    sendResponse({ ok: true, name: "Nuskomate", version: chrome.runtime.getManifest().version });
+    return;
+  }
   if (sender.id !== WA_CAMPAIGNS_EXTENSION_ID) return; // unhandled — Chrome treats this the same as no listener at all
+
+  // /Nusko... command channel (modules/whatsapp-commands.js): deliberately unconditional, run
+  // BEFORE the Pipeline module/license gate below — a status check is most useful exactly when
+  // the pipeline looks broken or is switched off, so gating it the same way would defeat the
+  // point. It's independent of sendResponse here (a separate outbound WA-Campaigns call, gated
+  // by its own allowlist — see that file), so it can't interfere with the pipeline flow below.
+  if (msg && msg.type === "new-message") {
+    maybeHandleNuskoCommand(msg).catch((err) => bgLog("warn", "Command channel: failed: " + ((err && err.message) || err)));
+  }
 
   chrome.storage.local.get(["modulePipeline", "extensionEnabled", "licenseValid", "licenseFeatures"], (res) => {
     const enabled = res.extensionEnabled !== false && res.modulePipeline !== false; // default on

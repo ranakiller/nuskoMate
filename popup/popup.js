@@ -449,6 +449,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (res.uiTab && document.getElementById("panel-" + res.uiTab)) activateTab(res.uiTab);
   });
 
+  // Lets the Entities hotkey (Alt+Shift+E, background.js's openEntitiesFromCommand)
+  // switch an ALREADY-open popup too, not just a fresh one — background writes
+  // uiTab then calls chrome.action.openPopup(), which only focuses an existing
+  // popup rather than reloading it, so this is the only way this popup instance
+  // finds out the tab changed underneath it.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.uiTab && document.getElementById("panel-" + changes.uiTab.newValue)) {
+      activateTab(changes.uiTab.newValue);
+    }
+  });
+
   // ── Automation sub-tabs — Automation rules / Flows / URL Shifter, nested
   // inside the single "Automation" sidebar tab. Same show/hide + persisted-
   // last-open pattern as the sidebar tabs above, just scoped to .am-subtab/
@@ -635,6 +646,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireGearToggle("batch-settings-btn", "batch-module-extra");
   wireGearToggle("reload-settings-btn", "reload-module-extra");
   wireGearToggle("brn-settings-btn", "brn-module-extra");
+  wireGearToggle("ocr-settings-btn", "ocr-module-extra");
 
   // Auto Date Picker's "i" info panel — no settings/gear, just this.
   (function () {
@@ -1284,8 +1296,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (editBtn) editBtn.addEventListener("click", showKeyEdit);
   }
   wireApiKeyField("ocrApiKey", { input: "ocr-api-key", hint: "ocr-key-hint", view: "ocr-key-view", masked: "ocr-key-masked", edit: "ocr-key-edit-btn" });
-  wireApiKeyField("removeBgApiKey", { input: "removebg-api-key", hint: "removebg-key-hint", view: "removebg-key-view", masked: "removebg-key-masked", edit: "removebg-key-edit-btn" });
-  wireApiKeyField("geminiApiKey", { input: "gemini-api-key", hint: "gemini-key-hint", view: "gemini-key-view", masked: "gemini-key-masked", edit: "gemini-key-edit-btn" });
+  // remove.bg's key field moved into the BG Remover tool card itself (file-tools.js's
+  // imgremovebg tool, a plain storageKey-bound field via that generic renderer) - no
+  // Settings-side masked view for it anymore, wireApiKeyField no longer applies here.
   // CRM Lookup test — runs the pipeline's own lookup (through the CRM Bridge
   // extension, see the Settings field below), so it tests exactly what a real
   // reservation would do.
@@ -1648,6 +1661,118 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   if (feedingChatSearchEl) feedingChatSearchEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); feedingChatSearchBtnEl && feedingChatSearchBtnEl.click(); }
+  });
+
+  // ── Command Chat — searchable allowlist picker for /Nusko... commands ───
+  // Same "search live via WA-Campaigns, pick to trust" pattern as Feeding Chats above, but its
+  // own storage key (modules/whatsapp-commands.js's isCommandChat) — a chat trusted for passport
+  // feeding isn't automatically trusted for commands, or vice versa. Fails closed on empty: the
+  // command channel does nothing at all until at least one chat is added here.
+  const COMMAND_CHATS_KEY = "waCommandChats";
+  const commandChatSearchEl = document.getElementById("command-chat-search");
+  const commandChatSearchBtnEl = document.getElementById("command-chat-search-btn");
+  const commandChatResultsEl = document.getElementById("command-chat-results");
+  const commandChatListEl = document.getElementById("command-chat-list");
+
+  async function loadCommandChatList() {
+    if (!commandChatListEl) return;
+    const { [COMMAND_CHATS_KEY]: list } = await chrome.storage.local.get([COMMAND_CHATS_KEY]);
+    const chats = Array.isArray(list) ? list : [];
+    commandChatListEl.innerHTML = "";
+    if (!chats.length) {
+      const empty = document.createElement("div");
+      empty.className = "k-hint";
+      empty.textContent = "No chats added yet — /Nusko... commands are accepted from nowhere.";
+      commandChatListEl.appendChild(empty);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const chat of chats) {
+      frag.appendChild(chatRow(chat, "Remove", async () => {
+        const { [COMMAND_CHATS_KEY]: cur } = await chrome.storage.local.get([COMMAND_CHATS_KEY]);
+        const next = (Array.isArray(cur) ? cur : []).filter((c) => c.waId !== chat.waId);
+        await chrome.storage.local.set({ [COMMAND_CHATS_KEY]: next });
+        window.nkToast(`Removed "${chat.name || chat.waId}" from Command Chat.`, "success");
+        loadCommandChatList();
+      }));
+    }
+    commandChatListEl.appendChild(frag);
+  }
+  loadCommandChatList();
+
+  if (commandChatSearchBtnEl) commandChatSearchBtnEl.addEventListener("click", async () => {
+    const query = (commandChatSearchEl && commandChatSearchEl.value.trim().toLowerCase()) || "";
+    if (!commandChatResultsEl) return;
+    commandChatResultsEl.innerHTML = "";
+    commandChatSearchBtnEl.disabled = true;
+    try {
+      const resp = await callWaActionFromPopup("getChats", {});
+      if (!resp || !resp.ok) {
+        window.nkToast((resp && resp.error) || "Could not reach WA-Campaigns for the chat list.", "error");
+        return;
+      }
+      const all = Array.isArray(resp.chats) ? resp.chats : [];
+      const matches = (query ? all.filter((c) => (c.name || "").toLowerCase().includes(query)) : all).slice(0, 25);
+      if (!all.length) {
+        const none = document.createElement("div");
+        none.className = "k-hint";
+        none.textContent = "WA-Campaigns' getChats returned zero chats total (not just zero matches) — it may need a reload, or WhatsApp Web wasn't fully connected at that moment.";
+        commandChatResultsEl.appendChild(none);
+        return;
+      }
+      if (!matches.length) {
+        const none = document.createElement("div");
+        none.className = "k-hint";
+        none.textContent = `No matches among the ${all.length} chat(s) WA-Campaigns returned.`;
+        commandChatResultsEl.appendChild(none);
+        return;
+      }
+      const { [COMMAND_CHATS_KEY]: cur } = await chrome.storage.local.get([COMMAND_CHATS_KEY]);
+      const trustedIds = new Set((Array.isArray(cur) ? cur : []).map((c) => c.waId));
+      const frag = document.createDocumentFragment();
+      for (const chat of matches) {
+        if (trustedIds.has(chat.waId)) continue;
+        frag.appendChild(chatRow(chat, "Add", async () => {
+          const { [COMMAND_CHATS_KEY]: latest } = await chrome.storage.local.get([COMMAND_CHATS_KEY]);
+          const next = Array.isArray(latest) ? latest.slice() : [];
+          if (!next.some((c) => c.waId === chat.waId)) next.push(chat);
+          await chrome.storage.local.set({ [COMMAND_CHATS_KEY]: next });
+          window.nkToast(`Added "${chat.name || chat.waId}" to Command Chat.`, "success");
+          loadCommandChatList();
+          commandChatSearchBtnEl.click();
+        }));
+      }
+      commandChatResultsEl.appendChild(frag);
+    } catch (err) {
+      window.nkToast("Could not reach WA-Campaigns: " + (err && err.message), "error");
+    } finally {
+      commandChatSearchBtnEl.disabled = false;
+    }
+  });
+  if (commandChatSearchEl) commandChatSearchEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commandChatSearchBtnEl && commandChatSearchBtnEl.click(); }
+  });
+
+  // AI command understanding toggle — plain storage-backed checkbox, same pattern as
+  // wa-pipeline-live above. Uses the separate AI Bridge extension's own key; no key field here.
+  const commandChatAiEl = document.getElementById("command-chat-ai");
+  chrome.storage.local.get(["waAiCommands"], (res) => {
+    if (commandChatAiEl) commandChatAiEl.checked = !!res.waAiCommands;
+  });
+  if (commandChatAiEl) commandChatAiEl.addEventListener("change", () => {
+    chrome.storage.local.set({ waAiCommands: commandChatAiEl.checked });
+    window.nkToast(commandChatAiEl.checked ? "AI command understanding enabled." : "AI command understanding disabled.", "success");
+  });
+
+  const aiBridgeStatusEl = document.getElementById("ai-bridge-status");
+  const aiBridgeTestBtnEl = document.getElementById("ai-bridge-test-btn");
+  if (aiBridgeTestBtnEl) aiBridgeTestBtnEl.addEventListener("click", () => {
+    aiBridgeTestBtnEl.disabled = true;
+    if (aiBridgeStatusEl) aiBridgeStatusEl.textContent = "Checking…";
+    chrome.runtime.sendMessage({ type: "nkTestAiBridge" }, (r) => {
+      aiBridgeTestBtnEl.disabled = false;
+      if (aiBridgeStatusEl) aiBridgeStatusEl.textContent = r && r.ok ? `Reachable - ${r.name} v${r.version}.` : `Not reachable - ${(r && r.error) || "no answer"}`;
+    });
   });
 
   const ocrEmptyEl = document.getElementById("ocr-empty");

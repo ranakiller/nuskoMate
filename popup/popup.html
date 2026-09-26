@@ -90,12 +90,10 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
             <span>Pipeline</span><span class="tab-badge" id="tab-pipeline-count"></span>
           </button>
-          <button class="tab" data-tab="ai" title="AI — chat with Gemini">
-            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.6 4.7L18 9l-4.4 1.3L12 15l-1.6-4.7L6 9l4.4-1.3L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
-            <span>AI</span>
-          </button>
-          <!-- Any future tab goes here, right before Logs — Logs always
-               stays the last item in this scrollable group. -->
+          <!-- The AI tab (chat + local WebLLM models) moved to the separate AI Bridge
+               extension - see modules/whatsapp-commands.js's header comment. Any future tab
+               goes here, right before Logs — Logs always stays the last item in this
+               scrollable group. -->
           <button class="tab" data-tab="logs" title="Logs">
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             <span>Logs</span><span class="tab-badge" id="tab-log-count"></span>
@@ -232,10 +230,31 @@
             <div class="module-name">Passport OCR</div>
             <div class="module-desc" id="ocr-module-desc">Auto-scan passport on upload</div>
           </div>
+          <button id="ocr-settings-btn" class="module-gear-btn" type="button" title="Settings" aria-label="Settings">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-ocr" />
             <span class="slider"></span>
           </label>
+        </div>
+        <div class="module-extra" id="ocr-module-extra" style="display:none;">
+          <div class="field-group" style="margin:0;">
+            <label class="field-label" for="ocr-api-key">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              OCR API key (required)
+            </label>
+            <div class="ocr-key-view" id="ocr-key-view" style="display:none;">
+              <span class="ocr-key-masked" id="ocr-key-masked"></span>
+              <button type="button" id="ocr-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </button>
+            </div>
+            <input type="text" id="ocr-api-key" class="field-input"
+              placeholder="Paste your own ocr.space API key" autocomplete="off" />
+            <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener noreferrer" id="ocr-key-hint" class="ocr-key-hint">Don't have one? Get a free key at ocr.space →</a>
+            <div class="k-hint">Required for Passport OCR, Father Name, and Bulk Parser.</div>
+          </div>
         </div>
       </div>
 
@@ -664,69 +683,6 @@
       <div class="k-hint">Used as the default target language for new "Auto-detect" translation rules, and by "Pick element to translate."</div>
     </div>
 
-    <!-- Section: OCR -->
-    <div class="section" id="ocr-key-section">
-      <div class="section-title">OCR</div>
-      <div class="field-group">
-        <label class="field-label" for="ocr-api-key">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-          OCR API key (required)
-        </label>
-        <div class="ocr-key-view" id="ocr-key-view" style="display:none;">
-          <span class="ocr-key-masked" id="ocr-key-masked"></span>
-          <button type="button" id="ocr-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </button>
-        </div>
-        <input type="text" id="ocr-api-key" class="field-input"
-          placeholder="Paste your own ocr.space API key" autocomplete="off" />
-        <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener noreferrer" id="ocr-key-hint" class="ocr-key-hint">Don't have one? Get a free key at ocr.space →</a>
-        <div class="k-hint">Required for Passport OCR, Father Name, and Bulk Parser.</div>
-      </div>
-    </div>
-
-    <!-- Section: remove.bg (Tools > BG Remover) -->
-    <div class="section" id="removebg-key-section">
-      <div class="section-title">Background Removal</div>
-      <div class="field-group">
-        <label class="field-label" for="removebg-api-key">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-          remove.bg API key (required)
-        </label>
-        <div class="ocr-key-view" id="removebg-key-view" style="display:none;">
-          <span class="ocr-key-masked" id="removebg-key-masked"></span>
-          <button type="button" id="removebg-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </button>
-        </div>
-        <input type="text" id="removebg-api-key" class="field-input"
-          placeholder="Paste your own remove.bg API key" autocomplete="off" />
-        <a href="https://www.remove.bg/api" target="_blank" rel="noopener noreferrer" id="removebg-key-hint" class="ocr-key-hint">Don't have one? Get a free key at remove.bg →</a>
-        <div class="k-hint">Required for Tools &gt; BG Remover. Free tier is limited — see remove.bg's own pricing.</div>
-      </div>
-    </div>
-
-    <!-- Section: Gemini (AI tab) -->
-    <div class="section" id="gemini-key-section">
-      <div class="section-title">AI (Gemini)</div>
-      <div class="field-group">
-        <label class="field-label" for="gemini-api-key">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-          Gemini API key (required)
-        </label>
-        <div class="ocr-key-view" id="gemini-key-view" style="display:none;">
-          <span class="ocr-key-masked" id="gemini-key-masked"></span>
-          <button type="button" id="gemini-key-edit-btn" class="logs-btn" title="Edit key" aria-label="Edit key">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          </button>
-        </div>
-        <input type="text" id="gemini-api-key" class="field-input"
-          placeholder="Paste your own Gemini API key" autocomplete="off" />
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" id="gemini-key-hint" class="ocr-key-hint">Don't have one? Get a free key at aistudio.google.com →</a>
-        <div class="k-hint">Required for the AI tab. Kept device-local, same as OCR/remove.bg keys.</div>
-      </div>
-    </div>
-
     </div><!-- /panel-settings -->
 
     <!-- Panel: Pipeline — the WhatsApp -> CRM -> Masar automation, all in one
@@ -859,6 +815,27 @@
           <div class="k-hint" style="margin-top:6px;">Trusted list:</div>
           <div id="feeding-chat-list"></div>
           <div class="k-hint">Pulled live from WhatsApp via WA-Campaigns — search, then add whichever groups/contacts should be watched. <b>Empty list = nothing is processed.</b> Nuskomate only acts on messages from chats added here — add your intake group(s)/contact(s) below before expecting anything to be picked up.</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Command Chat — where /Nusko... commands are accepted from</label>
+          <div class="k-row">
+            <input type="text" id="command-chat-search" class="field-input" style="flex:1;"
+              placeholder="Search WhatsApp groups/contacts by name..." autocomplete="off" spellcheck="false" />
+            <button id="command-chat-search-btn" type="button" class="act-btn">Search</button>
+          </div>
+          <div id="command-chat-results"></div>
+          <div class="k-hint" style="margin-top:6px;">Trusted list:</div>
+          <div id="command-chat-list"></div>
+          <div class="k-hint">Separate from Feeding Chats above — this is for typing /NuskoStatus etc. to yourself, not for passport intake. <b>Empty list = no command is ever accepted, even one that looks right.</b> Add the chat(s) you'll type commands into: your own self-chat, a DM, or a group.</div>
+          <label class="field-label" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+            <input type="checkbox" id="command-chat-ai" />
+            Understand plain-English commands via AI Bridge
+          </label>
+          <div class="k-hint">Off by default. Needs the separate <b>AI Bridge</b> extension installed, with a Gemini API key set there, and this extension's id on AI Bridge's Allowed list (pre-seeded). A message in Command Chat that isn't an exact /Nusko... command falls back to it, which can only ever match one of the commands above (never anything else). Message text is only ever sent for a chat already on the trusted list above.</div>
+          <div class="k-row" style="align-items:center; margin-top:6px;">
+            <span class="k-hint" id="ai-bridge-status" style="margin:0; flex:1;">Not checked yet.</span>
+            <button type="button" id="ai-bridge-test-btn" class="act-btn">Test connection</button>
+          </div>
         </div>
       </div>
 
@@ -1048,103 +1025,8 @@
     </div><!-- /passport-content -->
     </div><!-- /panel-passport -->
 
-    <!-- Panel: AI — quick Gemini chat, mainly to confirm the API key works
-         before building anything more specific on top of it. -->
-    <div class="tab-panel" id="panel-ai">
-    <div class="section">
-      <div class="section-title">AI Assistant</div>
-
-      <select id="ai-model-select" class="ai-model-select">
-        <optgroup label="Cloud (needs your Gemini key)">
-          <option value="gemini">Gemini Flash — images, best quality, rate-limited</option>
-        </optgroup>
-        <optgroup label="Local (free, offline, no key)">
-          <option value="local:Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5 0.5B — smallest/fastest, ~950MB</option>
-          <option value="local:Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B — ~900MB</option>
-          <option value="local:Qwen2.5-1.5B-Instruct-q4f16_1-MLC">Qwen2.5 1.5B — ~1.6GB</option>
-          <option value="local:Llama-3.2-3B-Instruct-q4f16_1-MLC">Llama 3.2 3B — better reasoning, ~2.3GB</option>
-          <option value="local:Phi-3.5-mini-instruct-q4f16_1-MLC">Phi-3.5 Mini 3.8B — strongest text-only local, ~3.7GB</option>
-          <option value="local:Phi-3.5-vision-instruct-q4f16_1-MLC">Phi-3.5 Vision 4.2B — images, ~4GB, needs a real GPU</option>
-        </optgroup>
-      </select>
-      <div class="ai-model-hint-row">
-        <div class="ai-model-hint" id="ai-model-hint"></div>
-        <button type="button" id="ai-model-download" class="ai-model-download-btn" style="display:none;" title="Download this model to use it">Download</button>
-        <button type="button" id="ai-model-delete" class="ai-model-delete-btn" style="display:none;" title="Delete this model's downloaded files from disk">Delete download</button>
-      </div>
-
-      <div class="ai-key-warning" id="ai-key-warning" style="display:none;">
-        <span>No Gemini API key saved yet.</span>
-        <button type="button" id="ai-key-warning-btn" class="ai-key-warning-btn" title="Add key in Settings">Add key</button>
-      </div>
-
-      <div class="ai-key-warning" id="ai-local-warning" style="display:none;">
-        <span id="ai-local-warning-text">WebGPU isn't available in this browser.</span>
-      </div>
-
-      <div class="ai-local-progress" id="ai-local-progress" style="display:none;">
-        <div class="ai-local-progress-text" id="ai-local-progress-text">Loading local model…</div>
-        <div class="ai-local-progress-bar"><div class="ai-local-progress-fill" id="ai-local-progress-fill"></div></div>
-      </div>
-
-      <div class="ai-chat-log" id="ai-chat-log">
-        <div class="ai-chat-empty" id="ai-chat-empty">Ask anything, or attach an image (e.g. a passport photo) to test Gemini's vision + text extraction.</div>
-      </div>
-
-      <div class="ai-attach-preview" id="ai-attach-preview" style="display:none;">
-        <img id="ai-attach-thumb" alt="Attached image" />
-        <span id="ai-attach-name" class="ai-attach-name"></span>
-        <button type="button" id="ai-attach-remove" class="ai-attach-remove" title="Remove attachment" aria-label="Remove attachment">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-
-      <div class="ai-chat-inputbar">
-        <label class="ai-attach-btn" title="Attach an image" aria-label="Attach an image">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          <input type="file" id="ai-attach-input" accept="image/*" style="display:none;" />
-        </label>
-        <textarea id="ai-chat-input" class="ai-chat-input" rows="1" placeholder="Message Gemini…" title="Enter to send, Shift+Enter for a new line"></textarea>
-        <button type="button" id="ai-chat-send" class="act-btn ai-chat-send-btn" title="Send">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        </button>
-      </div>
-      <button type="button" id="ai-chat-clear" class="ai-chat-clear-btn" title="Clear chat">Clear chat</button>
-    </div>
-
-    <!-- Batch decision tester — runs many independent single-turn messages
-         (not a running conversation) against one instruction, so you can
-         judge a specific pipeline decision's real accuracy at a glance
-         instead of testing one message at a time in the chat above. Uses
-         whichever provider pill is selected above. -->
-    <div class="section">
-      <div class="section-title">Test a Decision (batch) <button type="button" id="ai-batch-toggle" class="info-btn" title="Show/hide">▾</button></div>
-      <div id="ai-batch-body" style="display:none;">
-        <div class="ai-batch-label">Instruction (applies to every message below)</div>
-        <textarea id="ai-batch-instruction" class="ai-batch-textarea" rows="6">You classify a single WhatsApp message from a travel agency customer.
-
-Decide TYPE: ORDER (the customer is instructing an action — cancel, hold, or confirm a reservation, with or without a reservation number) / QUESTION (the customer is asking something, not instructing) / OTHER (greeting, small talk, unrelated).
-
-If TYPE is ORDER, also give ACTION (cancel / hold / confirm / other) and RESERVATION — a 6-digit number, optionally prefixed UR/ur (e.g. UR123456), or "none" if none is mentioned.
-
-Respond with EXACTLY one line, no other text, in this format:
-TYPE=... | ACTION=... | RESERVATION=...</textarea>
-
-        <div class="ai-batch-label">Test messages (one per line)</div>
-        <textarea id="ai-batch-messages" class="ai-batch-textarea" rows="8">cancel this reservation
-UR123456 cancel this
-cancel UR-123456 please
-is my reservation confirmed?
-we hold
-please hold UR654321
-123456 confirm
-hi how are you</textarea>
-
-        <button type="button" id="ai-batch-run" class="act-btn ai-batch-run-btn">Run all</button>
-        <div class="ai-batch-results" id="ai-batch-results"></div>
-      </div>
-    </div>
-    </div><!-- /panel-ai -->
+    <!-- Panel: AI moved to the separate AI Bridge extension (see
+         modules/whatsapp-commands.js's header comment) - nothing left here. -->
 
     <!-- Panel: Logs -->
     <div class="tab-panel" id="panel-logs">
@@ -2123,7 +2005,6 @@ hi how are you</textarea>
     <script src="mv-totals.js"></script>
     <script src="talab-copy.js"></script>
     <script src="package-creator.js"></script>
-    <script src="ai.js"></script>
     <!-- pdf-lib is a classic UMD build (window.PDFLib) — plain script tag,
          same as every other vendored library here. pdf.js v6 only ships ES
          modules, so file-tools.js (which imports it) has to be type=module;
@@ -2133,12 +2014,7 @@ hi how are you</textarea>
     <script src="../utils/image-prep.js"></script>
     <script type="module" src="file-tools.js"></script>
     <script src="media-grabber.js"></script>
-    <!-- WebLLM is ES-module-only too, same pattern as pdf.js above — the
-         vendored bundle is text/data-only itself (no model weights), those
-         download separately from Hugging Face on first use and are cached
-         in IndexedDB. Runs in the popup page (has WebGPU + DOM), not
-         background.js (that would need converting the whole classic-script
-         service worker to a module worker — a bigger, separate change). -->
-    <script type="module" src="webllm-runner.js"></script>
+    <!-- WebLLM/local AI moved to the separate AI Bridge extension along with the
+         rest of the AI tab - nothing left to load here. -->
   </body>
 </html>
