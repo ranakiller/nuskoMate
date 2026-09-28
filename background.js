@@ -654,19 +654,22 @@ async function startWebshotFromCommand() {
     console.warn("[Nuskomate] Element Screenshot hotkey failed:", err && err.message);
   }
 }
-// Entities hotkey (Settings > default Alt+Shift+E). Sets uiTab first so a
-// fresh popup opens straight into Masar Accounts (popup.js reads uiTab once
-// at load), THEN opens the popup — chrome.action.openPopup() needs the
-// command's own keyboard gesture, same reasoning as the webshot hotkey
-// above. If a popup is already open, openPopup() just focuses it; the
-// storage write still reaches it live via popup.js's storage.onChanged
-// listener, so either way it lands on Accounts.
-async function openEntitiesFromCommand() {
-  try { await chrome.storage.local.set({ uiTab: "accounts" }); } catch (_) {}
-  try {
-    if (chrome.action && chrome.action.openPopup) await chrome.action.openPopup();
-  } catch (err) {
-    console.warn("[Nuskomate] Entities hotkey couldn't open the popup:", err && err.message);
+// Entities hotkey (Settings > default Alt+Shift+E). openPopup() only works
+// while the command's own keyboard gesture is still "live" - crossing even
+// one await first (as this used to, awaiting the storage write before
+// openPopup()) loses that window and openPopup() silently fails, which is
+// why this hotkey did nothing. Fix: call storage.set() and openPopup() both
+// synchronously, back to back, with neither awaited beforehand - the
+// storage write is issued first (same process, a few ms) so a FRESH popup's
+// own uiTab read on load almost always sees "accounts" already; if it
+// somehow doesn't (or a popup was already open), popup.js's
+// storage.onChanged listener still lands it there a beat later either way.
+function openEntitiesFromCommand() {
+  chrome.storage.local.set({ uiTab: "accounts" }).catch(() => {});
+  if (chrome.action && chrome.action.openPopup) {
+    chrome.action.openPopup().catch((err) => {
+      console.warn("[Nuskomate] Entities hotkey couldn't open the popup:", err && err.message);
+    });
   }
 }
 chrome.commands.onCommand.addListener((command) => {
