@@ -294,7 +294,19 @@
               wlog(`Mutamer List confirms passport ${entry.passportNo} (reservation ${entry.reservationNo}) is saved and Completed`);
               (confirmedByReservation[entry.reservationNo] ||= []).push(entry);
             } else {
-              if (row) (incompleteByReservation[entry.reservationNo] ||= []).push({ passportNo: entry.passportNo, status: row.status });
+              // Report this back EITHER WAY — a row that exists but isn't
+              // Completed yet, or (2026-09-30 fix) a row that doesn't exist on
+              // the list at all, e.g. because whatever drives the Add Mutamer
+              // wizard through to Save (the Auto-Clicker) never actually
+              // submitted it. Previously only a found-but-incomplete row was
+              // reported; a genuinely MISSING one silently stayed out of
+              // incompleteByReservation, which meant this reservation never
+              // appeared in the relay below at all — whatsapp-pipeline.js's
+              // `notCompleted` never got told this passport was still
+              // outstanding, so neither the watchdog nor self-heal's normal
+              // ~90s-idle recovery ever caught it (only the 10-minute
+              // "confirming and totally silent" fallback eventually would).
+              (incompleteByReservation[entry.reservationNo] ||= []).push({ passportNo: entry.passportNo, status: row ? row.status : "(not on the list yet)" });
               stillPending.push(entry);
             }
           }

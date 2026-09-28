@@ -1002,6 +1002,62 @@ input:checked + .slider::before {
 .pm-card-bottom { display: flex; justify-content: flex-end; margin-top: 6px; }
 .pm-retry-btn { padding: 2px 10px; font-size: 10.5px; }
 
+/* ── Live Monitor flow, richer boxes (2026-09-30) ─────────────────────────
+   Same #pm-flow container, same counts computed by renderPipelineMonitor()
+   in popup.js — this only changes how each stage is drawn: a labeled box
+   with the actual reservation numbers sitting at that stage shown as small
+   pills, instead of just a bare count in a circle, plus an animated
+   connector between boxes that are both non-empty (so a live handoff is
+   visible, not just implied). Reuses the same --accent/--overlay-fg tokens
+   as the circles above, so it matches both themes without new tokens. */
+.pmx-flow { display: flex; align-items: stretch; gap: 0; padding: 8px 2px 12px; overflow-x: auto; }
+.pmx-node {
+  flex: 0 0 auto; min-width: 92px; max-width: 128px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface2); padding: 6px 7px;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+.pmx-node.pmx-active { border-color: var(--accent); background: var(--accent-soft); }
+.pmx-node.pmx-blocked { border-color: var(--overlay-fg); background: var(--overlay-bg); }
+.pmx-node-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.pmx-node-label { font-size: 9.5px; font-weight: 700; color: var(--text-muted); }
+.pmx-node.pmx-active .pmx-node-label { color: var(--accent); }
+.pmx-node.pmx-blocked .pmx-node-label { color: var(--overlay-fg); }
+.pmx-node-count { font-size: 10px; font-weight: 700; color: var(--text-muted); }
+.pmx-node.pmx-active .pmx-node-count { color: var(--accent); }
+.pmx-node.pmx-blocked .pmx-node-count { color: var(--overlay-fg); }
+.pmx-pills { display: flex; flex-wrap: wrap; gap: 3px; min-height: 14px; }
+.pmx-pill {
+  font-size: 8.5px; font-weight: 600; padding: 1px 5px; border-radius: 20px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);
+  white-space: nowrap; max-width: 76px; overflow: hidden; text-overflow: ellipsis;
+}
+.pmx-node.pmx-active .pmx-pill { border-color: var(--accent); color: var(--accent); }
+.pmx-node.pmx-blocked .pmx-pill { border-color: var(--overlay-fg); color: var(--overlay-fg); }
+.pmx-connector { flex: 1 1 16px; min-width: 12px; align-self: center; height: 2px; background: var(--border); margin: 0 3px; position: relative; overflow: hidden; border-radius: 2px; }
+.pmx-connector.pmx-flowing { background: var(--accent-soft); }
+.pmx-connector.pmx-flowing::after {
+  content: ""; position: absolute; top: 0; left: 0; width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: nk-connector-sweep 1.3s linear infinite;
+}
+@keyframes nk-connector-sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+@media (prefers-reduced-motion: reduce) { .pmx-connector.pmx-flowing::after { animation: none; } }
+
+/* ── Masar queues (2026-09-30) — genuinely new: nothing in the popup today
+   shows waMasarFeedOrder / waMasarConfirmQueue at all, even though they're
+   real, already-persisted state. Read-only; no actions live here. ── */
+.pmx-queue-list { display: flex; flex-direction: column; gap: 4px; }
+.pmx-queue-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 10.5px; padding: 4px 8px; border-radius: var(--radius-xs);
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.pmx-queue-item .pmx-qno { font-weight: 700; color: var(--text); }
+.pmx-queue-item .pmx-qmeta { color: var(--text-muted); font-size: 9.5px; }
+.pmx-queue-more { font-size: 9.5px; color: var(--text-muted); text-align: center; padding: 2px 0; }
+
 .logs-empty {
   padding: 16px;
   text-align: center;

@@ -67,6 +67,26 @@ The old in-popup **AI tab** (chat, model picker, local WebLLM models, batch deci
 
 ---
 
+## WhatsApp Pipeline: On hold / Cancelled recovery (2026-09-29)
+
+A reservation the CRM Bridge reports as **On hold** or **Cancelled** is no longer a dead end:
+
+- The pipeline asks the CRM Bridge to confirm it (its new `pipelineConfirm` API), and — only if the Bridge's own **Live pipeline confirming** switch is on — continues automatically into the normal Masar feed/group/reply flow, same as if it had come back Confirmed to begin with. With that switch off (or if the Bridge declines), it falls back to the old behavior: notify the team, save the status, stop.
+- The eventual WhatsApp reply says so plainly — *"Reservation 106601 was On hold, now Confirmed."* — rather than presenting it as if it had been Confirmed the whole time.
+- **Fixed alongside this**: previously, once a reservation was saved as On hold/Cancelled/not-found, *every future photo for that same number was silently ignored forever* — the only way back in was the popup's manual Retry, and even that didn't cleanly resume one whose photos had never been fed. A later photo batch for an On-hold/Cancelled reservation now always gets a fresh CRM re-check (and another shot at auto-confirm) instead of being dropped. Not-found and passport-conflict outcomes are unaffected — those still need a human, since nothing about re-running would change either.
+
+Requires the CRM Bridge extension to be on v1.31.0+ (adds the `pipelineConfirm` message type) and nuskoMate's extension ID to already be on its **Allowed extensions** list. Not yet exercised live — test with the Bridge's Live pipeline confirming switch off first and watch Pipeline Logs before turning it on.
+
+**Also fixed the same day**: a reservation whose passport(s) were OCR'd and tracked but never actually saved into Masar (e.g. the Add Mutamer wizard's Save was never clicked through) used to sit stuck forever — the popup's Retry button only re-checked the Mutamer List, it never re-fed anything, so there was nothing that could ever unstick it. Retry now checks whether Masar's own upload queue is actually idle first, and if so, re-feeds exactly the passport(s) still not Completed. `masar-add-mutamer.js`'s reactive Mutamer List check also had a real gap: a passport whose row didn't exist on the list *at all* (as opposed to existing but marked "Not Completed") was silently dropped instead of reported back — which meant neither the watchdog nor the automatic self-heal loop ever found out about it until the 10-minute total-silence fallback. Fixed to report a missing row the same as an incomplete one.
+
+## Live Monitor — richer flow, and the queues made visible (2026-09-30)
+
+The Pipeline tab's **Live Monitor** now draws each stage (Checking CRM → Feeding Masar → Confirming → Creating Group → Replied → Needs Attention) as a labeled box holding the actual reservation numbers sitting there right now, not just a bare count — and the connector between two boxes animates when either side is active, so a handoff is visible as it happens. Same underlying data (`waReservations`) and the same per-reservation cards/Retry button below it as before; this only changes how the summary row at the top is drawn.
+
+Below it, a new **Masar queues** card shows `waMasarConfirmQueue` (passports fed and waiting for Masar's Mutamer List to mark them Completed) and `waMasarFeedOrder` (the legacy fallback correlation list — normally empty) directly — real, already-persisted state that nothing in the popup displayed before. Read-only; Queue's own Clear-stuck/Clear-all buttons still own clearing both.
+
+---
+
 ## Installation
 
 ### For customers

@@ -272,6 +272,37 @@ const WA_PIPELINE = (() => {
     return { ...r, via: "bridge" };
   }
 
+  // ── Auto-revive an On hold / Cancelled reservation via the CRM Bridge's
+  // "pipelineConfirm" API (2026-09-29), instead of just notifying the team
+  // and stopping. This IS a real CRM status change — the Bridge only
+  // actually applies it when its own "Live pipeline confirming" switch is
+  // on; with that off, or if the Bridge declines (ambiguous duplicate,
+  // already resolved differently, etc.), this returns null and the caller
+  // falls back to the normal notify-and-stop behavior, exactly as before.
+  // On success, re-looks-up the reservation fresh (not the Bridge's own
+  // confirm response) so PAX/package data reflect the newly-Confirmed
+  // record properly, same shape lookupReservationInCrm always returns.
+  async function tryPipelineConfirm(reservationNo, wasStatus) {
+    let r;
+    try {
+      r = await callCrmBridge({ type: "pipelineConfirm", reservationNo });
+    } catch (err) {
+      await pLog("warn", `Pipeline: pipelineConfirm call failed for ${reservationNo}: ${err.message}`);
+      return null;
+    }
+    if (!r || !r.ok || !r.confirmed) {
+      await pLog("info", `Pipeline: reservation ${reservationNo} (${wasStatus}) — CRM Bridge did not confirm it (${(r && r.reason) || (r && r.error) || "declined"}) — falling back to notify-only.`);
+      return null;
+    }
+    await pLog("info", `Pipeline: reservation ${reservationNo} was ${wasStatus} — confirmed via CRM Bridge, re-checking the CRM before continuing.`);
+    const fresh = await lookupReservationInCrm(reservationNo);
+    if (!fresh || !fresh.ok || !fresh.found || fresh.status !== "Confirmed") {
+      await pLog("warn", `Pipeline: reservation ${reservationNo} — CRM Bridge confirmed it, but the CRM still doesn't show Confirmed on re-check (got "${fresh && fresh.status}") — stopping here rather than guessing.`);
+      return null;
+    }
+    return fresh;
+  }
+
   // ── Masar feed ────────────────────────────────────────────────────────
   // Fire-and-forget: hands the file(s) to modules/batch-passport.js's own
   // queue (the exact same mechanism a manual multi-select already uses) and
@@ -462,12 +493,22 @@ const WA_PIPELINE = (() => {
     // one multi-pax reservation (5 separate WhatsApp messages, same
     // reservation number) searched the CRM 5 times, once per photo, since
     // nothing previously checked whether this reservation had already been
-    // resolved. A terminal, non-confirmed outcome (not found/on hold/
-    // cancelled/unrecognized/conflict) is also only ever HANDLED — and
-    // replied to — once; a second photo arriving for an already-on-hold
-    // reservation shouldn't re-send the same @mention notice again.
+    // resolved. Only ever skip re-processing entirely for a truly SETTLED,
+    // non-recoverable outcome: not_found (wrong number — nothing here would
+    // change on a retry) and conflict (needs a human to sort out which
+    // reservation the passport really belongs to; re-running wouldn't
+    // resolve that either).
+    //   On hold / Cancelled / unrecognized are deliberately NOT in this
+    // list (2026-09-29 fix — see the "resume gate" note in the auto-confirm
+    // block below): a reservation stuck On hold or Cancelled the first time
+    // a photo arrived used to be excluded from ALL future processing
+    // forever, even after a human fixed it in the CRM — the only way back in
+    // was the popup's manual Retry, and even that didn't cleanly resume a
+    // reservation whose photos had never been fed yet. A later photo batch
+    // for the same reservation is now exactly the trigger that gets it
+    // re-checked and, per the auto-confirm block below, potentially revived.
     const existing = await getRecord(reservationNo);
-    if (existing && existing.crm && existing.status && existing.status !== "confirmed") {
+    if (existing && existing.crm && (existing.status === "not_found" || existing.status === "conflict")) {
       await pLog("info", `Pipeline: reservation ${reservationNo} was already handled as "${existing.status}" — not repeating the CRM search or the reply for this additional photo.`);
       return;
     }
@@ -484,7 +525,12 @@ const WA_PIPELINE = (() => {
       await saveRecord(reservationNo, { status: "pending", waId, chatName, stage: "checking", stageAt: Date.now() });
     }
 
-    let crm = existing && existing.crm;
+    // Only reuse the cached result when it was already Confirmed — an On
+    // hold/Cancelled/unrecognized reading is exactly the case that needs a
+    // FRESH look each time a new photo batch arrives (the point of this
+    // whole recovery path is "maybe it's changed since"), so a stale cached
+    // reading must never be trusted for those.
+    let crm = existing && existing.status === "confirmed" && existing.crm;
     if (crm) {
       await pLog("info", `Pipeline: reusing the cached CRM result for reservation ${reservationNo} instead of searching again.`);
     } else {
@@ -506,6 +552,37 @@ const WA_PIPELINE = (() => {
       return;
     }
 
+    // Every message id this reservation has ever received a photo from, this
+    // batch included — kept even on the not-yet-revived paths below (draft/
+    // cancelled) so that a later manual Retry, with no NEW photo to trigger
+    // the auto-confirm block right below, still has something on file to
+    // feed once a human (or a future auto-confirm attempt) actually revives
+    // it, instead of having to ask the customer to resend photos that were,
+    // in fact, already received.
+    const allMessageIds = Array.from(new Set([...((existing && existing.messageIds) || []), ...messageIds]));
+
+    // On hold / Cancelled — try to revive it through the CRM Bridge's
+    // pipelineConfirm API (2026-09-29) before falling back to notify-and-
+    // stop. This is a real, live CRM status change, not automatic here —
+    // the Bridge only actually touches the CRM when its own "Live pipeline
+    // confirming" switch is on; otherwise it just reports what WOULD happen,
+    // same dry-run convention as everything else in this pipeline. Cancelled
+    // AFTER a group already exists is a different, unrelated case (the
+    // group's own passports already went through, this is a NEW photo
+    // arriving post-cancellation) — that one is never auto-revived, it needs
+    // a human to decide whether the group itself should be touched.
+
+    if ((crm.status === "On hold" || crm.status === "Cancelled") && !(existing && existing.groupName)) {
+      const wasStatus = crm.status;
+      const fresh = await tryPipelineConfirm(reservationNo, wasStatus);
+      if (fresh) {
+        crm = fresh;
+        await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now(), messageIds: allMessageIds, recoveredFrom: wasStatus });
+        await feedMessagesToMasar(reservationNo, waId, messageIds);
+        return;
+      }
+    }
+
     if (crm.status === "On hold") {
       const { waMentionId } = await chrome.storage.local.get(["waMentionId"]);
       if (waMentionId) {
@@ -513,7 +590,7 @@ const WA_PIPELINE = (() => {
       } else {
         await pLog("warn", `Pipeline: reservation ${reservationNo} is On hold, but no team WA ID is configured (Settings) to @mention — skipping the reply.`);
       }
-      await saveRecord(reservationNo, { status: "draft", waId, chatName, crm, checkedAt: Date.now() });
+      await saveRecord(reservationNo, { status: "draft", waId, chatName, crm, checkedAt: Date.now(), messageIds: allMessageIds });
       return;
     }
 
@@ -525,7 +602,7 @@ const WA_PIPELINE = (() => {
         // instead of attempting undefined DOM automation.
         await pLog("warn", `Pipeline: reservation ${reservationNo} was cancelled AFTER being fed to Masar group "${existing.groupName}" — needs MANUAL removal, this isn't automated yet.`);
       }
-      await saveRecord(reservationNo, { status: "cancelled", waId, chatName, crm, checkedAt: Date.now() });
+      await saveRecord(reservationNo, { status: "cancelled", waId, chatName, crm, checkedAt: Date.now(), messageIds: allMessageIds });
       return;
     }
 
@@ -551,8 +628,8 @@ const WA_PIPELINE = (() => {
     // photos from WhatsApp if the feed step itself never got through OCR —
     // see feedMessagesToMasar/retryReservation below. Unioned with anything
     // already on file rather than overwritten, since more photos can arrive
-    // in a later batch for the same reservation.
-    const allMessageIds = Array.from(new Set([...((existing && existing.messageIds) || []), ...messageIds]));
+    // in a later batch for the same reservation. (allMessageIds computed
+    // once, above, from the same existing/messageIds inputs — reused here.)
     await saveRecord(reservationNo, { status: "confirmed", waId, chatName, crm, expectedPax: crm.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now(), messageIds: allMessageIds });
 
     await feedMessagesToMasar(reservationNo, waId, messageIds);
@@ -797,7 +874,7 @@ const WA_PIPELINE = (() => {
   // so it can be triggered from the confirmation step below instead of
   // right after an OCR read. ──
   async function createGroupAndReply(reservationNo, record) {
-    const { waId, chatName, crm, mutamers } = record;
+    const { waId, chatName, crm, mutamers, recoveredFrom } = record;
     const groupName = buildGroupName(crm && crm.parsedPackage);
     if (!groupName) {
       await pLog("error", `Pipeline: could not build a group name for reservation ${reservationNo} (CRM Package string didn't parse: "${crm && crm.package}") — stopping before group creation.`);
@@ -840,7 +917,12 @@ const WA_PIPELINE = (() => {
       return;
     }
 
-    await sendReply(waId, { mediaDataUrl: assets.screenshotDataUrl, filename: `${groupName}.png`, caption: assets.caption });
+    // recoveredFrom (set by tryPipelineConfirm) means this reservation was On
+    // hold or Cancelled when its first photo arrived and got auto-confirmed
+    // along the way — worth saying plainly in the reply rather than silently
+    // presenting it as if it had been Confirmed the whole time.
+    const recoveryNote = recoveredFrom ? `Reservation ${reservationNo} was ${recoveredFrom}, now Confirmed.\n` : "";
+    await sendReply(waId, { mediaDataUrl: assets.screenshotDataUrl, filename: `${groupName}.png`, caption: recoveryNote + assets.caption });
     await saveRecord(reservationNo, { repliedAt: Date.now(), stage: "replied", stageAt: Date.now() });
     await pLog("info", `Pipeline: replied in chat "${chatName}" for reservation ${reservationNo} — done.`);
   }
@@ -1214,6 +1296,29 @@ const WA_PIPELINE = (() => {
         return { ok: true, action: "recheck_crm" };
       }
 
+      // "draft" (On hold) / "cancelled" — try the same CRM Bridge
+      // pipelineConfirm revival a new photo batch would trigger automatically
+      // (see runReservationEvent), but on demand. Feeds whatever messageIds
+      // are already on file (saved even on these not-yet-revived outcomes -
+      // see runReservationEvent) if it succeeds; if the Bridge still won't
+      // confirm it (its Live switch is off, or it's still genuinely not
+      // eligible), reports that plainly instead of pretending something
+      // happened.
+      if (record.status === "draft" || record.status === "cancelled") {
+        await pLog("info", `Pipeline: manually retrying the CRM Bridge confirm for reservation ${reservationNo} (was "${record.status}").`);
+        const fresh = await tryPipelineConfirm(reservationNo, record.status === "draft" ? "On hold" : "Cancelled");
+        if (!fresh) return { ok: false, error: `CRM Bridge did not confirm reservation ${reservationNo} — check its "Live pipeline confirming" switch and the reservation's current CRM status.` };
+        const wasStatus = record.status === "draft" ? "On hold" : "Cancelled";
+        await saveRecord(reservationNo, { status: "confirmed", crm: fresh, expectedPax: fresh.pax || null, checkedAt: Date.now(), stage: "feeding", stageAt: Date.now(), recoveredFrom: wasStatus });
+        if ((record.messageIds || []).length) {
+          const result = await feedMessagesToMasar(reservationNo, record.waId, record.messageIds);
+          if (!result.ok) return { ok: false, error: result.error };
+          return { ok: true, action: "revived_and_fed" };
+        }
+        await pLog("warn", `Pipeline: reservation ${reservationNo} confirmed, but no photo(s) were ever recorded for it — ask the customer to resend.`);
+        return { ok: true, action: "revived_no_photos" };
+      }
+
       if (record.stage === "grouping" || (record.confirmedPassports || []).length > 0) {
         await pLog("info", `Pipeline: manually retrying group creation for reservation ${reservationNo}.`);
         await createGroupAndReply(reservationNo, record);
@@ -1236,14 +1341,52 @@ const WA_PIPELINE = (() => {
         return { ok: true, action: "refeed" };
       }
 
+      // Everyone's already OCR'd and tracked (mutamers has them) but none of
+      // them are Completed on Masar yet (2026-09-30 fix). The old behavior
+      // here was just recheckMasarConfirmations() — which only LOOKS, it
+      // never re-feeds — so a passport whose Add Mutamer form never actually
+      // got submitted (the OCR ran, but nothing clicked it through to Save)
+      // stayed stuck forever no matter how many times Retry was pressed.
+      // This is deliberately its own, separate code path from
+      // recoverReservation's automatic self-heal above (not sharing its
+      // attempt cap or its idle/busy gates) - a manual click is the human
+      // actively saying "try again right now", so it isn't throttled the
+      // same way the automatic 1-per-minute loop is. It still checks Masar's
+      // OWN queue first and refuses to interrupt it, exactly like the
+      // automatic path does.
       await pLog("info", `Pipeline: manually re-checking Masar's Mutamer List for reservation ${reservationNo}'s pending passport(s).`);
       try {
         const result = await recheckMasarConfirmations();
         if (!result || !result.ok) return { ok: false, error: (result && result.error) || "Masar tab didn't confirm the recheck." };
-        return { ok: true, action: "recheck" };
       } catch (err) {
         return { ok: false, error: err.message };
       }
+      // recheckMasarConfirmations() triggers the check but its result (via
+      // nkMasarMutamerConfirmed → handleMutamerConfirmed) lands as a SEPARATE
+      // message a moment later, same as the automatic path - give it a
+      // beat to land before reading the record back.
+      await sleep(5000);
+      const rechecked = await getRecord(reservationNo);
+      if (!rechecked || rechecked.groupName || rechecked.groupCreatedAt) return { ok: true, action: "grouped_meanwhile" };
+      const waiting = waitingList(rechecked, Date.now());
+      if (!waiting.length) return { ok: true, action: "recheck_resolved" }; // the fresh check itself found everyone Completed
+
+      if (rechecked.lastStillQueued) {
+        return { ok: false, error: `Masar's own upload queue is still processing something else — wait for it to finish, then press Retry again for ${waiting.join(", ")}.` };
+      }
+
+      const byMessage = new Map();
+      for (const p of waiting) {
+        const m = (rechecked.mutamers || []).find((x) => x.passportNo === p);
+        if (m && m.messageId) byMessage.set(m.messageId, true);
+      }
+      if (!byMessage.size) return { ok: false, error: `${waiting.join(", ")} still not Completed, but no original message is on file to re-feed from — the customer needs to resend.` };
+      await pLog("warn", `Pipeline: manually re-feeding ${waiting.join(", ")} for reservation ${reservationNo} — still not Completed after a fresh check, and Masar's queue is idle.`);
+      await saveRecord(reservationNo, { stage: "feeding", stageAt: Date.now() });
+      const refeedResult = await feedMessagesToMasar(reservationNo, rechecked.waId, Array.from(byMessage.keys()), { refeed: new Set(waiting) });
+      if (!refeedResult.ok) return { ok: false, error: refeedResult.error };
+      await saveRecord(reservationNo, { stage: "confirming", stageAt: Date.now() });
+      return { ok: true, action: "refed_incomplete" };
     });
   }
 

@@ -2132,17 +2132,49 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return null;
   }
-  function pmNode(count, label, extraClass) {
+  // ── Rich flow box (2026-09-30) — same #pm-flow container, same stage
+  // computation as before; this only changes HOW each stage is drawn: a
+  // labeled box holding the actual reservation numbers sitting there right
+  // now (as small pills, capped with a "+N" overflow) instead of a bare
+  // count in a circle, plus a connector that visibly animates when either
+  // side of it is non-empty. The old .pm-node/.pm-node-circle CSS is left in
+  // place (unused now, but harmless) rather than removed. ──
+  function pmxPill(no) {
+    const span = document.createElement("span");
+    span.className = "pmx-pill";
+    span.textContent = "UR-" + no;
+    span.title = "UR-" + no;
+    return span;
+  }
+  function pmxNode(label, nos, blocked) {
     const node = document.createElement("div");
-    node.className = "pm-node" + (extraClass || "") + (count > 0 ? " pm-node-active" : "");
-    const circle = document.createElement("div");
-    circle.className = "pm-node-circle";
-    circle.textContent = count || "";
-    const lbl = document.createElement("div");
-    lbl.className = "pm-node-label";
+    node.className = "pmx-node" + (blocked ? " pmx-blocked" : nos.length ? " pmx-active" : "");
+    const head = document.createElement("div");
+    head.className = "pmx-node-head";
+    const lbl = document.createElement("span");
+    lbl.className = "pmx-node-label";
     lbl.textContent = label;
-    node.append(circle, lbl);
+    const cnt = document.createElement("span");
+    cnt.className = "pmx-node-count";
+    cnt.textContent = nos.length || "";
+    head.append(lbl, cnt);
+    const pills = document.createElement("div");
+    pills.className = "pmx-pills";
+    const CAP = 4;
+    nos.slice(0, CAP).forEach((no) => pills.appendChild(pmxPill(no)));
+    if (nos.length > CAP) {
+      const more = document.createElement("span");
+      more.className = "pmx-pill";
+      more.textContent = `+${nos.length - CAP}`;
+      pills.appendChild(more);
+    }
+    node.append(head, pills);
     return node;
+  }
+  function pmxConnector(flowing) {
+    const c = document.createElement("div");
+    c.className = "pmx-connector" + (flowing ? " pmx-flowing" : "");
+    return c;
   }
 
   function renderPipelineMonitor(db, logs) {
@@ -2153,21 +2185,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const blocked = records.filter((r) => BLOCKED_STATUSES.has(r.status));
     const repliedRecently = records.filter((r) => r.repliedAt && now - r.repliedAt < 60 * 60 * 1000);
 
-    const counts = { checking: 0, feeding: 0, confirming: 0, grouping: 0 };
+    const byStage = { checking: [], feeding: [], confirming: [], grouping: [] };
     for (const r of active) {
       const stage = r.status === "pending" ? "checking" : (r.stage || "feeding");
-      if (counts[stage] !== undefined) counts[stage]++;
+      if (byStage[stage]) byStage[stage].push(r.reservationNo);
     }
+    const repliedNos = repliedRecently.map((r) => r.reservationNo);
+    const blockedNos = blocked.map((r) => r.reservationNo);
 
+    pmFlowEl.className = "pmx-flow";
     pmFlowEl.innerHTML = "";
     const frag = document.createDocumentFragment();
     PM_STAGE_ORDER.forEach((key, i) => {
-      if (i > 0) { const a = document.createElement("div"); a.className = "pm-node-arrow"; frag.appendChild(a); }
-      frag.appendChild(pmNode(counts[key], PM_STAGE_LABELS[key]));
+      if (i > 0) {
+        const prevKey = PM_STAGE_ORDER[i - 1];
+        frag.appendChild(pmxConnector(byStage[prevKey].length > 0 || byStage[key].length > 0));
+      }
+      frag.appendChild(pmxNode(PM_STAGE_LABELS[key], byStage[key], false));
     });
-    { const a = document.createElement("div"); a.className = "pm-node-arrow"; frag.appendChild(a); }
-    frag.appendChild(pmNode(repliedRecently.length, "Replied (1h)"));
-    const blockedNode = pmNode(blocked.length, "Needs Attention", blocked.length > 0 ? " pm-node-blocked" : "");
+    frag.appendChild(pmxConnector(byStage.grouping.length > 0 || repliedNos.length > 0));
+    frag.appendChild(pmxNode("Replied (1h)", repliedNos, false));
+    const blockedNode = pmxNode("Needs Attention", blockedNos, true);
     blockedNode.style.marginLeft = "10px";
     frag.appendChild(blockedNode);
     pmFlowEl.appendChild(frag);
@@ -2269,16 +2307,78 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }, 1000);
 
+  // ── Masar queues (2026-09-30) — read-only view of waMasarFeedOrder /
+  // waMasarConfirmQueue, the two real queues behind "Feeding"/"Confirming"
+  // above. Nothing in the popup showed these directly before; this is
+  // additive only — Queue's own Clear-stuck/Clear-all buttons already clear
+  // both keys, and this doesn't add any new action, just visibility. ──
+  const FEED_ORDER_KEY = "waMasarFeedOrder";
+  const CONFIRM_QUEUE_KEY = "waMasarConfirmQueue";
+  const pmxConfirmList = document.getElementById("pmx-confirm-list");
+  const pmxConfirmEmpty = document.getElementById("pmx-confirm-empty");
+  const pmxConfirmCount = document.getElementById("pmx-confirm-count");
+  const pmxFeedList = document.getElementById("pmx-feed-list");
+  const pmxFeedEmpty = document.getElementById("pmx-feed-empty");
+  const pmxFeedCount = document.getElementById("pmx-feed-count");
+  const pmxQueuesRefresh = document.getElementById("pmx-queues-refresh");
+
+  function pmxQueueItem(no, meta) {
+    const row = document.createElement("div");
+    row.className = "pmx-queue-item";
+    const left = document.createElement("span");
+    left.className = "pmx-qno";
+    left.textContent = no ? "UR-" + no : "(no number)";
+    const right = document.createElement("span");
+    right.className = "pmx-qmeta";
+    right.textContent = meta || "";
+    row.append(left, right);
+    return row;
+  }
+  function pmxRenderList(listEl, emptyEl, countEl, entries, metaFn) {
+    if (!listEl) return;
+    const arr = Array.isArray(entries) ? entries : [];
+    if (countEl) countEl.textContent = `(${arr.length})`;
+    if (emptyEl) emptyEl.style.display = arr.length ? "none" : "block";
+    const CAP = 12;
+    const frag = document.createDocumentFragment();
+    arr.slice(0, CAP).forEach((e) => frag.appendChild(pmxQueueItem(e.reservationNo, metaFn(e))));
+    listEl.innerHTML = "";
+    listEl.appendChild(frag);
+    if (arr.length > CAP) {
+      const more = document.createElement("div");
+      more.className = "pmx-queue-more";
+      more.textContent = `+${arr.length - CAP} more…`;
+      listEl.appendChild(more);
+    }
+  }
+  function pmxAgo(ts) {
+    if (!ts) return "";
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`;
+  }
+  function renderMasarQueues(feedOrder, confirmQueue) {
+    pmxRenderList(pmxConfirmList, pmxConfirmEmpty, pmxConfirmCount, confirmQueue, (e) => `${e.passportNo || "?"} · queued ${pmxAgo(e.queuedAt)}`);
+    pmxRenderList(pmxFeedList, pmxFeedEmpty, pmxFeedCount, feedOrder, (e) => `queued ${pmxAgo(e.queuedAt)}`);
+  }
+  function loadMasarQueues() {
+    chrome.storage.local.get([FEED_ORDER_KEY, CONFIRM_QUEUE_KEY], (res) => renderMasarQueues(res[FEED_ORDER_KEY], res[CONFIRM_QUEUE_KEY]));
+  }
+  if (pmxQueuesRefresh) pmxQueuesRefresh.addEventListener("click", loadMasarQueues);
+
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes[RESERVATIONS_KEY]) renderPipelineQueue(changes[RESERVATIONS_KEY].newValue);
     if (changes[LOGS_KEY]) renderPipelineLogs(changes[LOGS_KEY].newValue);
     if (changes[RESERVATIONS_KEY] || changes[LOGS_KEY]) loadPipelineMonitor();
+    if (changes[FEED_ORDER_KEY] || changes[CONFIRM_QUEUE_KEY]) loadMasarQueues();
   });
 
   loadPipelineQueue();
   loadPipelineLogs();
   loadPipelineMonitor();
+  loadMasarQueues();
 
   // ── MASAR ACCOUNTS ────────────────────────────────────────────
   // Cards built from what modules/masar-accounts.js scans off Masar's own

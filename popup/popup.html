@@ -740,6 +740,26 @@
         <div id="pm-cards" class="pm-cards"></div>
       </div>
 
+      <!-- Real waMasarFeedOrder / waMasarConfirmQueue, read-only — the two
+           genuine queues behind "Feeding"/"Confirming" above. Nothing here
+           can be cleared/edited from this card; use Queue's own buttons for
+           that (they already clear these same two keys). -->
+      <div class="section" id="pipeline-masarqueues-section">
+        <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+          <span>Masar queues</span>
+          <button id="pmx-queues-refresh" type="button" class="logs-btn" title="Refresh">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
+        <div class="k-hint" style="margin-bottom:8px;">Confirm queue: passports OCR'd and fed, waiting for Masar's own Mutamer List to show them Completed. Feed order: the legacy fallback list (only used when a photo couldn't be read in the background — usually empty).</div>
+        <div class="k-hint" style="margin:0 0 4px; font-weight:600;">Confirm queue <span id="pmx-confirm-count">(0)</span></div>
+        <div id="pmx-confirm-empty" class="logs-empty">Empty right now.</div>
+        <div id="pmx-confirm-list" class="pmx-queue-list"></div>
+        <div class="k-hint" style="margin:10px 0 4px; font-weight:600;">Feed order (fallback) <span id="pmx-feed-count">(0)</span></div>
+        <div id="pmx-feed-empty" class="logs-empty">Empty right now — expected, this path is rarely used.</div>
+        <div id="pmx-feed-list" class="pmx-queue-list"></div>
+      </div>
+
       <div class="section" id="pipeline-queue-section">
         <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
           <span>Queue</span>
