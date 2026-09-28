@@ -90,6 +90,10 @@
             <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
             <span>Pipeline</span><span class="tab-badge" id="tab-pipeline-count"></span>
           </button>
+          <button class="tab" data-tab="pipetest" title="Pipe Test — standalone test harnesses for each pipeline phase (CRM lookup, Masar feed, group creation, reply assets, WA-Campaigns raw actions)">
+            <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2v6.5L4.5 17a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L15 8.5V2"/><path d="M9 2h6"/><line x1="7.5" y1="14" x2="16.5" y2="14"/></svg>
+            <span>Pipe Test</span>
+          </button>
           <!-- The AI tab (chat + local WebLLM models) moved to the separate AI Bridge
                extension - see modules/whatsapp-commands.js's header comment. Any future tab
                goes here, right before Logs — Logs always stays the last item in this
@@ -687,8 +691,9 @@
 
     <!-- Panel: Pipeline — the WhatsApp -> CRM -> Masar automation, all in one
          place: what's currently in flight (Queue), what it's been doing
-         (Pipeline Logs), where it's configured, and the per-phase test tools
-         used to build it. See project_whatsapp_automation_plan memory for
+         (Pipeline Logs), and where it's configured. The per-phase test
+         tools used to build it live in the separate Pipe Test tab, right
+         after this one. See project_whatsapp_automation_plan memory for
          the full design. -->
     <div class="tab-panel" id="panel-pipeline">
 
@@ -710,7 +715,7 @@
           <ul class="info-panel" id="pipeline-info-panel" style="display:none;">
             <li>Master switch for the whole module. <b>Off</b> means Nuskomate doesn't respond to WA-Campaigns at all — no connection, no detection, no CRM/Masar work, no replies — same as if this module wasn't installed.</li>
             <li>This is separate from <b>Live Sending</b> below: even with this on, Live Sending still gates only the final WhatsApp reply step.</li>
-            <li>The Test Tools further down (CRM Lookup, Masar tests, WA-Campaigns Raw Action Test) keep working either way — they're for verifying wiring independently of the live pipeline.</li>
+            <li>The Test Tools (CRM Lookup, Masar tests, WA-Campaigns Raw Action Test) live in the separate <b>Pipe Test</b> tab and keep working either way — they're for verifying wiring independently of the live pipeline.</li>
           </ul>
         </div>
       </div>
@@ -839,8 +844,27 @@
         </div>
       </div>
 
-      <!-- Section: standalone test harnesses for each phase, so each can be
-           verified on its own. See project_whatsapp_automation_plan memory. -->
+      </div><!-- /pipeline-content -->
+    </div><!-- /panel-pipeline -->
+
+    <!-- Panel: Pipe Test — standalone test harnesses for each pipeline phase
+         (CRM lookup, Masar feed, group creation, reply assets, WA-Campaigns
+         raw actions), moved out of the Pipeline tab so each can be verified
+         on its own without the monitor/queue/logs crowding it. Gated behind
+         the same "pipeline" premium feature as the Pipeline tab itself.
+         See project_whatsapp_automation_plan memory. -->
+    <div class="tab-panel" id="panel-pipetest">
+
+      <div id="pipetest-upsell" class="premium-upsell" style="display:none;">
+        <div class="premium-upsell-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2v6.5L4.5 17a2 2 0 0 0 1.8 3h11.4a2 2 0 0 0 1.8-3L15 8.5V2"/><path d="M9 2h6"/><line x1="7.5" y1="14" x2="16.5" y2="14"/></svg>
+        </div>
+        <div class="premium-upsell-title">Pipe Test is a premium tool</div>
+        <div class="premium-upsell-text">Standalone test harnesses for each phase of the WhatsApp Pipeline — CRM lookup, Masar feed, group creation, reply assets, and raw WA-Campaigns actions. Enter your activation key in <b>Settings</b> to unlock it.</div>
+        <button id="pipetest-upsell-btn" class="premium-upsell-btn">Activate in Settings</button>
+      </div>
+
+      <div id="pipetest-content">
       <div class="section" id="pipeline-test-section">
         <div class="section-title">Test Tools</div>
 
@@ -851,7 +875,7 @@
               placeholder="Reservation No, e.g. 106057" autocomplete="off" spellcheck="false" />
             <button id="crm-test-lookup" type="button" class="act-btn">Look Up</button>
           </div>
-          <div class="k-hint">Runs the same lookup the pipeline does, through the CRM Bridge above.</div>
+          <div class="k-hint">Runs the same lookup the pipeline does, through the CRM Bridge (Pipeline tab).</div>
           <pre id="crm-test-result" class="test-result-pre"></pre>
         </div>
 
@@ -891,7 +915,7 @@
         </div>
 
         <div class="field-group">
-          <label class="field-label">WA-Campaigns Raw Action Test (test before enabling Live Sending above)</label>
+          <label class="field-label">WA-Campaigns Raw Action Test (test before enabling Live Sending on the Pipeline tab)</label>
           <input type="text" id="wa-test-waid" class="field-input" style="margin-bottom:6px;"
             placeholder="Target WhatsApp ID, e.g. 923001234567@c.us" autocomplete="off" spellcheck="false" />
           <div class="k-row" style="margin-bottom:6px;">
@@ -904,12 +928,12 @@
             <input type="file" id="wa-test-mediafile" accept="image/png,image/jpeg" style="flex:1;" />
             <button id="wa-test-sendmedia" type="button" class="act-btn">Send Test Media</button>
           </div>
-          <div class="k-hint">Calls WA-Campaigns' real openChat/sendText/sendMedia actions directly — these are real, irreversible WhatsApp sends regardless of the Live Sending toggle above. Only use a WA ID you're OK receiving a test message on.</div>
+          <div class="k-hint">Calls WA-Campaigns' real openChat/sendText/sendMedia actions directly — these are real, irreversible WhatsApp sends regardless of the Live Sending toggle on the Pipeline tab. Only use a WA ID you're OK receiving a test message on.</div>
           <pre id="wa-test-result" class="test-result-pre"></pre>
         </div>
       </div>
-      </div><!-- /pipeline-content -->
-    </div><!-- /panel-pipeline -->
+      </div><!-- /pipetest-content -->
+    </div><!-- /panel-pipetest -->
 
     <!-- Panel: Passport -->
     <div class="tab-panel" id="panel-passport">
